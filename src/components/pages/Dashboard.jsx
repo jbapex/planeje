@@ -265,7 +265,7 @@ const Dashboard = () => {
         <p className="text-muted-foreground dark:text-gray-400 capitalize">{formattedDate}</p>
         {(profile?.role === 'superadmin' || profile?.role === 'admin') && <div className="mt-4 flex flex-col sm:flex-row gap-2">
                 <Button variant="dark" onClick={handleNotImplemented} className="w-full sm:w-auto">Meus dados</Button>
-                <Button variant="outline" onClick={handleNotImplemented} className="w-full sm:w-auto">Versão 2.3</Button>
+                <Button variant="outline" onClick={handleNotImplemented} className="w-full sm:w-auto">Versão 3.0</Button>
             </div>}
       </motion.div>
 
