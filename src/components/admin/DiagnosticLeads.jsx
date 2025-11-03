@@ -279,7 +279,11 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
                         <a href={`https://instagram.com/${lead.instagram.replace('@', '')}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-xs">{lead.instagram}</a>
                       </TableCell>
                       <TableCell>
-                        <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-green-500 hover:underline text-xs">{lead.whatsapp}</a>
+                        {lead.whatsapp && lead.whatsapp.replace(/\D/g, '').length >= 11 ? (
+                          <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-green-500 hover:underline text-xs">{lead.whatsapp}</a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>{lead.assigned_profile?.full_name || 'Não atribuído'}</TableCell>
                       <TableCell>
@@ -311,7 +315,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
                             </DropdownMenuSub>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={handleNotImplemented}><UserPlus className="mr-2 h-4 w-4" />Criar Usuário</DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => window.open(`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`, '_blank')}><MessageCircle className="mr-2 h-4 w-4" />Abrir WhatsApp</DropdownMenuItem>
+                            {lead.whatsapp && lead.whatsapp.replace(/\D/g, '').length >= 11 && (
+                              <DropdownMenuItem onSelect={() => window.open(`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`, '_blank')}><MessageCircle className="mr-2 h-4 w-4" />Abrir WhatsApp</DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

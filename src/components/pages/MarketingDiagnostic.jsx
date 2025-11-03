@@ -8,7 +8,7 @@ import React, { useState, useEffect } from 'react';
     import { Textarea } from '@/components/ui/textarea';
     import { useIMask } from 'react-imask';
     import { Loader2, BrainCircuit, AlertTriangle, Twitter as WhatsApp } from 'lucide-react';
-    import { supabase } from '@/lib/customSupabaseClient';
+    import { supabase, supabaseUrl } from '@/lib/customSupabaseClient';
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -276,7 +276,11 @@ import React, { useState, useEffect } from 'react';
           Entrada: ${JSON.stringify({ respostas: answersObject })}`;
 
         try {
-          const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/openai-chat`;
+          const edgeBaseUrl = import.meta.env.VITE_SUPABASE_URL || supabaseUrl;
+          const edgeUrl = `${edgeBaseUrl}/functions/v1/openai-chat`;
+          if (!edgeBaseUrl) {
+            throw new Error('URL do Supabase não configurada. Defina VITE_SUPABASE_URL ou supabaseUrl.');
+          }
           const response = await fetch(edgeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -289,11 +293,55 @@ import React, { useState, useEffect } from 'react';
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData?.error || 'Falha na comunicação com a IA');
+            const detail = errorData?.error || errorData?.message || 'Falha na comunicação com a IA';
+            throw new Error(detail);
           }
 
-          const { content } = await response.json();
-          return JSON.parse(content);
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('text/event-stream')) {
+            const { content } = await response.json();
+            try {
+              return JSON.parse(content);
+            } catch (e) {
+              throw new Error('Resposta da IA em formato inesperado.');
+            }
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let bufferedText = '';
+          let assembledContent = '';
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            bufferedText += decoder.decode(value, { stream: true });
+            const parts = bufferedText.split('\n\n');
+            bufferedText = parts.pop() || '';
+            for (const chunk of parts) {
+              const line = chunk.trim();
+              if (!line.startsWith('data:')) continue;
+              const dataStr = line.replace(/^data:\s*/, '');
+              if (dataStr === '[DONE]') {
+                continue;
+              }
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed?.choices?.[0]?.delta?.content;
+                if (typeof delta === 'string') assembledContent += delta;
+                const full = parsed?.choices?.[0]?.message?.content;
+                if (typeof full === 'string') assembledContent += full;
+              } catch (_) { /* ignora partes inválidas */ }
+            }
+          }
+
+          if (!assembledContent) {
+            throw new Error('Resposta vazia da IA.');
+          }
+          try {
+            return JSON.parse(assembledContent);
+          } catch {
+            throw new Error('Resposta da IA em formato inesperado.');
+          }
 
         } catch (error) {
           console.error("Error getting AI analysis:", error);
@@ -309,6 +357,24 @@ import React, { useState, useEffect } from 'react';
       const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
+        // Garante captura do telefone mesmo se o estado não tiver sido atualizado
+        let phoneDigits = (phoneUnmasked || '').replace(/\D/g, '');
+        if (!phoneDigits) {
+          const phoneEl = document.getElementById('phone');
+          if (phoneEl && phoneEl.value) {
+            phoneDigits = String(phoneEl.value).replace(/\D/g, '');
+          }
+        }
+        // Validação mínima: 11 dígitos (DDI/DDD+número no padrão BR)
+        if (!phoneDigits || phoneDigits.length < 11) {
+          setIsSubmitting(false);
+          toast({
+            title: "WhatsApp inválido",
+            description: "Informe um número válido com DDD (11 dígitos).",
+            variant: "destructive",
+          });
+          return;
+        }
         
         const answersObject = answers.reduce((acc, curr) => {
           acc[curr.key] = curr.answer;
@@ -327,7 +393,7 @@ import React, { useState, useEffect } from 'react';
         const submissionData = {
             nome: formData.name,
             instagram: formData.instagram,
-            whatsapp: phoneUnmasked,
+            whatsapp: phoneDigits,
             answers: answers.map(({key, ...rest}) => rest),
             nota: nota,
             feedback: feedback,
