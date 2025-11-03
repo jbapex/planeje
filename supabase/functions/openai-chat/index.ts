@@ -117,7 +117,7 @@ serve(async (req) => {
 
     // 2. Extrai as mensagens do body da requisição
     const requestBody = await req.json();
-    const { messages, model = 'gpt-4o' } = requestBody;
+    const { messages, model = 'gpt-4o', stream = true } = requestBody;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(
@@ -131,7 +131,7 @@ serve(async (req) => {
 
     console.log(`Processando chat com ${messages.length} mensagens, modelo: ${model}`);
 
-    // 3. Chama a API da OpenAI com streaming
+    // 3. Chama a API da OpenAI (com ou sem streaming)
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -141,7 +141,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model,
         messages,
-        stream: true,
+        stream,
       }),
     });
 
@@ -181,15 +181,24 @@ serve(async (req) => {
       );
     }
 
-    // 5. Retorna o stream diretamente para o cliente
-    // O cliente processará o stream no frontend
-    return new Response(openaiResponse.body, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
+    // 5. Retorno conforme o modo
+    if (stream) {
+      // stream SSE para o cliente
+      return new Response(openaiResponse.body, {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      });
+    }
+
+    // Sem stream: retorna JSON com o conteúdo completo
+    const data = await openaiResponse.json();
+    const content = data?.choices?.[0]?.message?.content ?? '';
+    return new Response(JSON.stringify({ content }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {

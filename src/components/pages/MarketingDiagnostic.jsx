@@ -72,7 +72,7 @@ import React, { useState, useEffect } from 'react';
             </motion.div>
           </div>
           <motion.div variants={imageVariants} className="hidden md:flex justify-center items-center">
-            <img class="max-h-[500px] object-contain" alt="Futuristic AI robot head in a white hoodie" src="https://images.unsplash.com/photo-1680355466499-39701c0be79f" />
+            <img className="max-h-[500px] object-contain" alt="Futuristic AI robot head in a white hoodie" src="https://images.unsplash.com/photo-1680355466499-39701c0be79f" />
           </motion.div>
         </motion.div>
       );
@@ -247,7 +247,6 @@ import React, { useState, useEffect } from 'react';
       const [formData, setFormData] = useState({ name: '', instagram: '', consent: false });
       const [phoneUnmasked, setPhoneUnmasked] = useState('');
       const { toast } = useToast();
-      const { getOpenAIKey } = useAuth();
 
       const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -259,16 +258,6 @@ import React, { useState, useEffect } from 'react';
       }
 
       const getAIAnalysis = async (answersObject, userName) => {
-        const apiKey = await getOpenAIKey();
-        if (!apiKey) {
-          toast({
-            title: "Chave de API da OpenAI não encontrada",
-            description: "Por favor, adicione sua chave de API nas configurações de super admin para usar a IA.",
-            variant: "destructive",
-          });
-          return null;
-        }
-
         const prompt = `Você é uma inteligência de diagnóstico da JB APEX. Seu nome é ApexIA.
           O nome do usuário é ${userName}. Chame-o pelo nome no feedback.
           Receberá as respostas de um empresário sobre seu marketing.
@@ -287,27 +276,24 @@ import React, { useState, useEffect } from 'react';
           Entrada: ${JSON.stringify({ respostas: answersObject })}`;
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/openai-chat`;
+          const response = await fetch(edgeUrl, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: "gpt-3.5-turbo",
-              messages: [{ role: "user", content: prompt }],
-              temperature: 0.7,
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: prompt }],
+              stream: false,
             }),
           });
 
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error.message || 'Falha na comunicação com a API da OpenAI');
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData?.error || 'Falha na comunicação com a IA');
           }
 
-          const data = await response.json();
-          const resultText = data.choices[0].message.content;
-          return JSON.parse(resultText);
+          const { content } = await response.json();
+          return JSON.parse(content);
 
         } catch (error) {
           console.error("Error getting AI analysis:", error);
