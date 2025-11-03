@@ -1,0 +1,22 @@
+{
+  "name": "ApexIA",
+  "short_name": "ApexIA",
+  "description": "ApexIA é o assistente de inteligência artificial da JB APEX, pronto para ajudar.",
+  "start_url": "/chat-launcher",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#8B5CF6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

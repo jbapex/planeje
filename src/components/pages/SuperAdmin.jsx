@@ -1,0 +1,61 @@
+import React from 'react';
+    import { NavLink, useLocation, Routes, Route, Navigate } from 'react-router-dom';
+    import ModuleManagement from './ModuleManagement';
+    import ClientFieldPermissions from './ClientFieldPermissions';
+    import { ShieldCheck, Settings, Users, GitBranch, BarChart2, Sparkles, Bot } from 'lucide-react';
+    import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
+    import AiAgentsManager from './AiAgentsManager';
+    import ChatLimitsManager from './ChatLimitsManager';
+
+    const SuperAdmin = () => {
+        const location = useLocation();
+
+        const navItems = [
+            { path: '/super-admin/modules', label: 'Gerenciar Módulos', icon: <Settings className="h-4 w-4" /> },
+            { path: '/super-admin/client-permissions', label: 'Permissões de Campos', icon: <ShieldCheck className="h-4 w-4" /> },
+            { path: '/super-admin/diagnostic-leads', label: 'Leads do Diagnóstico', icon: <BarChart2 className="h-4 w-4" /> },
+            { path: '/super-admin/ai-agents', label: 'Agentes de IA', icon: <Sparkles className="h-4 w-4" /> },
+            { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
+        ];
+        
+        return (
+            <div className="flex h-full">
+                <aside className="w-64 flex-shrink-0 border-r dark:border-gray-700 p-4">
+                    <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <ShieldCheck className="h-6 w-6" />
+                        Painel Super Admin
+                    </h2>
+                    <nav className="flex flex-col space-y-2">
+                        {navItems.map(item => (
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                className={({ isActive }) =>
+                                    `flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                        isActive
+                                            ? 'bg-primary text-primary-foreground'
+                                            : 'text-muted-foreground hover:bg-muted'
+                                    }`
+                                }
+                            >
+                                {item.icon}
+                                {item.label}
+                            </NavLink>
+                        ))}
+                    </nav>
+                </aside>
+                <main className="flex-1 p-0 overflow-auto">
+                   <Routes>
+                        <Route path="modules" element={<ModuleManagement />} />
+                        <Route path="client-permissions" element={<ClientFieldPermissions />} />
+                        <Route path="diagnostic-leads" element={<DiagnosticLeads />} />
+                        <Route path="ai-agents" element={<AiAgentsManager />} />
+                        <Route path="chat-limits" element={<ChatLimitsManager />} />
+                        <Route index element={<Navigate to="modules" replace />} />
+                   </Routes>
+                </main>
+            </div>
+        );
+    };
+
+    export default SuperAdmin;
