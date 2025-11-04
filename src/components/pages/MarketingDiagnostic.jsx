@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
     import { Helmet } from 'react-helmet';
     import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
+    import { useSearchParams } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Label } from '@/components/ui/label';
@@ -72,13 +73,14 @@ import React, { useState, useEffect } from 'react';
             </motion.div>
           </div>
           <motion.div variants={imageVariants} className="hidden md:flex justify-center items-center">
-            <img className="max-h-[500px] object-contain" alt="Futuristic AI robot head in a white hoodie" src="https://images.unsplash.com/photo-1680355466499-39701c0be79f" />
+            <img className="max-h-[500px] object-contain" alt="Futuristic AI robot head in a white hoodie" src={typeof window !== 'undefined' && window.__DIAG_IMAGE_URL__ ? window.__DIAG_IMAGE_URL__ : "https://images.unsplash.com/photo-1680355466499-39701c0be79f"} />
           </motion.div>
         </motion.div>
       );
     };
 
-    const questions = [
+    // Perguntas padrão (fallback)
+    const defaultQuestions = [
         { id: 'q1', key: 'publica_conteudo', block: 'Presença Digital', question: 'Você publica conteúdos com frequência nas redes sociais?', options: [{ text: 'Diariamente' }, { text: '3x por semana' }, { text: '1x por semana' }, { text: 'Quase nunca' }] },
         { id: 'q2', key: 'identidade_marca', block: 'Presença Digital', question: 'Seu público reconhece o estilo e a identidade da sua marca?', options: [{ text: 'Sim' }, { text: 'Mais ou menos' }, { text: 'Não' }] },
         { id: 'q3', key: 'processo_atendimento', block: 'Captação e Atendimento', question: 'Quando alguém chama sua empresa, existe um processo definido de atendimento?', options: [{ text: 'Sim' }, { text: 'Às vezes' }, { text: 'Não' }] },
@@ -90,7 +92,7 @@ import React, { useState, useEffect } from 'react';
         { id: 'q9', key: 'problema_principal', block: 'Reflexão Final', question: 'Se você pudesse resolver hoje um único problema no seu marketing, qual seria?', type: 'open' },
     ];
 
-    const FormScreen = ({ onFinish }) => {
+    const FormScreen = ({ onFinish, questions = defaultQuestions }) => {
       const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
       const [answers, setAnswers] = useState([]);
       const [direction, setDirection] = useState(1);
@@ -592,8 +594,12 @@ import React, { useState, useEffect } from 'react';
     };
 
     const MarketingDiagnostic = () => {
+      const [searchParams] = useSearchParams();
       const [step, setStep] = useState('welcome');
       const [diagnosticData, setDiagnosticData] = useState({ answers: [], lead: {}, score: 0, feedbackText: '', travas: [] });
+      const [welcomeImageUrl, setWelcomeImageUrl] = useState('');
+      const [questions, setQuestions] = useState(defaultQuestions);
+      const [loadingQuestions, setLoadingQuestions] = useState(true);
 
       const handleStart = () => setStep('form');
       
@@ -612,6 +618,90 @@ import React, { useState, useEffect } from 'react';
         setStep('welcome');
       };
 
+      useEffect(() => {
+        // Carrega imagem de configuração pública
+        const loadImage = async () => {
+          try {
+            const { data } = await supabase
+              .from('public_config')
+              .select('value')
+              .eq('key', 'diagnostic_welcome_image_url')
+              .maybeSingle();
+            if (data?.value) {
+              setWelcomeImageUrl(String(data.value));
+              if (typeof window !== 'undefined') {
+                window.__DIAG_IMAGE_URL__ = String(data.value);
+              }
+            }
+          } catch (_) { /* silencioso */ }
+        };
+        loadImage();
+      }, []);
+
+      useEffect(() => {
+        // Carrega perguntas do template
+        const loadQuestions = async () => {
+          setLoadingQuestions(true);
+          try {
+            const templateParam = searchParams.get('template');
+            let templateId = null;
+
+            if (templateParam) {
+              // Tenta buscar por ID ou name (slug)
+              const { data: template } = await supabase
+                .from('diagnostic_templates')
+                .select('id')
+                .or(`id.eq.${templateParam},name.ilike.%${templateParam}%`)
+                .eq('is_active', true)
+                .limit(1)
+                .maybeSingle();
+              if (template) templateId = template.id;
+            }
+
+            // Se não especificado na URL, busca o template ativo padrão
+            if (!templateId) {
+              const { data: defaultTemplate } = await supabase
+                .from('diagnostic_templates')
+                .select('id')
+                .eq('is_active', true)
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+              if (defaultTemplate) templateId = defaultTemplate.id;
+            }
+
+            if (templateId) {
+              const { data: templateQuestions, error } = await supabase
+                .from('diagnostic_template_questions')
+                .select('*')
+                .eq('template_id', templateId)
+                .order('order_index', { ascending: true });
+
+              if (!error && templateQuestions && templateQuestions.length > 0) {
+                // Mapeia formato do banco para formato esperado
+                const mapped = templateQuestions.map((q, idx) => ({
+                  id: `q${idx + 1}`,
+                  key: q.key || `question_${idx + 1}`,
+                  block: q.block || 'Geral',
+                  question: q.question,
+                  type: q.type || 'choice',
+                  options: q.type === 'open' ? undefined : (q.options || []),
+                }));
+                setQuestions(mapped);
+                setLoadingQuestions(false);
+                return;
+              }
+            }
+          } catch (err) {
+            console.warn('Erro ao carregar perguntas do template:', err);
+          }
+          // Fallback para perguntas padrão
+          setQuestions(defaultQuestions);
+          setLoadingQuestions(false);
+        };
+        loadQuestions();
+      }, [searchParams]);
+
       return (
         <>
           <Helmet>
@@ -623,7 +713,7 @@ import React, { useState, useEffect } from 'react';
             <div className="max-w-6xl w-full px-4 md:px-8 z-10 flex justify-center">
               <AnimatePresence mode="wait">
                 {step === 'welcome' && <WelcomeScreen onStart={handleStart} />}
-                {step === 'form' && <FormScreen onFinish={handleFinishForm} />}
+                {step === 'form' && !loadingQuestions && <FormScreen onFinish={handleFinishForm} questions={questions} />}
                 {step === 'leadCapture' && <LeadCaptureScreen onShowResult={handleShowResult} answers={diagnosticData.answers} />}
                 {step === 'result' && <ResultScreen data={diagnosticData} onRestart={handleRestart} />}
               </AnimatePresence>

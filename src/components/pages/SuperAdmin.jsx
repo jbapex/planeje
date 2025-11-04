@@ -5,7 +5,9 @@ import React from 'react';
     import { ShieldCheck, Settings, Users, GitBranch, BarChart2, Sparkles, Bot } from 'lucide-react';
     import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
     import AiAgentsManager from './AiAgentsManager';
+    import DiagnosticSettings from './DiagnosticSettings';
     import ChatLimitsManager from './ChatLimitsManager';
+    import DiagnosticTemplatesManager from './DiagnosticTemplatesManager';
 
     const SuperAdmin = () => {
         const location = useLocation();
@@ -14,6 +16,8 @@ import React from 'react';
             { path: '/super-admin/modules', label: 'Gerenciar Módulos', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/client-permissions', label: 'Permissões de Campos', icon: <ShieldCheck className="h-4 w-4" /> },
             { path: '/super-admin/diagnostic-leads', label: 'Leads do Diagnóstico', icon: <BarChart2 className="h-4 w-4" /> },
+            { path: '/super-admin/diagnostic-templates', label: 'Templates Diagnóstico', icon: <Settings className="h-4 w-4" /> },
+            { path: '/super-admin/diagnostic-settings', label: 'Config. Diagnóstico', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/ai-agents', label: 'Agentes de IA', icon: <Sparkles className="h-4 w-4" /> },
             { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
         ];
@@ -49,6 +53,8 @@ import React from 'react';
                         <Route path="modules" element={<ModuleManagement />} />
                         <Route path="client-permissions" element={<ClientFieldPermissions />} />
                         <Route path="diagnostic-leads" element={<DiagnosticLeads />} />
+                        <Route path="diagnostic-templates" element={<DiagnosticTemplatesManager />} />
+                        <Route path="diagnostic-settings" element={<DiagnosticSettings />} />
                         <Route path="ai-agents" element={<AiAgentsManager />} />
                         <Route path="chat-limits" element={<ChatLimitsManager />} />
                         <Route index element={<Navigate to="modules" replace />} />

@@ -7,6 +7,7 @@ import { AuthProvider } from '@/contexts/SupabaseAuthContext';
 import { ModuleSettingsProvider } from '@/contexts/ModuleSettingsContext';
 import '@/lib/customSupabaseClient';
 import { SWRConfig } from 'swr';
+import { MotionConfig } from 'framer-motion';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -21,13 +22,15 @@ if ('serviceWorker' in navigator) {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <>
     <HashRouter>
-      <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false }}>
-        <AuthProvider>
-          <ModuleSettingsProvider>
-            <App />
-          </ModuleSettingsProvider>
-        </AuthProvider>
-      </SWRConfig>
+      <MotionConfig reducedMotion="always">
+        <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false }}>
+          <AuthProvider>
+            <ModuleSettingsProvider>
+              <App />
+            </ModuleSettingsProvider>
+          </AuthProvider>
+        </SWRConfig>
+      </MotionConfig>
     </HashRouter>
   </>
 );
