@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus } from 'lucide-react';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
     import { Button } from '@/components/ui/button';
@@ -35,13 +35,34 @@ import ImageAnalyzer from './ImageAnalyzer';
         const [messages, setMessages] = useState([]);
         const [input, setInput] = useState('');
         const [isGenerating, setIsGenerating] = useState(false);
+        
+        // Auto-resize do textarea (estilo ChatGPT)
+        useEffect(() => {
+            if (textareaRef.current) {
+                // Reset height para calcular corretamente
+                textareaRef.current.style.height = '52px';
+                const scrollHeight = textareaRef.current.scrollHeight;
+                const maxHeight = 200; // Limite máximo em pixels (~8 linhas)
+                const newHeight = Math.min(scrollHeight, maxHeight);
+                textareaRef.current.style.height = `${newHeight}px`;
+                
+                // Se ultrapassou o limite, permite scroll
+                if (scrollHeight > maxHeight) {
+                    textareaRef.current.style.overflowY = 'auto';
+                } else {
+                    textareaRef.current.style.overflowY = 'hidden';
+                }
+            }
+        }, [input]);
         const [currentAIMessage, setCurrentAIMessage] = useState('');
         const [isSidebarOpen, setIsSidebarOpen] = useState(false);
         const scrollAreaRef = useRef(null);
         const [installPrompt, setInstallPrompt] = useState(null);
         const [isStoryIdeasOpen, setIsStoryIdeasOpen] = useState(false);
         const [isImageAnalyzerOpen, setIsImageAnalyzerOpen] = useState(false);
-        const [isFooterButtonsExpanded, setIsFooterButtonsExpanded] = useState(false);
+        const [isFooterButtonsExpanded, setIsFooterButtonsExpanded] = useState(false); // Opções começam escondidas, aparecem ao clicar no +
+        const [logoError, setLogoError] = useState(false);
+        const textareaRef = useRef(null);
 
         useEffect(() => {
             // Salva a URL atual no localStorage para o PWA saber para onde voltar
@@ -73,6 +94,66 @@ import ImageAnalyzer from './ImageAnalyzer';
                 setInstallPrompt(null);
             });
         };
+
+        const generateConversationTitle = useCallback(async (userMessage, aiResponse) => {
+            try {
+                const prompt = `Com base na seguinte conversa inicial, gere um título curto e descritivo (máximo 50 caracteres) para esta conversa. O título deve ser claro, profissional e resumir o assunto principal.
+
+Mensagem do usuário: "${userMessage}"
+Resposta da IA: "${aiResponse.substring(0, 200)}..."
+
+Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o título.`;
+
+                const { data, error } = await supabase.functions.invoke('openai-chat', {
+                    body: JSON.stringify({ 
+                        messages: [
+                            { 
+                                role: 'system', 
+                                content: 'Você é um assistente que gera títulos curtos e descritivos para conversas. Retorne apenas o título, sem aspas, sem explicações.' 
+                            },
+                            { 
+                                role: 'user', 
+                                content: prompt 
+                            }
+                        ], 
+                        model: 'gpt-4o',
+                        stream: false
+                    }),
+                });
+
+                if (error || !data) {
+                    console.error('Erro ao gerar título:', error);
+                    // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
+                    return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
+                }
+
+                let title = '';
+                if (data.text) {
+                    title = data.text.trim();
+                } else if (data.body) {
+                    // Se vier como streaming, pega o primeiro chunk
+                    const reader = data.body.getReader();
+                    const decoder = new TextDecoder();
+                    const { value } = await reader.read();
+                    if (value) {
+                        const chunk = decoder.decode(value);
+                        title = chunk.trim();
+                    }
+                }
+
+                // Remove aspas se houver e limita a 50 caracteres
+                title = title.replace(/^["']|["']$/g, '').trim();
+                if (title.length > 50) {
+                    title = title.substring(0, 47) + '...';
+                }
+
+                return title || (userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage);
+            } catch (err) {
+                console.error('Erro ao gerar título com IA:', err);
+                // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
+                return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
+            }
+        }, []);
 
         const handleNewSession = useCallback(async (clientData, currentSessions, replace = false) => {
             if (!clientData) return null;
@@ -122,7 +203,7 @@ import ImageAnalyzer from './ImageAnalyzer';
             try {
                 setLoading(true);
                 const [clientRes, agentsRes, projectsRes, sessionsRes] = await Promise.all([
-                    supabase.from('clientes').select('id, empresa, nome_contato, nicho, publico_alvo, tom_de_voz, max_chat_sessions, daily_chat_limit').eq('id', clientId).single(),
+                    supabase.from('clientes').select('id, empresa, nome_contato, nicho, publico_alvo, tom_de_voz, max_chat_sessions, daily_chat_limit, logo_urls').eq('id', clientId).single(),
                     supabase.from('ai_agents').select('*').eq('is_active', true).order('created_at'),
                     supabase.from('projetos').select('id, name, status, mes_referencia').eq('client_id', clientId),
                     supabase.from('client_chat_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false })
@@ -131,6 +212,7 @@ import ImageAnalyzer from './ImageAnalyzer';
                 if (clientRes.error || !clientRes.data) throw new Error("Cliente não encontrado ou acesso não permitido.");
                 const clientData = clientRes.data;
                 setClient(clientData);
+                setLogoError(false); // Reset logo error quando cliente muda
 
                 if (agentsRes.error) throw new Error("Não foi possível carregar os agentes de IA.");
                 const agentsData = agentsRes.data || [];
@@ -236,19 +318,17 @@ import ImageAnalyzer from './ImageAnalyzer';
             if (!input.trim() || isGenerating || !currentAgent || !sessionId) return;
             
             const userMessage = { role: 'user', content: input };
+            const userMessageText = input; // Salva o texto antes de limpar
             setMessages(prev => [...prev, userMessage]);
             await saveMessage(userMessage, sessionId);
             setInput('');
+            // Reset altura do textarea após enviar
+            if (textareaRef.current) {
+                textareaRef.current.style.height = '52px';
+            }
             setIsGenerating(true);
             setCurrentAIMessage('');
-
-            if (messages.length === 1 && messages[0].role === 'assistant') {
-                 const newTitle = input.length > 40 ? input.substring(0, 40) + '...' : input;
-                 const { error } = await supabase.from('client_chat_sessions').update({ title: newTitle }).eq('id', sessionId);
-                 if (!error) {
-                    setSessions(prev => prev.map(s => s.id === sessionId ? {...s, title: newTitle} : s));
-                 }
-            }
+            const isFirstUserMessage = messages.length === 1 && messages[0].role === 'assistant';
             
             const selectedProjects = projects.filter(p => selectedProjectIds.has(p.id));
             const projectsInfo = selectedProjects.length > 0 
@@ -371,11 +451,13 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 });
                 
                 // Verifica se há body para streaming
+                let aiResponseText = '';
                 if (!data.body) {
                     // Se não tem body mas tem text, usa text
                     if (data.text) {
                         console.log('✅ Usando resposta de texto direto (sem streaming)');
-                        const assistantMessage = { role: 'assistant', content: data.text };
+                        aiResponseText = data.text;
+                        const assistantMessage = { role: 'assistant', content: aiResponseText };
                         setMessages(prev => [...prev, assistantMessage]);
                         await saveMessage(assistantMessage, sessionId);
                     } else {
@@ -385,11 +467,31 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 } else {
                     // Processa o streaming
                     console.log('✅ Processando stream de resposta...');
-                    const fullResponse = await streamAIResponse(data);
-                    console.log('✅ Stream completo! Tamanho:', fullResponse.length, 'caracteres');
-                    const assistantMessage = { role: 'assistant', content: fullResponse };
+                    aiResponseText = await streamAIResponse(data);
+                    console.log('✅ Stream completo! Tamanho:', aiResponseText.length, 'caracteres');
+                    const assistantMessage = { role: 'assistant', content: aiResponseText };
                     setMessages(prev => [...prev, assistantMessage]);
                     await saveMessage(assistantMessage, sessionId);
+                }
+
+                // Gera título personalizado se for a primeira mensagem do usuário
+                if (isFirstUserMessage && aiResponseText) {
+                    try {
+                        const personalizedTitle = await generateConversationTitle(userMessageText, aiResponseText);
+                        const { error: updateError } = await supabase
+                            .from('client_chat_sessions')
+                            .update({ title: personalizedTitle })
+                            .eq('id', sessionId);
+                        
+                        if (!updateError) {
+                            setSessions(prev => prev.map(s => 
+                                s.id === sessionId ? {...s, title: personalizedTitle} : s
+                            ));
+                        }
+                    } catch (titleError) {
+                        console.error('Erro ao atualizar título:', titleError);
+                        // Não mostra erro para o usuário, apenas loga
+                    }
                 }
             } catch (err) {
                 console.error("Erro completo ao invocar função de chat:", err);
@@ -599,29 +701,29 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const CurrentAgentIcon = currentAgent ? (ICONS[currentAgent.icon] || ICONS.Default) : Sparkles;
 
         const SessionSidebar = () => (
-          <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-50 dark:bg-gray-900 border-r dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-              <div className="p-4 border-b dark:border-gray-800 flex justify-between items-center">
-                  <h2 className="font-bold text-lg dark:text-white">Conversas</h2>
-                  <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
+          <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+              <div className="p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
+                  <h2 className="font-semibold text-lg dark:text-white">Conversas</h2>
+                  <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
               </div>
-              <div className="p-2">
-                <Button onClick={() => handleNewSession(client, sessions)} className="w-full justify-start">
+              <div className="p-3 bg-gray-100 dark:bg-gray-900">
+                <Button onClick={() => handleNewSession(client, sessions)} className="w-full justify-start rounded-full bg-primary hover:bg-primary/90 shadow-sm">
                     <PlusCircle className="mr-2 h-4 w-4" /> Nova Conversa
                 </Button>
               </div>
-              <ScrollArea className="flex-1">
-                  <div className="p-2 space-y-1">
+              <ScrollArea className="flex-1 bg-gray-100 dark:bg-gray-900">
+                  <div className="p-2 space-y-0.5">
                       {sessions.map(s => (
-                          <div key={s.id} className={`group flex items-center justify-between rounded-md p-2 cursor-pointer ${s.id === sessionId ? 'bg-primary/10' : 'hover:bg-gray-200 dark:hover:bg-gray-700/50'}`} onClick={() => { if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); if(isSidebarOpen) setIsSidebarOpen(false); }}>
+                          <div key={s.id} className={`group flex items-center justify-between rounded-xl p-2.5 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} onClick={() => { if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); if(isSidebarOpen) setIsSidebarOpen(false); }}>
                               <span className="truncate text-sm font-medium dark:text-gray-200">{s.title}</span>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={(e) => {e.stopPropagation(); handleDeleteSession(s.id);}}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" onClick={(e) => {e.stopPropagation(); handleDeleteSession(s.id);}}>
                                   <Trash2 className="h-4 w-4 text-red-500" />
                               </Button>
                           </div>
                       ))}
                   </div>
               </ScrollArea>
-              <footer className="p-2 border-t dark:border-gray-800 text-center text-xs text-gray-500">
+              <footer className="p-3 border-t border-gray-300 dark:border-gray-800 text-center text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-900">
                   JB APEX
               </footer>
           </aside>
@@ -630,39 +732,56 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         return (
             <>
                 <Helmet><title>ApexIA - Assistente para {client?.empresa || 'Cliente'}</title></Helmet>
-                <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+                <div className="flex h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900 overflow-hidden" style={{ height: '100dvh', maxHeight: '100dvh' }}>
                     <SessionSidebar />
-                    <div className="flex flex-col flex-1 min-w-0">
-                        <header className="p-4 border-b dark:border-gray-800 flex items-center justify-between flex-shrink-0">
+                    <div className="flex flex-col flex-1 min-w-0" style={{ height: '100%', maxHeight: '100%' }}>
+                        <header className="p-4 border-b border-gray-200/50 dark:border-gray-800/50 flex items-center justify-between flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm">
                             <div className="flex items-center gap-3 min-w-0">
-                               <Button variant="ghost" size="icon" className="md:hidden flex-shrink-0" onClick={() => setIsSidebarOpen(true)}><Menu className="h-5 w-5"/></Button>
-                               <div className="p-2 bg-primary/10 rounded-full flex-shrink-0"><CurrentAgentIcon className="h-6 w-6 text-primary" /></div>
-                               <div className="min-w-0"><h1 className="font-bold text-lg dark:text-white">ApexIA</h1><p className="text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
+                               <Button variant="ghost" size="icon" className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full" onClick={() => setIsSidebarOpen(true)}><Menu className="h-5 w-5"/></Button>
+                               <div className="rounded-2xl flex-shrink-0 shadow-sm overflow-hidden w-11 h-11 relative">
+                                   {client?.logo_urls && client.logo_urls.length > 0 && !logoError ? (
+                                       <img 
+                                           src={client.logo_urls[0]} 
+                                           alt={client?.empresa || 'Cliente'} 
+                                           className="absolute inset-0 w-full h-full object-cover rounded-2xl"
+                                           onError={() => setLogoError(true)}
+                                       />
+                                   ) : (
+                                       <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/10 rounded-2xl flex items-center justify-center">
+                                           <CurrentAgentIcon className="h-6 w-6 text-primary" />
+                                       </div>
+                                   )}
+                               </div>
+                               <div className="min-w-0"><h1 className="font-semibold text-lg dark:text-white">ApexIA</h1><p className="text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
                             </div>
                              {installPrompt && (
-                                <Button variant="outline" size="sm" onClick={handleInstallClick} className="flex items-center gap-2">
+                                <Button variant="outline" size="sm" onClick={handleInstallClick} className="flex items-center gap-2 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <Download className="h-4 w-4" />
                                     Instalar App
                                 </Button>
                             )}
                         </header>
-                        <main className="flex-1 overflow-hidden">
-                            <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
-                                <div className="max-w-3xl mx-auto space-y-6">
+                        <main className="flex-1 overflow-hidden bg-transparent">
+                            <ScrollArea className="h-full px-4 py-6" ref={scrollAreaRef}>
+                                <div className="max-w-3xl mx-auto space-y-8">
                                     <AnimatePresence initial={false}>
                                         {messages.map((msg, index) => (
-                                            <motion.div key={`${sessionId}-${index}`} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: 'easeOut' }} className={`flex items-start gap-3 w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                                {msg.role === 'assistant' && <div className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full flex-shrink-0"><Bot className="h-5 w-5 text-primary" /></div>}
+                                            <motion.div key={`${sessionId}-${index}`} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: 'easeOut' }} className={`flex items-start w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                                 <div 
-                                                    className={`relative group max-w-xl p-3 rounded-xl ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-gray-100 dark:bg-gray-800 dark:text-gray-200'}`}
+                                                    className={`relative group max-w-xl px-4 py-3 rounded-3xl shadow-sm ${msg.role === 'user' 
+                                                        ? 'rounded-br-md' 
+                                                        : 'bg-white dark:bg-gray-800/50 dark:text-gray-200 border border-gray-200/50 dark:border-gray-700/30 rounded-bl-md backdrop-blur-sm'}`}
                                                     style={{
                                                         wordBreak: 'break-word',
-                                                        overflowWrap: 'break-word'
+                                                        overflowWrap: 'break-word',
+                                                        ...(msg.role === 'user' ? {
+                                                            backgroundColor: '#E6F7FF',
+                                                            color: '#1A4A6E'
+                                                        } : {})
                                                     }}
                                                 >
-                                                    <div className="prose prose-sm dark:prose-invert max-w-none">{renderMessageContent(msg.content)}</div>
+                                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">{renderMessageContent(msg.content)}</div>
                                                 </div>
-                                                {msg.role === 'user' && <div className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full flex-shrink-0"><User className="h-5 w-5 dark:text-gray-300" /></div>}
                                             </motion.div>
                                         ))}
                                         {isGenerating && currentAIMessage && (
@@ -678,9 +797,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                     contain: 'layout style paint'
                                                 }}
                                             >
-                                                <div className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full flex-shrink-0"><Bot className="h-5 w-5 text-primary" /></div>
                                                 <div 
-                                                    className="max-w-xl p-3 rounded-xl bg-gray-100 dark:bg-gray-800 dark:text-gray-200 flex-shrink-0"
+                                                    className="max-w-xl px-4 py-3 rounded-3xl rounded-bl-md bg-white dark:bg-gray-800/50 dark:text-gray-200 flex-shrink-0 shadow-sm border border-gray-200/50 dark:border-gray-700/30 backdrop-blur-sm"
                                                     style={{
                                                         minHeight: '48px',
                                                         width: '100%',
@@ -730,61 +848,54 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 </div>
                             </ScrollArea>
                         </main>
-                        <footer className="p-4 pb-20 sm:pb-4 border-t dark:border-gray-800 flex-shrink-0 bg-white dark:bg-gray-950" style={{ paddingBottom: 'max(5rem, calc(1rem + env(safe-area-inset-bottom, 0px)))' }}>
-                            <div className="max-w-3xl mx-auto">
-                                {/* Botão toggle para mobile */}
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setIsFooterButtonsExpanded(!isFooterButtonsExpanded)}
-                                    className="sm:hidden w-full mb-2 text-xs text-gray-500 dark:text-gray-400 justify-center"
-                                >
-                                    {isFooterButtonsExpanded ? (
-                                        <>
-                                            <X className="h-3 w-3 mr-1" />
-                                            Ocultar opções
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Menu className="h-3 w-3 mr-1" />
-                                            Mostrar opções
-                                        </>
-                                    )}
-                                </Button>
-                                
-                                {/* Container dos botões - escondido em mobile quando collapsed */}
-                                <div className={`${isFooterButtonsExpanded ? 'block' : 'hidden'} sm:block flex flex-col sm:flex-row items-center gap-2 mb-2`}>
+                        <footer className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm" style={{ 
+                            paddingBottom: 'max(2.5rem, calc(2rem + env(safe-area-inset-bottom, 0px)))',
+                            paddingTop: '1.5rem',
+                            paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
+                            paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'
+                        }}>
+                            <div className="max-w-3xl mx-auto w-full">
+                                {/* Container dos botões - controlado por botão + (estilo ChatGPT) */}
+                                <AnimatePresence>
+                                    {isFooterButtonsExpanded && (
+                                        <motion.div 
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="flex flex-col sm:flex-row items-center gap-2 mb-3 overflow-hidden"
+                                        >
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800 dark:border-gray-700">
+                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
                                                 <CurrentAgentIcon className="h-4 w-4 mr-2" />
                                                 <span className="truncate">{currentAgent?.name || "Selecione um Agente"}</span>
                                                 <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
                                             </Button>
                                         </DropdownMenuTrigger>
-                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-700 dark:border-gray-600">
-                                            {agents.map(agent => {const AgentIcon = ICONS[agent.icon] || ICONS.Default; return (<DropdownMenuItem key={agent.id} onClick={() => handleAgentChange(agent)} className="dark:text-white dark:hover:bg-gray-600"><AgentIcon className="h-4 w-4 mr-2" /><span>{agent.name}</span>{currentAgent?.id === agent.id && <Check className="h-4 w-4 ml-auto" />}</DropdownMenuItem>);})}
+                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
+                                            {agents.map(agent => {const AgentIcon = ICONS[agent.icon] || ICONS.Default; return (<DropdownMenuItem key={agent.id} onClick={() => handleAgentChange(agent)} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"><AgentIcon className="h-4 w-4 mr-2" /><span>{agent.name}</span>{currentAgent?.id === agent.id && <Check className="h-4 w-4 ml-auto" />}</DropdownMenuItem>);})}
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800 dark:border-gray-700">
+                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
                                                 <FolderKanban className="h-4 w-4 mr-2" />
                                                 <span className="truncate">{selectedProjectIds.size} projeto(s) selecionado(s)</span>
                                                 <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
                                             </Button>
                                         </DropdownMenuTrigger>
-                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-700 dark:border-gray-600">
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set(projects.map(p => p.id)))} className="dark:text-white dark:hover:bg-gray-600">Selecionar Todos</DropdownMenuItem>
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set())} className="dark:text-white dark:hover:bg-gray-600">Limpar Seleção</DropdownMenuItem>
-                                            <DropdownMenuSeparator className="dark:bg-gray-600" />
+                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
+                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set(projects.map(p => p.id)))} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Selecionar Todos</DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set())} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Limpar Seleção</DropdownMenuItem>
+                                            <DropdownMenuSeparator className="dark:bg-gray-700/50" />
                                             {projects.map(project => (
                                                 <DropdownMenuCheckboxItem
                                                     key={project.id}
                                                     checked={selectedProjectIds.has(project.id)}
                                                     onCheckedChange={() => handleProjectSelection(project.id)}
                                                     onSelect={(e) => e.preventDefault()}
-                                                    className="dark:text-white dark:hover:bg-gray-600"
+                                                    className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"
                                                 >
                                                     {project.name}
                                                 </DropdownMenuCheckboxItem>
@@ -793,7 +904,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                     </DropdownMenu>
                                     <Button
                                         variant="outline"
-                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800 dark:border-gray-700"
+                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
                                     >
                                         <Lightbulb className="h-4 w-4 mr-2" />
@@ -801,34 +912,71 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                     </Button>
                                     <Button
                                         variant="outline"
-                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800 dark:border-gray-700"
+                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm"
                                         onClick={() => setIsImageAnalyzerOpen(true)}
                                     >
                                         <Camera className="h-4 w-4 mr-2" />
                                         <span className="truncate">Análise de Imagem</span>
                                     </Button>
-                                </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                                 
                                 <form onSubmit={handleSendMessage} className="relative">
-                                    <Textarea 
-                                        value={input} 
-                                        onChange={(e) => setInput(e.target.value)} 
-                                        placeholder={currentAgent ? `Pergunte ao ${currentAgent.name}...` : 'Selecione um agente para começar.'} 
-                                        className="pr-12 resize-none" 
-                                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
-                                        disabled={isGenerating || !currentAgent} 
-                                        rows={1} 
-                                    />
-                                    <Button 
-                                        type="submit" 
-                                        size="icon" 
-                                        className="absolute right-2 top-1/2 -translate-y-1/2" 
-                                        disabled={isGenerating || !input.trim() || !currentAgent}
-                                    >
-                                        {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                    </Button>
+                                    <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
+                                        {/* Botão + para expandir opções (estilo ChatGPT) */}
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => setIsFooterButtonsExpanded(!isFooterButtonsExpanded)}
+                                            className="absolute left-2 bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-10 flex-shrink-0"
+                                            disabled={isGenerating || !currentAgent}
+                                        >
+                                            {isFooterButtonsExpanded ? (
+                                                <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                                            ) : (
+                                                <Plus className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                                            )}
+                                        </Button>
+                                        
+                                        <Textarea 
+                                            ref={textareaRef}
+                                            value={input} 
+                                            onChange={(e) => setInput(e.target.value)} 
+                                            placeholder={currentAgent ? `Pergunte ao ${currentAgent.name}...` : 'Selecione um agente para começar.'} 
+                                            className="pr-14 pl-12 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto" 
+                                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
+                                            disabled={isGenerating || !currentAgent} 
+                                            rows={1}
+                                            style={{ height: 'auto', minHeight: '52px', maxHeight: '200px' }}
+                                        />
+                                        <Button 
+                                            type="submit" 
+                                            size="icon" 
+                                            className="absolute right-2 bottom-2.5 h-9 w-9 rounded-full bg-primary hover:bg-primary/90 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all z-10 flex-shrink-0" 
+                                            disabled={isGenerating || !input.trim() || !currentAgent}
+                                        >
+                                            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                        </Button>
+                                    </div>
+                                    <style>{`
+                                        @keyframes glow {
+                                            0%, 100% {
+                                                border-color: rgba(59, 130, 246, 0.4);
+                                                box-shadow: 0 0 5px rgba(59, 130, 246, 0.2), 0 0 10px rgba(59, 130, 246, 0.1), 0 0 15px rgba(59, 130, 246, 0.05);
+                                            }
+                                            50% {
+                                                border-color: rgba(59, 130, 246, 0.7);
+                                                box-shadow: 0 0 10px rgba(59, 130, 246, 0.4), 0 0 20px rgba(59, 130, 246, 0.2), 0 0 30px rgba(59, 130, 246, 0.1);
+                                            }
+                                        }
+                                        .border-glow-animation {
+                                            animation: glow 2s ease-in-out infinite;
+                                        }
+                                    `}</style>
                                 </form>
-                                <p className="text-xs text-center text-gray-400 mt-2">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
+                                <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-4 mb-2">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
                             </div>
                         </footer>
                     </div>
