@@ -849,8 +849,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                             </ScrollArea>
                         </main>
                         <footer className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm" style={{ 
-                            paddingBottom: 'max(2.5rem, calc(2rem + env(safe-area-inset-bottom, 0px)))',
-                            paddingTop: '1.5rem',
+                            paddingBottom: 'max(0.75rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))',
+                            paddingTop: '1rem',
                             paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
                             paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'
                         }}>
@@ -976,7 +976,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         }
                                     `}</style>
                                 </form>
-                                <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-4 mb-2">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
+                                <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
                             </div>
                         </footer>
                     </div>
