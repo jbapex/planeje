@@ -91,3 +91,18 @@
     .bg-green-glow {
       background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 255, 136, 0.15), rgba(0,0,0,0));
     }
+
+    /* Previne zoom automático no mobile ao focar em inputs */
+    @media screen and (max-width: 768px) {
+      input[type="text"],
+      input[type="email"],
+      input[type="password"],
+      input[type="number"],
+      input[type="tel"],
+      input[type="search"],
+      input[type="url"],
+      textarea,
+      select {
+        font-size: 16px !important;
+      }
+    }
