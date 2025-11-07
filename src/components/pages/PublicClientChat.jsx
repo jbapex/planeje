@@ -67,7 +67,46 @@ import ImageAnalyzer from './ImageAnalyzer';
         useEffect(() => {
             // Salva a URL atual no localStorage para o PWA saber para onde voltar
             localStorage.setItem('lastPublicChatUrl', location.pathname);
-        }, [location.pathname]);
+            
+            // Atualiza o manifest para a rota do chat
+            const updateManifest = () => {
+                const manifestLink = document.querySelector('link[rel="manifest"]');
+                if (manifestLink && clientId) {
+                    // Cria um novo manifest dinâmico baseado na rota atual
+                    const currentPath = location.pathname;
+                    const manifestData = {
+                        name: client?.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
+                        short_name: 'ApexIA',
+                        description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client?.empresa || 'você'}.`,
+                        start_url: currentPath,
+                        display: 'standalone',
+                        background_color: '#111827',
+                        theme_color: '#8B5CF6',
+                        orientation: 'portrait-primary',
+                        icons: [
+                            {
+                                src: '/icon-192x192.png',
+                                sizes: '192x192',
+                                type: 'image/png'
+                            },
+                            {
+                                src: '/icon-512x512.png',
+                                sizes: '512x512',
+                                type: 'image/png'
+                            }
+                        ]
+                    };
+                    
+                    // Cria um blob URL com o manifest
+                    const blob = new Blob([JSON.stringify(manifestData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    manifestLink.href = url;
+                }
+            };
+            
+            // Atualiza o manifest quando a rota ou cliente mudar
+            updateManifest();
+        }, [location.pathname, client, clientId]);
 
         useEffect(() => {
             const handleBeforeInstallPrompt = (e) => {
@@ -82,14 +121,49 @@ import ImageAnalyzer from './ImageAnalyzer';
             };
         }, []);
     
-        const handleInstallClick = () => {
+        const handleInstallClick = async () => {
             if (!installPrompt) return;
+            
+            // Garante que o manifest está atualizado antes de instalar
+            const currentPath = location.pathname;
+            const manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink && client) {
+                const manifestData = {
+                    name: client.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
+                    short_name: 'ApexIA',
+                    description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client.empresa || 'você'}.`,
+                    start_url: currentPath,
+                    display: 'standalone',
+                    background_color: '#111827',
+                    theme_color: '#8B5CF6',
+                    orientation: 'portrait-primary',
+                    icons: [
+                        {
+                            src: '/icon-192x192.png',
+                            sizes: '192x192',
+                            type: 'image/png'
+                        },
+                        {
+                            src: '/icon-512x512.png',
+                            sizes: '512x512',
+                            type: 'image/png'
+                        }
+                    ]
+                };
+                
+                const blob = new Blob([JSON.stringify(manifestData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                manifestLink.href = url;
+            }
     
             installPrompt.prompt();
     
             installPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
-                    toast({ title: 'App instalado!', description: 'O ApexIA foi adicionado à sua tela inicial.' });
+                    toast({ 
+                        title: 'App instalado!', 
+                        description: `O ApexIA para ${client?.empresa || 'você'} foi adicionado à sua tela inicial e abrirá direto no chat.` 
+                    });
                 }
                 setInstallPrompt(null);
             });

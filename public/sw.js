@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-globals */
 
-const CACHE_NAME = 'jb-apex-cache-v5';
-const DYNAMIC_CACHE_NAME = 'jb-apex-dynamic-cache-v5';
+const CACHE_NAME = 'jb-apex-cache-v6';
+const DYNAMIC_CACHE_NAME = 'jb-apex-dynamic-cache-v6';
 
 // Adicionando a rota do chat-launcher e os assets principais
 const urlsToCache = [
@@ -12,6 +12,43 @@ const urlsToCache = [
   '/icon-192x192.png',
   '/icon-512x512.png',
 ];
+
+// Função para gerar manifest dinâmico baseado na URL
+const generateDynamicManifest = (url) => {
+  // Extrai clientId e sessionId da URL se estiver na rota /chat
+  const chatMatch = url.match(/\/chat\/([^\/]+)(?:\/([^\/]+))?/);
+  
+  if (chatMatch) {
+    const clientId = chatMatch[1];
+    const sessionId = chatMatch[2];
+    const startUrl = sessionId ? `/chat/${clientId}/${sessionId}` : `/chat/${clientId}`;
+    
+    return {
+      name: 'ApexIA - Assistente de IA',
+      short_name: 'ApexIA',
+      description: 'ApexIA é o assistente de inteligência artificial da JB APEX, pronto para ajudar.',
+      start_url: startUrl,
+      display: 'standalone',
+      background_color: '#111827',
+      theme_color: '#8B5CF6',
+      orientation: 'portrait-primary',
+      icons: [
+        {
+          src: '/icon-192x192.png',
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: '/icon-512x512.png',
+          sizes: '512x512',
+          type: 'image/png'
+        }
+      ]
+    };
+  }
+  
+  return null;
+};
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -45,6 +82,24 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+
+  // Intercepta requisições do manifest e retorna dinamicamente baseado na referrer
+  if (url.pathname === '/manifest.json' || url.pathname.endsWith('/manifest.json')) {
+    const referrer = event.request.referrer || '';
+    const dynamicManifest = generateDynamicManifest(referrer);
+    
+    if (dynamicManifest) {
+      event.respondWith(
+        new Response(JSON.stringify(dynamicManifest, null, 2), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache'
+          }
+        })
+      );
+      return;
+    }
+  }
 
   // Ignora completamente as requisições para APIs de terceiros para garantir dados sempre atualizados.
   if (url.hostname.includes('supabase.co') || url.hostname.includes('openai.com')) {
