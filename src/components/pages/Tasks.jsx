@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-    import { AnimatePresence } from 'framer-motion';
+    import { AnimatePresence, motion } from 'framer-motion';
     import { Plus, List, LayoutGrid, GitCommit, Settings, Filter, Bot, Calendar, Timer } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ import { executeAutomation } from '@/lib/workflow';
       const [isTimeTrackingSettingsOpen, setTimeTrackingSettingsOpen] = useState(false);
       const [statusOptions, setStatusOptions] = useState([]);
       const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+      const [filtersExpanded, setFiltersExpanded] = useState(false);
 
 
       const { toast } = useToast();
@@ -473,30 +474,55 @@ import { executeAutomation } from '@/lib/workflow';
 
             {activeTab !== 'automations' && activeTab !== 'schedule' && (
               <div className="mt-4">
-                <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                  <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
-                  <Select value={clientFilter} onValueChange={setClientFilter}>
-                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os Clientes</SelectItem>
-                      {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os Status</SelectItem>
-                      {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os Responsáveis</SelectItem>
-                      {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Botão para expandir/recolher filtros no mobile */}
+                {isMobile && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setFiltersExpanded(!filtersExpanded)}
+                    className="w-full mb-2 flex items-center justify-center gap-2"
+                  >
+                    <Filter className="h-4 w-4" />
+                    {filtersExpanded ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+                  </Button>
+                )}
+                
+                {/* Filtros - sempre visíveis no desktop, condicionais no mobile */}
+                <AnimatePresence>
+                  {(!isMobile || filtersExpanded) && (
+                    <motion.div
+                      initial={isMobile ? { height: 0, opacity: 0 } : false}
+                      animate={isMobile ? { height: 'auto', opacity: 1 } : false}
+                      exit={isMobile ? { height: 0, opacity: 0 } : false}
+                      transition={{ duration: 0.2 }}
+                      className={isMobile ? 'overflow-hidden' : ''}
+                    >
+                      <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                        <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
+                        <Select value={clientFilter} onValueChange={setClientFilter}>
+                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos os Clientes</SelectItem>
+                            {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos os Status</SelectItem>
+                            {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos os Responsáveis</SelectItem>
+                            {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
             {activeTab === 'schedule' && (

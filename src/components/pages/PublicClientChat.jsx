@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share } from 'lucide-react';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
     import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import ImageAnalyzer from './ImageAnalyzer';
     import { ScrollArea } from '@/components/ui/scroll-area';
     import { marked } from 'marked';
     import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
     const ICONS = {
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
@@ -62,6 +63,10 @@ import ImageAnalyzer from './ImageAnalyzer';
         const [isImageAnalyzerOpen, setIsImageAnalyzerOpen] = useState(false);
         const [isFooterButtonsExpanded, setIsFooterButtonsExpanded] = useState(false); // Opções começam escondidas, aparecem ao clicar no +
         const [logoError, setLogoError] = useState(false);
+        const [isMobile, setIsMobile] = useState(false);
+        const [isIOS, setIsIOS] = useState(false);
+        const [isStandalone, setIsStandalone] = useState(false);
+        const [showIOSInstructions, setShowIOSInstructions] = useState(false);
         const textareaRef = useRef(null);
 
         useEffect(() => {
@@ -73,12 +78,15 @@ import ImageAnalyzer from './ImageAnalyzer';
                 const manifestLink = document.querySelector('link[rel="manifest"]');
                 if (manifestLink && clientId) {
                     // Cria um novo manifest dinâmico baseado na rota atual
-                    const currentPath = location.pathname;
+                    // Como estamos usando HashRouter, precisa incluir o hash na URL
+                    const currentPath = location.pathname + location.search;
+                    const hashPath = `#${currentPath}`;
+                    
                     const manifestData = {
                         name: client?.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
                         short_name: 'ApexIA',
                         description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client?.empresa || 'você'}.`,
-                        start_url: currentPath,
+                        start_url: hashPath,
                         display: 'standalone',
                         background_color: '#111827',
                         theme_color: '#8B5CF6',
@@ -108,6 +116,29 @@ import ImageAnalyzer from './ImageAnalyzer';
             updateManifest();
         }, [location.pathname, client, clientId]);
 
+        // Detecta dispositivo móvel e sistema operacional
+        useEffect(() => {
+            const checkDevice = () => {
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+                const isIOSDevice = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+                const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || 
+                                        (window.navigator.standalone) || 
+                                        document.referrer.includes('android-app://');
+                
+                setIsMobile(isMobileDevice);
+                setIsIOS(isIOSDevice);
+                setIsStandalone(isStandaloneMode);
+            };
+            
+            checkDevice();
+            window.addEventListener('resize', checkDevice);
+            
+            return () => {
+                window.removeEventListener('resize', checkDevice);
+            };
+        }, []);
+
         useEffect(() => {
             const handleBeforeInstallPrompt = (e) => {
                 e.preventDefault();
@@ -125,14 +156,16 @@ import ImageAnalyzer from './ImageAnalyzer';
             if (!installPrompt) return;
             
             // Garante que o manifest está atualizado antes de instalar
-            const currentPath = location.pathname;
+            // Como estamos usando HashRouter, precisa incluir o hash na URL
+            const currentPath = location.pathname + location.search;
+            const hashPath = `#${currentPath}`;
             const manifestLink = document.querySelector('link[rel="manifest"]');
             if (manifestLink && client) {
                 const manifestData = {
                     name: client.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
                     short_name: 'ApexIA',
                     description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client.empresa || 'você'}.`,
-                    start_url: currentPath,
+                    start_url: hashPath,
                     display: 'standalone',
                     background_color: '#111827',
                     theme_color: '#8B5CF6',
@@ -828,10 +861,22 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                </div>
                                <div className="min-w-0"><h1 className="font-semibold text-lg dark:text-white">ApexIA</h1><p className="text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
                             </div>
-                             {installPrompt && (
-                                <Button variant="outline" size="sm" onClick={handleInstallClick} className="flex items-center gap-2 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                             {/* Botão de instalação PWA - mostra em mobile e não se já estiver instalado */}
+                             {isMobile && !isStandalone && (installPrompt || isIOS) && (
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => {
+                                        if (isIOS) {
+                                            setShowIOSInstructions(true);
+                                        } else if (installPrompt) {
+                                            handleInstallClick();
+                                        }
+                                    }} 
+                                    className="flex items-center gap-2 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                >
                                     <Download className="h-4 w-4" />
-                                    Instalar App
+                                    {isIOS ? 'Adicionar à Tela Inicial' : 'Instalar App'}
                                 </Button>
                             )}
                         </header>
@@ -1067,6 +1112,57 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                     onClose={() => setIsImageAnalyzerOpen(false)}
                     currentAgent={currentAgent}
                 />
+                {/* Dialog com instruções para iOS */}
+                <Dialog open={showIOSInstructions} onOpenChange={setShowIOSInstructions}>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Adicionar ApexIA à Tela Inicial</DialogTitle>
+                            <DialogDescription>
+                                Siga estes passos para adicionar o ApexIA à sua tela inicial no iPhone/iPad:
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                                    1
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium">Toque no botão de compartilhar</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Procure pelo ícone de compartilhar <Share className="inline h-4 w-4" /> na parte inferior da tela do Safari
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                                    2
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium">Selecione "Adicionar à Tela Inicial"</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Role para baixo e toque em "Adicionar à Tela Inicial"
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                                    3
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium">Confirme a instalação</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Toque em "Adicionar" no canto superior direito
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-4 border-t">
+                            <Button variant="outline" onClick={() => setShowIOSInstructions(false)}>
+                                Entendi
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
             </>
         );
     };

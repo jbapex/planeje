@@ -16,12 +16,14 @@ const urlsToCache = [
 // Função para gerar manifest dinâmico baseado na URL
 const generateDynamicManifest = (url) => {
   // Extrai clientId e sessionId da URL se estiver na rota /chat
+  // Como estamos usando HashRouter, a URL pode ter hash (#)
   const chatMatch = url.match(/\/chat\/([^\/]+)(?:\/([^\/]+))?/);
   
   if (chatMatch) {
     const clientId = chatMatch[1];
     const sessionId = chatMatch[2];
-    const startUrl = sessionId ? `/chat/${clientId}/${sessionId}` : `/chat/${clientId}`;
+    // Como estamos usando HashRouter, precisa incluir o hash na URL
+    const startUrl = sessionId ? `#/chat/${clientId}/${sessionId}` : `#/chat/${clientId}`;
     
     return {
       name: 'ApexIA - Assistente de IA',
