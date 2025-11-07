@@ -730,7 +730,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 </div>
                             </ScrollArea>
                         </main>
-                        <footer className="p-4 border-t dark:border-gray-800 flex-shrink-0 bg-white dark:bg-gray-950">
+                        <footer className="p-4 pb-20 sm:pb-4 border-t dark:border-gray-800 flex-shrink-0 bg-white dark:bg-gray-950" style={{ paddingBottom: 'max(5rem, calc(1rem + env(safe-area-inset-bottom, 0px)))' }}>
                             <div className="max-w-3xl mx-auto">
                                 {/* Botão toggle para mobile */}
                                 <Button
