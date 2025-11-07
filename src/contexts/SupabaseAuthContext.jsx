@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
@@ -13,6 +13,8 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [fieldPermissions, setFieldPermissions] = useState({});
   const [loading, setLoading] = useState(true);
+  const hasInitializedRef = useRef(false);
+  const handleSessionRef = useRef(null);
 
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) {
@@ -94,10 +96,15 @@ export const AuthProvider = ({ children }) => {
     return true;
   }, [profile?.role, fieldPermissions]);
 
-  const handleSession = useCallback(async (session) => {
+  const handleSession = useCallback(async (session, isInitialLoad = false) => {
     setSession(session);
     const currentUser = session?.user ?? null;
     setUser(currentUser);
+    
+    // Só seta loading como true na primeira carga
+    if (isInitialLoad && !hasInitializedRef.current) {
+      setLoading(true);
+    }
     
     if (currentUser?.id) {
       await fetchProfile(currentUser.id);
@@ -107,25 +114,43 @@ export const AuthProvider = ({ children }) => {
       setFieldPermissions({});
     }
     
-    setLoading(false);
+    // Só seta loading como false na primeira carga
+    if (isInitialLoad) {
+      setLoading(false);
+      hasInitializedRef.current = true;
+    }
   }, [fetchProfile, fetchFieldPermissions]);
+  
+  // Atualiza ref sempre que handleSession mudar
+  handleSessionRef.current = handleSession;
 
   useEffect(() => {
     const getSession = async () => {
+      if (!hasInitializedRef.current) {
+        setLoading(true);
+      }
       const { data: { session } } = await supabase.auth.getSession();
-      handleSession(session);
+      if (handleSessionRef.current) {
+        await handleSessionRef.current(session, true); // Primeira carga
+      }
     };
 
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        handleSession(session);
+        // Só atualiza se realmente mudou (login/logout), não ao mudar de aba
+        // Ignora eventos como INITIAL_SESSION que podem disparar ao mudar de aba
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !hasInitializedRef.current)) {
+          if (handleSessionRef.current) {
+            await handleSessionRef.current(session, false);
+          }
+        }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [handleSession]);
+  }, []); // Array vazio - só executa uma vez na montagem
 
   const signUp = useCallback(async (email, password, options) => {
     const { error } = await supabase.auth.signUp({

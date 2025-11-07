@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-    import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+    import { AnimatePresence } from 'framer-motion';
     import { Plus, Filter, Edit, Trash2, ListChecks, MessageSquare as MessageSquareIcon, Bot } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
@@ -37,7 +37,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const [editingRequest, setEditingRequest] = useState(null);
       const [convertingRequest, setConvertingRequest] = useState(null);
       const [loading, setLoading] = useState(true);
-      const [isFirstMount, setIsFirstMount] = useState(true);
       const { toast } = useToast();
       const { user, profile } = useAuth();
       const userRole = profile?.role;
@@ -45,13 +44,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       // Hook de cache
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache('requests');
       
-      // Marca primeira montagem para evitar animações em remount
-      useEffect(() => {
-        if (isFirstMount) {
-          const timer = setTimeout(() => setIsFirstMount(false), 100);
-          return () => clearTimeout(timer);
-        }
-      }, [isFirstMount]);
+      // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
+      const hasFetchedRef = useRef(false);
 
       const fetchData = useCallback(async () => {
         setLoading(true);
@@ -77,40 +71,38 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       }, [toast, setCachedData]);
 
       useEffect(() => {
-        // Se tem cache válido (últimos 30 segundos), usa ele
+        if (!user) return;
+        
+        // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+        if (hasFetchedRef.current) {
+          // Apenas sincroniza com cache se necessário, sem fazer fetch
+          if (!shouldFetch() && cachedData) {
+            setRequests(cachedData.requests);
+            setClients(cachedData.clients);
+            setProjects(cachedData.projects);
+            setLoading(false);
+          }
+          return;
+        }
+        
+        // Se tem cache válido, usa ele e marca como fetched
         if (!shouldFetch() && cachedData) {
           setRequests(cachedData.requests);
           setClients(cachedData.clients);
           setProjects(cachedData.projects);
           setLoading(false);
-          
-          // Ainda configura realtime para atualizações
-          const channel = supabase.channel('realtime-solicitacoes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacoes' }, (payload) => {
-              setCachedData(null); // Limpa cache para forçar refresh
-              fetchData();
-            })
-            .subscribe();
-
-          return () => {
-            supabase.removeChannel(channel);
-          };
+          hasFetchedRef.current = true;
+          return;
         }
 
-        // Se não tem cache ou está expirado, faz fetch
-        fetchData();
+        // Se não tem cache ou está expirado, faz fetch apenas uma vez
+        if (!hasFetchedRef.current) {
+          hasFetchedRef.current = true;
+          fetchData();
+        }
         
-        const channel = supabase.channel('realtime-solicitacoes')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacoes' }, (payload) => {
-            setCachedData(null); // Limpa cache para forçar refresh
-            fetchData();
-          })
-          .subscribe();
-
-        return () => {
-          supabase.removeChannel(channel);
-        };
-      }, [fetchData, shouldFetch, cachedData, setCachedData]);
+        // Realtime desabilitado para evitar re-fetch automático
+      }, [user]); // Apenas user como dependência - evita re-execução
 
       const filteredRequests = useMemo(() => {
         return requests.filter(r => {
@@ -173,7 +165,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       };
 
       return (
-        <motion.div initial={isFirstMount ? { opacity: 0, scale: 0.98 } : false} animate={{ opacity: 1, scale: 1 }} className="p-4 sm:p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Registro de Solicitações</h1>
             {(userRole === 'superadmin' || userRole === 'admin') && (
@@ -214,9 +206,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             </div>
            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <AnimatePresence>
-                {filteredRequests.map((req) => (
-                  <motion.div key={req.id} initial={isFirstMount ? { opacity: 0, scale: 0.9 } : false} animate={{ opacity: 1, scale: 1 }}>
+              {filteredRequests.map((req) => (
+                <div key={req.id}>
                     <Card className="dark:bg-gray-800 dark:border-gray-700 flex flex-col h-full">
                       <CardHeader>
                         <div className="flex justify-between items-start">
@@ -255,16 +246,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
                         </CardFooter>
                       )}
                     </Card>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+                </div>
+              ))}
             </div>
           )}
           <AnimatePresence>
             {showForm && (userRole === 'superadmin' || userRole === 'admin') && <RequestForm request={editingRequest} clients={clients} onSave={handleSaveRequest} onClose={() => { setShowForm(false); setEditingRequest(null); }} />}
             {convertingRequest && (userRole === 'superadmin' || userRole === 'admin') && <ConvertToTaskDialog request={convertingRequest} projects={projects.filter(p => p.client_id === convertingRequest.client_id)} onSave={handleConvertToTask} onClose={() => setConvertingRequest(null)} />}
           </AnimatePresence>
-        </motion.div>
+        </div>
       );
     };
 

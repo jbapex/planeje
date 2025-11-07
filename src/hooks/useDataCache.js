@@ -1,7 +1,7 @@
 // Hook para gerenciar cache de dados e prevenir re-fetch desnecessário
 import { useState, useCallback } from 'react';
 
-const CACHE_DURATION = 30000; // 30 segundos - ajustável conforme necessidade
+const CACHE_DURATION = 86400000; // 24 horas - cache persiste até refresh da página (F5)
 
 // Cache global compartilhado entre todos os componentes
 // Estrutura: { cacheKey: { data: qualquer, timestamp: number } }

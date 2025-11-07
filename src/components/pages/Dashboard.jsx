@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
 import { Lightbulb, Bell, CheckSquare, AlertTriangle, Clock, Calendar, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +7,7 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
 import { format, startOfWeek, endOfWeek, isPast, isToday, isWithinInterval, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useDataCache } from '@/hooks/useDataCache';
 const StatCard = ({
   icon: Icon,
   title,
@@ -16,15 +16,7 @@ const StatCard = ({
   color,
   delay,
   isFirstMount = true
-}) => <motion.div initial={isFirstMount ? {
-  opacity: 0,
-  y: 20
-} : false} animate={{
-  opacity: 1,
-  y: 0
-}} transition={{
-  delay
-}} className="bg-card dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
+}) => <div className="bg-card dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
     <div className="flex items-start justify-between">
       <div className="space-y-1">
         <p className="text-xs font-semibold text-muted-foreground dark:text-gray-400 uppercase tracking-wider">{title}</p>
@@ -33,7 +25,7 @@ const StatCard = ({
       </div>
       <Icon className={`w-6 h-6 md:w-8 md:h-8 ${color}`} />
     </div>
-  </motion.div>;
+  </div>;
 const InfoCard = ({
   icon: Icon,
   title,
@@ -98,14 +90,32 @@ const Dashboard = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isFirstMount, setIsFirstMount] = useState(true);
   const today = new Date();
   const formattedDate = format(today, "EEEE, d 'de' MMMM", {
     locale: ptBR
   });
+  
+  // Hook de cache para prevenir re-fetch desnecessário
+  const cacheKey = `dashboard_${user?.id}_${profile?.role}`;
+  const { data: cachedData, setCachedData, shouldFetch } = useDataCache(cacheKey);
+  
+  // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
+  const hasFetchedRef = useRef(false);
+  
   useEffect(() => {
     const fetchData = async () => {
       if (!user) return;
+      
+      // Se já tem cache válido, não faz fetch
+      if (!shouldFetch() && cachedData) {
+        setStats(cachedData.stats);
+        setSuggestions(cachedData.suggestions);
+        setAlerts(cachedData.alerts);
+        setLoading(false);
+        hasFetchedRef.current = true;
+        return;
+      }
+      
       setLoading(true);
       let tasksQuery = supabase.from('tarefas').select('*, clientes(empresa)');
       let requestsQuery = supabase.from('solicitacoes').select('*, clientes(empresa)');
@@ -213,17 +223,50 @@ const Dashboard = () => {
         }
       });
       setAlerts(newAlerts.slice(0, 5));
+      
+      // Salva no cache
+      setCachedData({
+        stats: {
+          executed,
+          overdue,
+          today: todayTasks,
+          upcoming
+        },
+        suggestions: scoredTasks,
+        alerts: newAlerts.slice(0, 5)
+      });
+      
       setLoading(false);
     };
-    fetchData();
-  }, [toast, user, profile]);
-  
-  useEffect(() => {
-    if (isFirstMount) {
-      const timer = setTimeout(() => setIsFirstMount(false), 100);
-      return () => clearTimeout(timer);
+    
+    // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+    if (hasFetchedRef.current) {
+      // Apenas sincroniza com cache se necessário, sem fazer fetch
+      if (!shouldFetch() && cachedData) {
+        setStats(cachedData.stats);
+        setSuggestions(cachedData.suggestions);
+        setAlerts(cachedData.alerts);
+        setLoading(false);
+      }
+      return;
     }
-  }, [isFirstMount]);
+    
+    // Se tem cache válido, usa ele e marca como fetched
+    if (!shouldFetch() && cachedData) {
+      setStats(cachedData.stats);
+      setSuggestions(cachedData.suggestions);
+      setAlerts(cachedData.alerts);
+      setLoading(false);
+      hasFetchedRef.current = true;
+      return;
+    }
+    
+    // Se não tem cache, faz fetch apenas uma vez
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchData();
+    }
+  }, [user, profile]); // Apenas user e profile - evita re-execução
   
   const handleNotImplemented = () => toast({
     description: "🚧 Funcionalidade não implementada! Você pode solicitar no próximo prompt! 🚀"
@@ -253,58 +296,36 @@ const Dashboard = () => {
     icon: Calendar,
     color: 'text-blue-500'
   }];
-  return <motion.div initial={isFirstMount ? { opacity: 0 } : false} animate={{ opacity: 1 }} className="space-y-8">
-      <motion.div initial={isFirstMount ? {
-      opacity: 0,
-      y: -20
-    } : false} animate={{
-      opacity: 1,
-      y: 0
-    }}>
+  return <div className="space-y-8">
+      <div>
         <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Olá, {profile?.full_name || 'Usuário'}!</h1>
         <p className="text-muted-foreground dark:text-gray-400 capitalize">{formattedDate}</p>
         {(profile?.role === 'superadmin' || profile?.role === 'admin') && <div className="mt-4 flex flex-col sm:flex-row gap-2">
                 <Button variant="dark" onClick={handleNotImplemented} className="w-full sm:w-auto">Meus dados</Button>
                 <Button variant="outline" onClick={handleNotImplemented} className="w-full sm:w-auto">Versão 3.0</Button>
             </div>}
-      </motion.div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCardsData.map((stat, index) => <StatCard key={stat.title} {...stat} delay={0.1 * (index + 1)} isFirstMount={isFirstMount} />)}
+        {statCardsData.map((stat) => <StatCard key={stat.title} {...stat} delay={0} isFirstMount={false} />)}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <motion.div className="lg:col-span-2" initial={isFirstMount ? {
-        opacity: 0,
-        x: -20
-      } : false} animate={{
-        opacity: 1,
-        x: 0
-      }} transition={{
-        delay: 0.5
-      }}>
+        <div className="lg:col-span-2">
           <InfoCard icon={Lightbulb} title="Sugestões de Prioridade" color="text-yellow-500">
             {loading ? <p className="dark:text-gray-300">Analisando tarefas...</p> : suggestions.length > 0 ? <div className="space-y-3">
                 {suggestions.map(task => <SugestaoItem key={task.id} task={task} clientName={task.clientes?.empresa || 'N/A'} />)}
               </div> : <EmptyState icon={ListChecks} title="Tudo tranquilo!" message="Nenhuma tarefa crítica no momento." color="text-green-500" />}
           </InfoCard>
-        </motion.div>
-        <motion.div initial={isFirstMount ? {
-        opacity: 0,
-        x: 20
-      } : false} animate={{
-        opacity: 1,
-        x: 0
-      }} transition={{
-        delay: 0.6
-      }}>
+        </div>
+        <div>
           <InfoCard icon={Bell} title="Alertas Proativos" color="text-red-500">
             {loading ? <p className="dark:text-gray-300">Verificando alertas...</p> : alerts.length > 0 ? <div className="space-y-3">
                 {alerts.map((alert, index) => <AlertaItem key={index} icon={AlertTriangle} text={alert.text} subtext={alert.subtext} />)}
               </div> : <EmptyState icon={Bell} title="Tudo em ordem!" message="Nenhum alerta no momento." color="text-green-500" />}
           </InfoCard>
-        </motion.div>
+        </div>
       </div>
-    </motion.div>;
+    </div>;
 };
 export default Dashboard;

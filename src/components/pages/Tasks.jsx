@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-    import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+    import { AnimatePresence } from 'framer-motion';
     import { Plus, List, LayoutGrid, GitCommit, Settings, Filter, Bot, Calendar, Timer } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
@@ -34,7 +34,6 @@ import { executeAutomation } from '@/lib/workflow';
       const [isTimeTrackingSettingsOpen, setTimeTrackingSettingsOpen] = useState(false);
       const [statusOptions, setStatusOptions] = useState([]);
       const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-      const [isFirstMount, setIsFirstMount] = useState(true);
 
 
       const { toast } = useToast();
@@ -49,13 +48,8 @@ import { executeAutomation } from '@/lib/workflow';
       const cacheKey = `tasks_${user?.id}_${userRole}_${tasksAccessLevel}`;
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache(cacheKey);
       
-      // Marca primeira montagem para evitar animações em remount
-      useEffect(() => {
-        if (isFirstMount) {
-          const timer = setTimeout(() => setIsFirstMount(false), 100);
-          return () => clearTimeout(timer);
-        }
-      }, [isFirstMount]);
+      // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
+      const hasFetchedRef = useRef(false);
       
       const activeTab = useMemo(() => {
         if (isMobile && !['list', 'automations'].includes(activeTabFromUrl)) {
@@ -156,7 +150,12 @@ import { executeAutomation } from '@/lib/workflow';
       useEffect(() => {
         if (!user) return;
         
-        // Se tem cache válido (últimos 30 segundos), usa ele
+        // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+        if (hasFetchedRef.current) {
+          return;
+        }
+        
+        // Se tem cache válido, usa ele e marca como fetched
         if (!shouldFetch() && cachedData) {
           setTasks(cachedData.tasks);
           setClients(cachedData.clients);
@@ -164,47 +163,16 @@ import { executeAutomation } from '@/lib/workflow';
           setUsers(cachedData.users);
           setStatusOptions(cachedData.statusOptions || []);
           setLoading(false);
-          
-          // Ainda configura realtime para atualizações em tempo real
-          const channel = supabase.channel('realtime-tasks')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tarefas' }, (payload) => {
-                if (payload.eventType === 'UPDATE') {
-                  setTasks(currentTasks => 
-                    currentTasks.map(task => 
-                      task.id === payload.new.id ? { ...task, ...payload.new } : task
-                    )
-                  );
-                } else {
-                  // Se houver mudança significativa, limpa cache e busca novamente
-                  setCachedData(null);
-                  fetchData();
-                }
-            })
-            .subscribe();
-          return () => supabase.removeChannel(channel);
+          hasFetchedRef.current = true;
+          return;
         }
 
-        // Se não tem cache ou está expirado, faz fetch
-        fetchData();
-        
-        // Configura realtime subscription
-        const channel = supabase.channel('realtime-tasks')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'tarefas' }, (payload) => {
-              if (payload.eventType === 'UPDATE') {
-                setTasks(currentTasks => 
-                  currentTasks.map(task => 
-                    task.id === payload.new.id ? { ...task, ...payload.new } : task
-                  )
-                );
-              } else {
-                // Se houver mudança significativa, limpa cache e busca novamente
-                setCachedData(null);
-                fetchData();
-              }
-          })
-          .subscribe();
-        return () => supabase.removeChannel(channel);
-      }, [fetchData, user, supabase, shouldFetch, cachedData, setCachedData]);
+        // Se não tem cache ou está expirado, faz fetch apenas uma vez
+        if (!hasFetchedRef.current) {
+          hasFetchedRef.current = true;
+          fetchData();
+        }
+      }, [user]); // Apenas user como dependência - evita re-execução
 
       useEffect(() => {
         if (taskIdFromUrl && tasks.length > 0 && !isNewTask) {
@@ -503,50 +471,48 @@ import { executeAutomation } from '@/lib/workflow';
               {activeTab !== 'automations' && <Button onClick={handleNewTask}><Plus className="mr-2 h-4 w-4" /> Nova Tarefa</Button>}
             </div>
 
-            <AnimatePresence>
-              {activeTab !== 'automations' && activeTab !== 'schedule' && (
-                <motion.div initial={isFirstMount ? { opacity: 0, y: -20 } : false} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }} className="mt-4">
-                  <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                    <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
-                    <Select value={clientFilter} onValueChange={setClientFilter}>
-                      <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os Clientes</SelectItem>
-                        {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os Status</SelectItem>
-                        {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                      <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os Responsáveis</SelectItem>
-                        {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </motion.div>
-              )}
-              {activeTab === 'schedule' && (
-                <motion.div initial={isFirstMount ? { opacity: 0, y: -20 } : false} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }} className="mt-4">
-                  <div className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                    <Filter className="text-gray-500 dark:text-gray-400" />
-                    <Select value={scheduleClientFilter} onValueChange={setScheduleClientFilter}>
-                      <SelectTrigger className="w-full md:w-[220px] dark:bg-gray-800 dark:border-gray-700"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
-                      <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                        <SelectItem value="all">Todos os Clientes</SelectItem>
-                        {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {activeTab !== 'automations' && activeTab !== 'schedule' && (
+              <div className="mt-4">
+                <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                  <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
+                  <Select value={clientFilter} onValueChange={setClientFilter}>
+                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Clientes</SelectItem>
+                      {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Status</SelectItem>
+                      {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                    <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Responsáveis</SelectItem>
+                      {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            {activeTab === 'schedule' && (
+              <div className="mt-4">
+                <div className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                  <Filter className="text-gray-500 dark:text-gray-400" />
+                  <Select value={scheduleClientFilter} onValueChange={setScheduleClientFilter}>
+                    <SelectTrigger className="w-full md:w-[220px] dark:bg-gray-800 dark:border-gray-700"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
+                    <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
+                      <SelectItem value="all">Todos os Clientes</SelectItem>
+                      {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </div>
 
           <Tabs value={activeTab} className="w-full flex-grow flex flex-col overflow-hidden" onValueChange={handleTabChange}>

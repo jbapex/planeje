@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-    import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+    import { AnimatePresence } from 'framer-motion';
     import { Plus, Search, Filter, List, LayoutGrid, Trash2 } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
@@ -37,8 +37,6 @@ import React, { useState, useEffect, useCallback } from 'react';
       const [showDeleteAlert, setShowDeleteAlert] = useState(false);
       const [projectToDelete, setProjectToDelete] = useState(null);
       const [isFormOpen, setIsFormOpen] = useState(false);
-      const [isFirstMount, setIsFirstMount] = useState(true);
-
       const { toast } = useToast();
       const { user } = useAuth();
       const navigate = useNavigate();
@@ -47,13 +45,8 @@ import React, { useState, useEffect, useCallback } from 'react';
       // Hook de cache para prevenir re-fetch desnecessário
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache('projects');
       
-      // Marca primeira montagem para evitar animações em remount
-      useEffect(() => {
-        if (isFirstMount) {
-          const timer = setTimeout(() => setIsFirstMount(false), 100);
-          return () => clearTimeout(timer);
-        }
-      }, [isFirstMount]);
+      // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
+      const hasFetchedRef = useRef(false);
 
       useEffect(() => {
         const path = location.pathname;
@@ -103,19 +96,38 @@ import React, { useState, useEffect, useCallback } from 'react';
       }, [toast, setCachedData]);
 
       useEffect(() => {
-        // Se tem cache válido (últimos 30 segundos), usa ele
+        if (!user) return;
+        
+        // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+        if (hasFetchedRef.current) {
+          // Apenas sincroniza com cache se necessário, sem fazer fetch
+          if (!shouldFetch() && cachedData) {
+            setProjects(cachedData.projects);
+            setClients(cachedData.clients);
+            setTasks(cachedData.tasks);
+            setUsers(cachedData.users);
+            setLoading(false);
+          }
+          return;
+        }
+        
+        // Se tem cache válido, usa ele e marca como fetched
         if (!shouldFetch() && cachedData) {
           setProjects(cachedData.projects);
           setClients(cachedData.clients);
           setTasks(cachedData.tasks);
           setUsers(cachedData.users);
           setLoading(false);
-          return; // Não faz fetch!
+          hasFetchedRef.current = true;
+          return;
         }
 
-        // Se não tem cache ou está expirado, faz fetch
-        fetchData();
-      }, [fetchData, shouldFetch, cachedData, setCachedData]);
+        // Se não tem cache ou está expirado, faz fetch apenas uma vez
+        if (!hasFetchedRef.current) {
+          hasFetchedRef.current = true;
+          fetchData();
+        }
+      }, [user]); // Apenas user como dependência - evita re-execução
       
       const handleSaveProject = async (projectData, isNew) => {
         const dataToSave = { ...projectData, owner_id: user.id };
@@ -210,7 +222,7 @@ import React, { useState, useEffect, useCallback } from 'react';
             const progress = getProjectProgress(project.id);
             const assignees = getProjectAssignees(project.id);
             return (
-              <motion.div key={project.id} initial={isFirstMount ? { opacity: 0 } : false} animate={{ opacity: 1 }}>
+              <div key={project.id}>
                 <Card className="h-full flex flex-col dark:bg-gray-800 dark:border-gray-700">
                   <div className="flex-grow cursor-pointer" onClick={() => navigate(`/projects/${project.id}`)}>
                     <CardHeader>
@@ -254,7 +266,7 @@ import React, { useState, useEffect, useCallback } from 'react';
                       </Button>
                   </div>
                 </Card>
-              </motion.div>
+              </div>
             );
           })}
         </div>

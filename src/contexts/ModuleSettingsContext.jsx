@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -11,6 +11,8 @@ export const ModuleSettingsProvider = ({ children }) => {
   const [moduleAccess, setModuleAccess] = useState({});
   const [loading, setLoading] = useState(true);
   const { session, profile } = useAuth();
+  const hasFetchedRef = useRef(false);
+  const lastProfileIdRef = useRef(null);
 
   const fetchModuleSettings = useCallback(async () => {
     if (!profile?.id) {
@@ -20,7 +22,15 @@ export const ModuleSettingsProvider = ({ children }) => {
         return;
     }
 
-    setLoading(true);
+    // Se já fez fetch para este profile, não seta loading como true
+    if (hasFetchedRef.current && lastProfileIdRef.current === profile.id) {
+      return; // Não recarrega se já tem dados
+    }
+
+    // Só seta loading como true na primeira vez
+    if (!hasFetchedRef.current) {
+      setLoading(true);
+    }
 
     const { data: globalSettings, error: globalError } = await supabase
       .from('module_settings')
@@ -67,19 +77,28 @@ export const ModuleSettingsProvider = ({ children }) => {
     }, {}) || {};
     setModuleAccess(accessMap);
 
-
     setLoading(false);
+    hasFetchedRef.current = true;
+    lastProfileIdRef.current = profile.id;
   }, [profile?.id]);
 
   useEffect(() => {
-    if (session) {
-      fetchModuleSettings();
+    if (session && profile?.id) {
+      // Só faz fetch se mudou o profile ou é a primeira vez
+      if (!hasFetchedRef.current || lastProfileIdRef.current !== profile.id) {
+        fetchModuleSettings();
+      }
     } else {
-      setLoading(false);
-      setModuleSettings({});
-      setModuleAccess({});
+      // Se não tem session, só seta loading como false na primeira vez
+      if (loading) {
+        setLoading(false);
+        setModuleSettings({});
+        setModuleAccess({});
+      }
+      hasFetchedRef.current = false;
+      lastProfileIdRef.current = null;
     }
-  }, [session, fetchModuleSettings]);
+  }, [session, profile?.id]); // Removido fetchModuleSettings das dependências
 
   const value = {
     moduleSettings,

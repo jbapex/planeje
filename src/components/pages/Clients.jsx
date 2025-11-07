@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-    import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+    import { AnimatePresence } from 'framer-motion';
     import { Plus, List, LayoutGrid, Filter, Users as UsersIcon } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
@@ -33,20 +33,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
     ];
 
     const Clients = () => {
-      const [clients, setClients] = useState([]);
-      const [users, setUsers] = useState([]);
       const [viewMode, setViewMode] = useState('list');
       const [editingClient, setEditingClient] = useState(null);
       const [showProgress, setShowProgress] = useState(false);
       const [selectedClientForProgress, setSelectedClientForProgress] = useState(null);
       const [showDocument, setShowDocument] = useState(false);
       const [selectedClientForDoc, setSelectedClientForDoc] = useState(null);
-      const [loading, setLoading] = useState(true);
       const [etapaFilter, setEtapaFilter] = useState('all');
       const [etiquetaFilter, setEtiquetaFilter] = useState([]);
       const [selectedClients, setSelectedClients] = useState([]);
-      const [isFirstMount, setIsFirstMount] = useState(true);
-
       const { toast } = useToast();
       const { user, profile, loading: authLoading } = useAuth();
       const { moduleAccess } = useModuleSettings();
@@ -60,14 +55,19 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const cacheKey = `clients_${user?.id}_${userRole}_${clientsAccessLevel}`;
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache(cacheKey);
       
-      // Marca primeira montagem para evitar animações em remount
-      useEffect(() => {
-        if (isFirstMount) {
-          const timer = setTimeout(() => setIsFirstMount(false), 100);
-          return () => clearTimeout(timer);
-        }
-      }, [isFirstMount]);
-
+      // Ref para controlar se já fez o fetch inicial
+      const hasFetchedRef = useRef(false);
+      
+      // Verifica se tem cache válido (calculado uma vez)
+      const hasValidCache = useMemo(() => {
+        return cachedData && !shouldFetch();
+      }, [cachedData, shouldFetch]);
+      
+      // Inicializa estados - verifica cache imediatamente para evitar "Carregando"
+      const [clients, setClients] = useState(() => hasValidCache ? (cachedData?.clients || []) : []);
+      const [users, setUsers] = useState(() => hasValidCache ? (cachedData?.users || []) : []);
+      const [loading, setLoading] = useState(() => !hasValidCache); // false se tem cache, true se não tem
+      
       const fetchClients = useCallback(async () => {
         if (!user) return;
         setLoading(true);
@@ -99,17 +99,32 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       useEffect(() => {
         if (authLoading || !user) return;
         
-        // Se tem cache válido (últimos 30 segundos), usa ele
-        if (!shouldFetch() && cachedData) {
-          setClients(cachedData.clients);
-          setUsers(cachedData.users);
+        // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+        if (hasFetchedRef.current) {
+          // Apenas sincroniza com cache se necessário, sem fazer fetch
+          if (hasValidCache && cachedData) {
+            setClients(cachedData.clients || []);
+            setUsers(cachedData.users || []);
+            setLoading(false);
+          }
+          return;
+        }
+        
+        // Se tem cache válido, usa ele e marca como fetched
+        if (hasValidCache && cachedData) {
+          setClients(cachedData.clients || []);
+          setUsers(cachedData.users || []);
           setLoading(false);
-          return; // Não faz fetch!
+          hasFetchedRef.current = true;
+          return;
         }
 
-        // Se não tem cache ou está expirado, faz fetch
-        fetchClients();
-      }, [fetchClients, authLoading, user, shouldFetch, cachedData, setCachedData]);
+        // Se não tem cache ou está expirado, faz fetch apenas uma vez
+        if (!hasFetchedRef.current) {
+          hasFetchedRef.current = true;
+          fetchClients();
+        }
+      }, [authLoading, user]); // Apenas authLoading e user - evita re-execução
 
       useEffect(() => {
         if (clientIdFromUrl) {
@@ -253,41 +268,39 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             </Popover>
           </div>
 
-          <AnimatePresence mode="wait">
-            <motion.div key={viewMode} initial={isFirstMount ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-              {loading || authLoading ? <p className="text-center py-10 text-gray-700 dark:text-gray-300">Carregando clientes...</p> : 
-               filteredClients.length === 0 ? (
-                <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                  <UsersIcon className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={48} />
-                  <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 mb-2">Nenhum cliente encontrado</h3>
-                  <p className="text-gray-500 dark:text-gray-400 mb-6">{userRole === 'colaborador' ? 'Você ainda não é responsável por nenhum cliente.' : 'Tente ajustar os filtros ou adicione um novo cliente.'}</p>
-                </div>
-               ) :
-               viewMode === 'list' ? (
-                <ClientesLista 
-                  clients={filteredClients}
-                  users={users}
-                  onEdit={handleOpenForm} 
-                  onUpdateField={handleUpdateClientField}
-                  onAddClient={() => handleOpenForm()}
-                  onOpenDocument={handleOpenDocument}
-                  selectedClients={selectedClients}
-                  setSelectedClients={setSelectedClients}
-                  fetchClients={fetchClients}
-                  userRole={userRole}
-                />
-              ) : (
-                <ClientesCards 
-                  clients={filteredClients} 
-                  onEdit={handleOpenForm} 
-                  onProgress={handleOpenProgress}
-                  onOpenDocument={handleOpenDocument}
-                  fetchClients={fetchClients}
-                  userRole={userRole}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
+          <div key={viewMode}>
+            {loading || authLoading ? <p className="text-center py-10 text-gray-700 dark:text-gray-300">Carregando clientes...</p> : 
+             filteredClients.length === 0 ? (
+              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                <UsersIcon className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={48} />
+                <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 mb-2">Nenhum cliente encontrado</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-6">{userRole === 'colaborador' ? 'Você ainda não é responsável por nenhum cliente.' : 'Tente ajustar os filtros ou adicione um novo cliente.'}</p>
+              </div>
+             ) :
+             viewMode === 'list' ? (
+              <ClientesLista 
+                clients={filteredClients}
+                users={users}
+                onEdit={handleOpenForm} 
+                onUpdateField={handleUpdateClientField}
+                onAddClient={() => handleOpenForm()}
+                onOpenDocument={handleOpenDocument}
+                selectedClients={selectedClients}
+                setSelectedClients={setSelectedClients}
+                fetchClients={fetchClients}
+                userRole={userRole}
+              />
+            ) : (
+              <ClientesCards 
+                clients={filteredClients} 
+                onEdit={handleOpenForm} 
+                onProgress={handleOpenProgress}
+                onOpenDocument={handleOpenDocument}
+                fetchClients={fetchClients}
+                userRole={userRole}
+              />
+            )}
+          </div>
 
           <AnimatePresence>
             {isFormOpen && <ClientForm client={editingClient} users={users} onSave={handleSaveClient} onClose={handleCloseForm} />}

@@ -23,7 +23,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <>
     <HashRouter>
       <MotionConfig reducedMotion="always">
-        <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false }}>
+        <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false, revalidateOnMount: false }}>
           <AuthProvider>
             <ModuleSettingsProvider>
               <App />
