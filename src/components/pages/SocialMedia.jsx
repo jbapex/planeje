@@ -103,12 +103,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 
       const TaskCard = ({ task }) => {
         const status = statusOptions.find(s => s.value === task.status);
+        const statusColor = status?.color || '#6B7280'; // Fallback para cinza se não tiver cor
         return (
           <Card onClick={() => handleOpenTask(task)} className="cursor-pointer hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700">
             <CardContent className="p-4">
               <div className="flex justify-between items-start">
                 <p className="font-semibold dark:text-white">{task.title}</p>
-                {status && <Badge style={{ backgroundColor: status.color.startsWith('#') ? status.color : '' }} className={`${!status.color.startsWith('#') ? status.color : ''} text-white`}>{status.label}</Badge>}
+                {status && <Badge style={{ backgroundColor: statusColor.startsWith('#') ? statusColor : '#6B7280' }} className={`${!statusColor.startsWith('#') ? statusColor : ''} text-white`}>{status.label}</Badge>}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">{task.projetos?.name}</p>
               <div className="flex items-center justify-between mt-2 text-sm text-gray-500 dark:text-gray-400">

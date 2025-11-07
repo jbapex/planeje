@@ -94,7 +94,7 @@ import React, { useState, useRef, useEffect } from 'react';
                 onDragOver={(e) => handleDragOver(e, status.value)}
                 className={`w-80 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow-sm transition-colors flex flex-col ${dragOverColumn === status.value ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
               >
-                <div className="p-3 rounded-t-lg flex-shrink-0" style={{ backgroundColor: status.color }}>
+                <div className="p-3 rounded-t-lg flex-shrink-0" style={{ backgroundColor: status.color || '#6B7280' }}>
                   <h3 className="font-semibold text-white">{status.label} ({tasks.filter(t => t.status === status.value).length})</h3>
                 </div>
                 <div className="flex-grow space-y-3 p-3 overflow-y-auto min-h-0">

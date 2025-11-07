@@ -58,7 +58,7 @@ import React, { useState, useEffect, useCallback } from 'react';
                 ) : (
                     <>
                         <GripVertical className="h-5 w-5 text-gray-400 cursor-grab" />
-                        <div className={`w-4 h-4 rounded-full`} style={{ backgroundColor: status.color }} />
+                        <div className={`w-4 h-4 rounded-full`} style={{ backgroundColor: status.color || '#6B7280' }} />
                         <span className="flex-grow dark:text-white">{status.label}</span>
                         <Button variant="ghost" size="icon" className="h-8 w-8 dark:text-gray-300 dark:hover:bg-gray-700" onClick={() => onSetWorkflowRule(status)}><Settings2 className="h-4 w-4" /></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8 dark:text-gray-300 dark:hover:bg-gray-700" onClick={() => setIsEditing(true)}><Edit className="h-4 w-4" /></Button>

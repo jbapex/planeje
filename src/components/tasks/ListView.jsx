@@ -31,11 +31,12 @@ import React from 'react';
                 {tasks.map(task => {
                     const statusInfo = statusOptions.find(s => s.value === task.status) || {};
                     const assignees = getAssignees(task.assignee_ids);
-                    const textColor = getTextColor(statusInfo.color);
+                    const statusColor = statusInfo.color || '#6B7280'; // Fallback para cinza se não tiver cor
+                    const textColor = getTextColor(statusColor);
 
                     const statusBadge = (
                         <Badge
-                            style={{ backgroundColor: statusInfo.color, color: textColor }}
+                            style={{ backgroundColor: statusColor, color: textColor }}
                             className="whitespace-nowrap border-transparent text-xs"
                         >
                             {statusInfo.label || task.status}
@@ -91,10 +92,11 @@ import React from 'react';
             {tasks.map(task => {
               const statusInfo = statusOptions.find(s => s.value === task.status) || {};
               const assignees = getAssignees(task.assignee_ids);
+              const statusColor = statusInfo.color || '#6B7280'; // Fallback para cinza se não tiver cor
               
               const statusBadge = (
                 <Badge 
-                  style={{ backgroundColor: statusInfo.color, color: getTextColor(statusInfo.color) }} 
+                  style={{ backgroundColor: statusColor, color: getTextColor(statusColor) }} 
                   className="whitespace-nowrap border-transparent text-xs"
                 >
                   {statusInfo.label || task.status}
@@ -110,7 +112,7 @@ import React from 'react';
                 >
                   <div 
                     className="flex bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm items-center justify-between border-l-4"
-                    style={{ borderColor: statusInfo.color || 'transparent' }}
+                    style={{ borderColor: statusColor || 'transparent' }}
                   >
                     <div className="flex items-center gap-3 flex-grow cursor-pointer" onClick={() => onOpenTask(task)}>
                        {statusBadge}

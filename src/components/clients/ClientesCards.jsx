@@ -44,7 +44,7 @@ import React from 'react';
       };
 
       return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-6">
           {clients.map(client => {
             const etapaInfo = ETAPAS.find(e => e.value === client.etapa) || ETAPAS[0];
             const primaryLogo = client.logo_urls && client.logo_urls.length > 0 ? client.logo_urls[0] : null;
@@ -52,25 +52,25 @@ import React from 'react';
             return (
               <motion.div key={client.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                 <Card className="dark:bg-gray-800 dark:border-gray-700 flex flex-col h-full">
-                  <CardHeader>
+                  <CardHeader className="p-3 md:p-6">
                     <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-4">
-                        <Avatar className="h-12 w-12">
+                      <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                        <Avatar className="h-8 w-8 md:h-12 md:w-12 flex-shrink-0">
                             <AvatarImage src={primaryLogo} alt={client.empresa} />
                             <AvatarFallback className="bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                <Building size={24} />
+                                <Building size={16} className="md:w-6 md:h-6" />
                             </AvatarFallback>
                         </Avatar>
-                        <div>
-                          <CardTitle className="dark:text-white">{client.empresa}</CardTitle>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{client.nome_contato}</p>
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="dark:text-white text-sm md:text-base truncate">{client.empresa}</CardTitle>
+                          <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate">{client.nome_contato}</p>
                         </div>
                       </div>
                       {(userRole === 'superadmin' || userRole === 'admin') && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <MoreHorizontal className="h-4 w-4" />
+                            <Button variant="ghost" className="h-7 w-7 md:h-8 md:w-8 p-0 flex-shrink-0">
+                              <MoreHorizontal className="h-3.5 w-3.5 md:h-4 md:w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="dark:bg-gray-800 dark:border-gray-700">
@@ -99,26 +99,26 @@ import React from 'react';
                       )}
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-2 flex-grow">
+                  <CardContent className="space-y-1.5 md:space-y-2 flex-grow p-3 md:p-6 pt-0">
                     {canViewField('tipo_contrato') && (
-                      <div className="text-sm dark:text-gray-300">
-                        <span className="font-medium">Contrato: </span>{client.tipo_contrato || '-'}
+                      <div className="text-xs md:text-sm dark:text-gray-300">
+                        <span className="font-medium">Contrato: </span><span className="truncate">{client.tipo_contrato || '-'}</span>
                       </div>
                     )}
                     {canViewField('valor') && (
-                      <div className="text-sm dark:text-gray-300">
+                      <div className="text-xs md:text-sm dark:text-gray-300">
                         <span className="font-medium">Valor: </span>
                         {client.valor ? `R$ ${parseFloat(client.valor).toFixed(2)}` : '-'}
                       </div>
                     )}
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${etapaInfo.color}`}></span>
-                      <span className="text-sm dark:text-gray-300">{etapaInfo.label}</span>
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                      <span className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full ${etapaInfo.color}`}></span>
+                      <span className="text-xs md:text-sm dark:text-gray-300">{etapaInfo.label}</span>
                     </div>
                   </CardContent>
-                  <CardFooter>
-                    <Button variant="outline" className="w-full dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600" onClick={() => onProgress(client)}>
-                      <BarChart className="mr-2 h-4 w-4" /> Ver Progresso
+                  <CardFooter className="p-3 md:p-6 pt-0">
+                    <Button variant="outline" className="w-full dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600 text-xs md:text-sm h-8 md:h-10" onClick={() => onProgress(client)}>
+                      <BarChart className="mr-2 h-3 w-3 md:h-4 md:w-4" /> Ver Progresso
                     </Button>
                   </CardFooter>
                 </Card>

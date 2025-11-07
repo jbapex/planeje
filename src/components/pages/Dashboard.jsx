@@ -101,10 +101,49 @@ const Dashboard = () => {
   
   // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
   const hasFetchedRef = useRef(false);
+  const [dashboardConfig, setDashboardConfig] = useState(null);
+  
+  // Carrega configuração do dashboard
+  useEffect(() => {
+    const loadDashboardConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('public_config')
+          .select('key, value')
+          .eq('key', 'dashboard_status_config')
+          .maybeSingle();
+        
+        if (error) throw error;
+        
+        if (data?.value) {
+          setDashboardConfig(JSON.parse(data.value));
+        } else {
+          // Valores padrão
+          setDashboardConfig({
+            executed: ['published'],
+            overdueExclude: ['published', 'scheduled', 'concluido'],
+            today: [],
+            upcoming: [],
+          });
+        }
+      } catch (e) {
+        console.warn('Erro ao carregar configuração do dashboard:', e);
+        // Valores padrão em caso de erro
+        setDashboardConfig({
+          executed: ['published'],
+          overdueExclude: ['published', 'scheduled', 'concluido'],
+          today: [],
+          upcoming: [],
+        });
+      }
+    };
+    
+    loadDashboardConfig();
+  }, []);
   
   useEffect(() => {
     const fetchData = async () => {
-      if (!user) return;
+      if (!user || !dashboardConfig) return; // Aguarda a configuração carregar
       
       // Se já tem cache válido, não faz fetch
       if (!shouldFetch() && cachedData) {
@@ -150,29 +189,58 @@ const Dashboard = () => {
         weekStartsOn: 1
       });
       const next7Days = addDays(today, 7);
-      const executed = tasks.filter(t => t.status === 'published' && isWithinInterval(new Date(t.due_date), {
-        start: startOfThisWeek,
-        end: endOfThisWeek
-      })).length;
-      const overdue = tasks.filter(t => !['published', 'scheduled', 'concluido'].includes(t.status) && isPast(new Date(t.due_date)) && !isToday(new Date(t.due_date))).length;
-      const todayTasks = tasks.filter(t => isToday(new Date(t.due_date))).length;
-      const upcoming = tasks.filter(t => isWithinInterval(new Date(t.due_date), {
-        start: addDays(today, 1),
-        end: next7Days
-      })).length;
+      
+      // Usa configuração do dashboard
+      const executedStatuses = dashboardConfig.executed || ['published'];
+      const overdueExcludeStatuses = dashboardConfig.overdueExclude || ['published', 'scheduled', 'concluido'];
+      const todayStatuses = dashboardConfig.today || []; // Vazio = todos
+      const upcomingStatuses = dashboardConfig.upcoming || []; // Vazio = todos
+      
+      const executed = tasks.filter(t => {
+        if (!t.due_date) return false;
+        if (!executedStatuses.includes(t.status)) return false;
+        return isWithinInterval(new Date(t.due_date), {
+          start: startOfThisWeek,
+          end: endOfThisWeek
+        });
+      }).length;
+      
+      const overdue = tasks.filter(t => {
+        if (!t.due_date) return false; // Ignora tarefas sem data de vencimento
+        if (overdueExcludeStatuses.includes(t.status)) return false;
+        const dueDate = new Date(t.due_date);
+        return isPast(dueDate) && !isToday(dueDate);
+      }).length;
+      
+      const todayTasks = tasks.filter(t => {
+        if (!t.due_date) return false;
+        if (todayStatuses.length > 0 && !todayStatuses.includes(t.status)) return false;
+        return isToday(new Date(t.due_date));
+      }).length;
+      
+      const upcoming = tasks.filter(t => {
+        if (!t.due_date) return false;
+        if (upcomingStatuses.length > 0 && !upcomingStatuses.includes(t.status)) return false;
+        return isWithinInterval(new Date(t.due_date), {
+          start: addDays(today, 1),
+          end: next7Days
+        });
+      }).length;
       setStats({
         executed,
         overdue,
         today: todayTasks,
         upcoming
       });
-      const activeTasks = tasks.filter(t => !['published', 'scheduled', 'concluido'].includes(t.status));
+      const activeTasks = tasks.filter(t => !overdueExcludeStatuses.includes(t.status));
       const scoredTasks = activeTasks.map(task => {
         let score = 0;
-        const dueDate = new Date(task.due_date);
-        if (isPast(dueDate) && !isToday(dueDate)) score += 10;
-        const daysToDue = differenceInDays(dueDate, today);
-        if (daysToDue >= 0 && daysToDue <= 3) score += 5;
+        if (task.due_date) {
+          const dueDate = new Date(task.due_date);
+          if (isPast(dueDate) && !isToday(dueDate)) score += 10;
+          const daysToDue = differenceInDays(dueDate, today);
+          if (daysToDue >= 0 && daysToDue <= 3) score += 5;
+        }
         if (['em_revisao', 'pendente', 'bloqueado'].includes(task.status)) score += 3;
         if (task.priority === 'alta') score += 4;
         if (task.priority === 'media') score += 2;
@@ -185,7 +253,7 @@ const Dashboard = () => {
       const newAlerts = [];
       if (profile?.role !== 'colaborador') {
         clients.forEach(client => {
-          const hasFuturePosts = tasks.some(t => t.client_id === client.id && isWithinInterval(new Date(t.due_date), {
+          const hasFuturePosts = tasks.some(t => t.client_id === client.id && t.due_date && isWithinInterval(new Date(t.due_date), {
             start: today,
             end: addDays(today, 3)
           }));
@@ -214,7 +282,7 @@ const Dashboard = () => {
         });
       }
       tasks.forEach(task => {
-        if (isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && !['published', 'scheduled', 'concluido'].includes(task.status)) {
+        if (task.due_date && isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && !overdueExcludeStatuses.includes(task.status)) {
           newAlerts.push({
             type: 'overdue_task',
             text: task.title,
@@ -261,12 +329,15 @@ const Dashboard = () => {
       return;
     }
     
-    // Se não tem cache, faz fetch apenas uma vez
-    if (!hasFetchedRef.current) {
+    // Se não tem cache e a configuração está carregada, faz fetch apenas uma vez
+    if (!hasFetchedRef.current && dashboardConfig) {
       hasFetchedRef.current = true;
       fetchData();
+    } else if (dashboardConfig && hasFetchedRef.current && !cachedData) {
+      // Se a configuração mudou e não tem cache, refaz o fetch
+      hasFetchedRef.current = false;
     }
-  }, [user, profile]); // Apenas user e profile - evita re-execução
+  }, [user, profile, dashboardConfig]); // Inclui dashboardConfig nas dependências
   
   const handleNotImplemented = () => toast({
     description: "🚧 Funcionalidade não implementada! Você pode solicitar no próximo prompt! 🚀"

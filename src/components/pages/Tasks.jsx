@@ -499,21 +499,21 @@ import { executeAutomation } from '@/lib/workflow';
                       <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                         <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
                         <Select value={clientFilter} onValueChange={setClientFilter}>
-                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
+                          <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Todos os Clientes</SelectItem>
                             {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.empresa}</SelectItem>)}
                           </SelectContent>
                         </Select>
                         <Select value={statusFilter} onValueChange={setStatusFilter}>
-                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
+                          <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Todos os Status</SelectItem>
                             {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                           </SelectContent>
                         </Select>
                         <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                          <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
+                          <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Todos os Responsáveis</SelectItem>
                             {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}

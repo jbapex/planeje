@@ -246,25 +246,25 @@ import React, { useMemo, useState } from 'react';
             </Table>
           </div>
 
-          <div className="md:hidden space-y-4 p-2">
+          <div className="md:hidden space-y-2 p-2">
             {clients.map(client => {
               const responsavelInfo = usersById[client.responsavel];
               const primaryLogo = client.logo_urls && client.logo_urls.length > 0 ? client.logo_urls[0] : null;
 
               return (
                 <Card key={client.id} className="dark:bg-gray-800 dark:border-gray-700">
-                  <CardHeader className="flex flex-row items-start justify-between pb-2">
-                    <div className="flex items-center gap-3">
-                      {(userRole === 'superadmin' || userRole === 'admin') && <Checkbox checked={selectedClients.includes(client.id)} onCheckedChange={(checked) => handleSelectRow(client.id, checked)} />}
-                      <Avatar className="h-10 w-10">
+                  <CardHeader className="flex flex-row items-start justify-between p-3 pb-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {(userRole === 'superadmin' || userRole === 'admin') && <Checkbox checked={selectedClients.includes(client.id)} onCheckedChange={(checked) => handleSelectRow(client.id, checked)} className="flex-shrink-0" />}
+                      <Avatar className="h-8 w-8 flex-shrink-0">
                         <AvatarImage src={primaryLogo} alt={client.empresa} />
-                        <AvatarFallback className="bg-gray-200 dark:bg-gray-700"><Building /></AvatarFallback>
+                        <AvatarFallback className="bg-gray-200 dark:bg-gray-700"><Building size={16} /></AvatarFallback>
                       </Avatar>
-                      <h3 className="font-semibold dark:text-white">{client.empresa}</h3>
+                      <h3 className="font-semibold dark:text-white text-sm truncate flex-1 min-w-0">{client.empresa}</h3>
                     </div>
                     {(userRole === 'superadmin' || userRole === 'admin') && (
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild><Button variant="ghost" className="h-6 w-6 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" className="h-7 w-7 p-0 flex-shrink-0"><MoreHorizontal className="h-3.5 w-3.5" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="dark:bg-gray-800 dark:border-gray-700">
                           <DropdownMenuItem onClick={() => onEdit(client)} className="dark:text-white dark:hover:bg-gray-700"><Edit className="mr-2 h-4 w-4" /> Editar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => onOpenDocument(client)} className="dark:text-white dark:hover:bg-gray-700"><FileText className="mr-2 h-4 w-4" /> Documento</DropdownMenuItem>
@@ -281,15 +281,15 @@ import React, { useMemo, useState } from 'react';
                       </DropdownMenu>
                     )}
                   </CardHeader>
-                  <CardContent className="space-y-3 text-sm ml-4 pl-11">
+                  <CardContent className="space-y-2 text-xs ml-2 pl-9">
                     <div><EtapaSelector value={client.etapa} onSelect={(val) => onUpdateField(client.id, 'etapa', val)} /></div>
-                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-                      <Avatar className="h-6 w-6"><AvatarImage src={responsavelInfo?.avatar_url} /><AvatarFallback className="text-xs">{responsavelInfo?.full_name ? responsavelInfo.full_name.charAt(0) : '?'}</AvatarFallback></Avatar>
+                    <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300">
+                      <Avatar className="h-5 w-5"><AvatarImage src={responsavelInfo?.avatar_url} /><AvatarFallback className="text-xs">{responsavelInfo?.full_name ? responsavelInfo.full_name.charAt(0) : '?'}</AvatarFallback></Avatar>
                       <span className="truncate">{responsavelInfo?.full_name || 'N/A'}</span>
                     </div>
-                    {canViewField('vencimento') && <div className="flex items-center gap-2"><Calendar className="h-4 w-4 text-gray-400" /><VencimentoCell value={client.vencimento} /></div>}
-                    {canViewField('valor') && <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-gray-400" /><span className="dark:text-gray-300">{client.valor ? parseFloat(client.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}</span></div>}
-                    <div className="flex items-center gap-2 flex-wrap"><Tag className="h-4 w-4 text-gray-400" />
+                    {canViewField('vencimento') && <div className="flex items-center gap-1.5"><Calendar className="h-3 w-3 text-gray-400" /><VencimentoCell value={client.vencimento} /></div>}
+                    {canViewField('valor') && <div className="flex items-center gap-1.5"><DollarSign className="h-3 w-3 text-gray-400" /><span className="dark:text-gray-300">{client.valor ? parseFloat(client.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}</span></div>}
+                    <div className="flex items-center gap-1.5 flex-wrap"><Tag className="h-3 w-3 text-gray-400" />
                       {client.etiquetas?.map(etiqueta => {
                         const etiquetaInfo = ETIQUETAS.find(e => e.value === etiqueta);
                         return etiquetaInfo ? <Badge key={etiqueta} variant="secondary" className={`${etiquetaInfo.color} text-xs`}>{etiquetaInfo.label}</Badge> : null;

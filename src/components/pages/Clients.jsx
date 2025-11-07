@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-    import { AnimatePresence } from 'framer-motion';
-    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon } from 'lucide-react';
+    import { AnimatePresence, motion } from 'framer-motion';
+    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
@@ -11,7 +11,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import ClientProgress from '@/components/clients/ClientProgress';
     import ClientesLista from '@/components/clients/ClientesLista';
     import ClientesCards from '@/components/clients/ClientesCards';
-    import ClientDocumentEditor from '@/components/clients/ClientDocumentEditor';
+    import ProjectDocuments from '@/components/projects/ProjectDocuments';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
     import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
@@ -309,7 +309,26 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
             {showProgress && selectedClientForProgress && <ClientProgress client={selectedClientForProgress} onClose={() => { setShowProgress(false); setSelectedClientForProgress(null); }} />}
           </AnimatePresence>
            <AnimatePresence>
-            {showDocument && selectedClientForDoc && <ClientDocumentEditor client={selectedClientForDoc} onSaveSuccess={fetchClients} onClose={() => { setShowDocument(false); setSelectedClientForDoc(null); }} />}
+            {showDocument && selectedClientForDoc && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-gray-50 dark:bg-gray-900 z-50 flex flex-col"
+              >
+                <div className="flex-1 overflow-hidden p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Documentos de: {selectedClientForDoc.empresa}</h2>
+                    <Button variant="ghost" size="icon" onClick={() => { setShowDocument(false); setSelectedClientForDoc(null); }}>
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 h-[calc(100vh-120px)]">
+                    <ProjectDocuments client={selectedClientForDoc} />
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       );
