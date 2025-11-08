@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { AnimatePresence, motion } from 'framer-motion';
-    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X } from 'lucide-react';
+    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, DollarSign } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
@@ -211,6 +211,24 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         });
       }, [clients, etapaFilter, etiquetaFilter]);
 
+      // Calcula estatísticas dos clientes filtrados (apenas para super admin)
+      const stats = useMemo(() => {
+        if (userRole !== 'superadmin') {
+          return { totalValue: 0, ativos: 0, perdidos: 0, negociacao: 0 };
+        }
+        
+        const totalValue = filteredClients.reduce((sum, client) => {
+          const valor = parseFloat(client.valor) || 0;
+          return sum + valor;
+        }, 0);
+        
+        const ativos = filteredClients.filter(c => c.etapa === 'closed').length;
+        const perdidos = filteredClients.filter(c => c.etapa === 'lost').length;
+        const negociacao = filteredClients.filter(c => c.etapa === 'negotiation').length;
+        
+        return { totalValue, ativos, perdidos, negociacao };
+      }, [filteredClients, userRole]);
+
       const isFormOpen = !!clientIdFromUrl;
 
       return (
@@ -233,6 +251,38 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
               </div>
             </div>
           </div>
+
+          {userRole === 'superadmin' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-sm p-4 text-white">
+                <p className="text-sm opacity-90">Valor Total Mensal</p>
+                <p className="text-2xl font-bold">
+                  R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs opacity-75 mt-1">
+                  {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'} {filteredClients.length !== clients.length && `(de ${clients.length} total)`}
+                </p>
+              </div>
+              
+              <div className="bg-gradient-to-r from-blue-500 to-cyan-600 rounded-lg shadow-sm p-4 text-white">
+                <p className="text-sm opacity-90">Clientes Ativos</p>
+                <p className="text-2xl font-bold">{stats.ativos}</p>
+                <p className="text-xs opacity-75 mt-1">Fechados</p>
+              </div>
+              
+              <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-lg shadow-sm p-4 text-white">
+                <p className="text-sm opacity-90">Em Negociação</p>
+                <p className="text-2xl font-bold">{stats.negociacao}</p>
+                <p className="text-xs opacity-75 mt-1">Em andamento</p>
+              </div>
+              
+              <div className="bg-gradient-to-r from-red-500 to-rose-600 rounded-lg shadow-sm p-4 text-white">
+                <p className="text-sm opacity-90">Clientes Perdidos</p>
+                <p className="text-2xl font-bold">{stats.perdidos}</p>
+                <p className="text-xs opacity-75 mt-1">Não fechados</p>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
             <Filter className="text-gray-500 dark:text-gray-400" />

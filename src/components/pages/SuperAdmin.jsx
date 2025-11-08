@@ -9,6 +9,7 @@ import React from 'react';
     import ChatLimitsManager from './ChatLimitsManager';
     import DiagnosticTemplatesManager from './DiagnosticTemplatesManager';
 import DashboardSettings from './DashboardSettings';
+import CompanyInfoSettings from './CompanyInfoSettings';
 import { LayoutDashboard } from 'lucide-react';
 
     const SuperAdmin = () => {
@@ -18,6 +19,7 @@ import { LayoutDashboard } from 'lucide-react';
             { path: '/super-admin/modules', label: 'Gerenciar Módulos', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/client-permissions', label: 'Permissões de Campos', icon: <ShieldCheck className="h-4 w-4" /> },
             { path: '/super-admin/dashboard-settings', label: 'Config. Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
+            { path: '/super-admin/company-info', label: 'Info. Empresa (IA)', icon: <Users className="h-4 w-4" /> },
             { path: '/super-admin/diagnostic-leads', label: 'Leads do Diagnóstico', icon: <BarChart2 className="h-4 w-4" /> },
             { path: '/super-admin/diagnostic-templates', label: 'Templates Diagnóstico', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/diagnostic-settings', label: 'Config. Diagnóstico', icon: <Settings className="h-4 w-4" /> },
@@ -56,6 +58,7 @@ import { LayoutDashboard } from 'lucide-react';
                         <Route path="modules" element={<ModuleManagement />} />
                         <Route path="client-permissions" element={<ClientFieldPermissions />} />
                         <Route path="dashboard-settings" element={<DashboardSettings />} />
+                        <Route path="company-info" element={<CompanyInfoSettings />} />
                         <Route path="diagnostic-leads" element={<DiagnosticLeads />} />
                         <Route path="diagnostic-templates" element={<DiagnosticTemplatesManager />} />
                         <Route path="diagnostic-settings" element={<DiagnosticSettings />} />

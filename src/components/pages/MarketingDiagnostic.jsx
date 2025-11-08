@@ -41,38 +41,41 @@ import React, { useState, useEffect } from 'react';
           initial="hidden"
           animate="visible"
           exit={{ opacity: 0, transition: { duration: 0.5 } }}
-          className="grid md:grid-cols-2 gap-16 items-center w-full"
+          className="flex flex-col md:grid md:grid-cols-2 gap-4 sm:gap-6 md:gap-8 lg:gap-16 items-center w-full px-4 sm:px-6 md:px-8"
         >
-          <div className="flex flex-col items-start text-left">
+          <motion.div variants={imageVariants} className="flex md:hidden justify-center items-center order-1">
+            <img className="max-h-[300px] sm:max-h-[400px] object-contain" alt="Futuristic AI robot head in a white hoodie" src={typeof window !== 'undefined' && window.__DIAG_IMAGE_URL__ ? window.__DIAG_IMAGE_URL__ : "https://images.unsplash.com/photo-1680355466499-39701c0be79f"} />
+          </motion.div>
+          <div className="flex flex-col items-start text-left w-full order-2 md:order-1">
             <motion.h1
               variants={itemVariants}
-              className="text-4xl md:text-5xl font-extrabold text-[#EDEDED] leading-tight"
+              className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-extrabold text-[#EDEDED] leading-tight"
               style={{ fontFamily: "'Poppins', sans-serif" }}
             >
               Descubra por que o seu <span className="text-[#00FF88]">marketing</span> não está vendendo como deveria.
             </motion.h1>
             <motion.p
               variants={itemVariants}
-              className="mt-6 text-lg text-[#A5A5A5]"
+              className="mt-3 sm:mt-4 md:mt-6 text-base sm:text-lg md:text-xl text-[#A5A5A5]"
               style={{ fontFamily: "'Inter', sans-serif" }}
             >
               Um diagnóstico rápido e inteligente que revela o que está travando o crescimento do seu negócio.
             </motion.p>
             
-            <motion.div variants={itemVariants} className="mt-12">
+            <motion.div variants={itemVariants} className="mt-6 sm:mt-8 md:mt-12 w-full sm:w-auto">
               <Button
                 size="lg"
                 onClick={onStart}
-                className="font-bold text-lg bg-[#00FF88] text-black rounded-lg px-8 py-6 transition-all duration-300 hover:bg-white hover:shadow-[0_0_20px_rgba(0,255,136,0.5)]"
+                className="w-full sm:w-auto font-bold text-base sm:text-lg md:text-xl bg-[#00FF88] text-black rounded-lg px-5 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 transition-all duration-300 hover:bg-white hover:shadow-[0_0_20px_rgba(0,255,136,0.5)]"
               >
                 Começar Diagnóstico
               </Button>
-              <p className="mt-4 text-sm text-[#6B6B6B]" style={{ fontFamily: "'Inter', sans-serif" }}>
+              <p className="mt-2 sm:mt-3 md:mt-4 text-sm sm:text-base text-[#6B6B6B]" style={{ fontFamily: "'Inter', sans-serif" }}>
                 Leva menos de 3 minutos.
               </p>
             </motion.div>
           </div>
-          <motion.div variants={imageVariants} className="hidden md:flex justify-center items-center">
+          <motion.div variants={imageVariants} className="hidden md:flex justify-center items-center order-2">
             <img className="max-h-[500px] object-contain" alt="Futuristic AI robot head in a white hoodie" src={typeof window !== 'undefined' && window.__DIAG_IMAGE_URL__ ? window.__DIAG_IMAGE_URL__ : "https://images.unsplash.com/photo-1680355466499-39701c0be79f"} />
           </motion.div>
         </motion.div>
@@ -147,9 +150,9 @@ import React, { useState, useEffect } from 'react';
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.5 }}
-          className="w-full max-w-2xl mx-auto"
+          className="w-full max-w-2xl mx-auto px-2 sm:px-4"
         >
-          <div className="w-full bg-gray-800 rounded-full h-1.5 mb-8">
+          <div className="w-full bg-gray-800 rounded-full h-1.5 mb-4 sm:mb-6 md:mb-8">
             <motion.div
               className="bg-[#007BFF] h-1.5 rounded-full"
               style={{ boxShadow: '0 0 8px #007BFF' }}
@@ -159,7 +162,7 @@ import React, { useState, useEffect } from 'react';
             />
           </div>
           
-          <div className="relative h-96 overflow-hidden">
+          <div className="relative min-h-[250px] sm:min-h-[300px] md:min-h-[400px] lg:h-96 overflow-visible">
             <AnimatePresence initial={false} custom={direction}>
               <motion.div
                 key={currentQuestionIndex}
@@ -174,33 +177,33 @@ import React, { useState, useEffect } from 'react';
                 }}
                 className="absolute w-full flex flex-col items-center"
               >
-                <h2 className="text-2xl font-semibold text-center text-[#EDEDED] mb-8" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-semibold text-center text-[#EDEDED] mb-4 sm:mb-6 md:mb-8 px-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
                   {currentQuestion.question}
                 </h2>
                 {currentQuestion.type === 'open' ? (
-                    <div className="w-full flex flex-col items-center gap-4">
+                    <div className="w-full flex flex-col items-center gap-3 sm:gap-4 px-2">
                         <Textarea
                             value={openAnswer}
                             onChange={(e) => setOpenAnswer(e.target.value)}
                             maxLength={MAX_CHARS}
                             placeholder="Digite sua resposta aqui..."
-                            className="min-h-[150px] bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF]"
+                            className="w-full min-h-[100px] sm:min-h-[120px] md:min-h-[150px] bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF] text-base sm:text-lg"
                         />
                         <p className="w-full text-right text-sm text-gray-400">{openAnswer.length} / {MAX_CHARS}</p>
                         <Button
                             onClick={handleOpenAnswerSubmit}
-                            className="font-bold text-lg text-white rounded-[10px] px-8 py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
+                            className="w-full sm:w-auto font-bold text-base sm:text-lg md:text-xl text-white rounded-[10px] px-5 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
                         >
                             Continuar
                         </Button>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4 w-full px-2">
                     {currentQuestion.options.map((option) => (
                         <motion.button
                         key={option.text}
                         onClick={() => handleAnswer(option)}
-                        className="w-full text-left p-4 rounded-lg border border-gray-700 bg-gray-900/50 text-[#EDEDED] transition-all duration-200"
+                        className="w-full text-left p-2.5 sm:p-3 md:p-4 rounded-lg border border-gray-700 bg-gray-900/50 text-[#EDEDED] transition-all duration-200 text-sm sm:text-base md:text-lg"
                         whileHover={{ 
                             scale: 1.05, 
                             borderColor: '#007BFF', 
@@ -444,43 +447,43 @@ import React, { useState, useEffect } from 'react';
           initial="hidden"
           animate="visible"
           exit={{ opacity: 0, y: -20, transition: { duration: 0.5 } }}
-          className="w-full max-w-md mx-auto text-center"
+          className="w-full max-w-md mx-auto text-center px-2 sm:px-4"
         >
-          <motion.h1 variants={itemVariants} className="text-4xl font-bold text-[#EDEDED]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+          <motion.h1 variants={itemVariants} className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-[#EDEDED] px-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
             Seu diagnóstico está quase pronto.
           </motion.h1>
-          <motion.p variants={itemVariants} className="mt-4 text-lg text-[#A5A5A5]">
+          <motion.p variants={itemVariants} className="mt-2 sm:mt-3 md:mt-4 text-base sm:text-lg md:text-xl text-[#A5A5A5] px-2">
             Preencha seus dados para que a análise personalizada seja gerada e enviada corretamente. É rápido e seguro.
           </motion.p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-6 text-left">
+          <form onSubmit={handleSubmit} className="mt-4 sm:mt-6 md:mt-8 space-y-3 sm:space-y-4 md:space-y-6 text-left">
             <motion.div variants={itemVariants}>
-              <Label htmlFor="name" className="text-[#A5A5A5]">Nome completo</Label>
-              <Input id="name" name="name" required onChange={handleInputChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF]" />
+              <Label htmlFor="name" className="text-[#A5A5A5] text-base sm:text-lg">Nome completo</Label>
+              <Input id="name" name="name" required onChange={handleInputChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF] text-base sm:text-lg" />
             </motion.div>
             <motion.div variants={itemVariants}>
-              <Label htmlFor="instagram" className="text-[#A5A5A5]">@ do Instagram</Label>
-              <Input id="instagram" name="instagram" placeholder="@nomedousuario" required onChange={handleInputChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF]" />
+              <Label htmlFor="instagram" className="text-[#A5A5A5] text-base sm:text-lg">@ do Instagram</Label>
+              <Input id="instagram" name="instagram" placeholder="@nomedousuario" required onChange={handleInputChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF] text-base sm:text-lg" />
             </motion.div>
             <motion.div variants={itemVariants}>
-              <Label htmlFor="phone" className="text-[#A5A5A5]">WhatsApp</Label>
-              <PhoneInput id="phone" name="phone" required onAccept={handlePhoneChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF]" />
+              <Label htmlFor="phone" className="text-[#A5A5A5] text-base sm:text-lg">WhatsApp</Label>
+              <PhoneInput id="phone" name="phone" required onAccept={handlePhoneChange} className="mt-2 bg-white/5 border-[#1E1E1E] rounded-[10px] text-white focus:border-[#007BFF] text-base sm:text-lg" />
             </motion.div>
-            <motion.div variants={itemVariants} className="flex items-center space-x-2">
-              <Checkbox id="consent" name="consent" required onCheckedChange={(checked) => handleInputChange({ target: { name: 'consent', checked } })} className="data-[state=checked]:bg-[#007BFF] data-[state=checked]:text-white border-gray-600" />
-              <label htmlFor="consent" className="text-sm text-[#A5A5A5] leading-none">
+            <motion.div variants={itemVariants} className="flex items-start space-x-2 sm:space-x-3">
+              <Checkbox id="consent" name="consent" required onCheckedChange={(checked) => handleInputChange({ target: { name: 'consent', checked } })} className="data-[state=checked]:bg-[#007BFF] data-[state=checked]:text-white border-gray-600 mt-1 flex-shrink-0" />
+              <label htmlFor="consent" className="text-sm sm:text-base text-[#A5A5A5] leading-relaxed">
                 Autorizo o uso dos meus dados para receber meu diagnóstico e contato da JB APEX.
               </label>
             </motion.div>
-            <motion.div variants={itemVariants} className="text-center pt-4">
+            <motion.div variants={itemVariants} className="text-center pt-2 sm:pt-3 md:pt-4">
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full font-bold text-lg text-white rounded-[10px] px-8 py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
+                className="w-full font-bold text-base sm:text-lg md:text-xl text-white rounded-[10px] px-5 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
               >
                 {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Gerando seu diagnóstico...</> : 'Ver meu resultado'}
               </Button>
-              <p className="mt-4 text-xs text-gray-500/70">
+              <p className="mt-2 sm:mt-3 md:mt-4 text-sm text-gray-500/70 px-2">
                 Seus dados estão protegidos e nunca serão compartilhados com terceiros.
               </p>
             </motion.div>
@@ -515,20 +518,20 @@ import React, { useState, useEffect } from 'react';
                 initial="hidden"
                 animate="visible"
                 exit={{ opacity: 0 }}
-                className="w-full max-w-3xl mx-auto text-center text-[#EDEDED]"
+                className="w-full max-w-3xl mx-auto text-center text-[#EDEDED] pb-6 sm:pb-8 px-2 sm:px-4"
             >
-                <motion.div variants={itemVariants} className="flex justify-center items-center gap-4">
-                    <BrainCircuit className="w-10 h-10 text-[#00FF88]" />
-                    <h1 className="text-3xl md:text-4xl font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3 md:gap-4 px-2">
+                    <BrainCircuit className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 text-[#00FF88] flex-shrink-0" />
+                    <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
                         Aqui está o seu diagnóstico de marketing.
                     </h1>
                 </motion.div>
-                <motion.p variants={itemVariants} className="mt-4 text-lg text-[#A5A5A5]">
+                <motion.p variants={itemVariants} className="mt-2 sm:mt-3 md:mt-4 text-base sm:text-lg md:text-xl text-[#A5A5A5] px-2">
                     Analisamos suas respostas e identificamos o que pode estar travando o crescimento da sua empresa.
                 </motion.p>
 
-                <motion.div variants={itemVariants} className="my-12 flex flex-col items-center">
-                    <div className="relative w-48 h-48 flex items-center justify-center">
+                <motion.div variants={itemVariants} className="my-6 sm:my-8 md:my-12 flex flex-col items-center w-full">
+                    <div className="relative w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 lg:w-48 lg:h-48 flex items-center justify-center">
                         <svg className="absolute inset-0" viewBox="0 0 100 100">
                             <defs>
                                 <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -538,55 +541,72 @@ import React, { useState, useEffect } from 'react';
                             </defs>
                             <circle cx="50" cy="50" r="45" stroke="url(#gradient)" strokeWidth="5" fill="none" />
                         </svg>
-                        <motion.span className="text-6xl font-bold text-white">{rounded}</motion.span>
-                        <span className="absolute bottom-10 text-xl text-[#A5A5A5]">/ 100</span>
+                        <motion.span className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white">{rounded}</motion.span>
+                        <span className="absolute bottom-4 sm:bottom-6 md:bottom-8 lg:bottom-10 text-base sm:text-lg md:text-xl lg:text-2xl text-[#A5A5A5]">/ 100</span>
                     </div>
-                    <p className="mt-4 text-lg text-left text-[#A5A5A5] whitespace-pre-wrap">
-                        {data.feedbackText}
-                    </p>
+                    <div className="mt-3 sm:mt-4 md:mt-6 text-sm sm:text-base md:text-lg lg:text-xl text-left text-[#A5A5A5] px-2 w-full">
+                        <div className="leading-6 sm:leading-7 md:leading-8">
+                            {data.feedbackText
+                                .split(/\n\n|\n/)
+                                .filter(paragraph => paragraph.trim())
+                                .map((paragraph, paragraphIndex) => (
+                                    <p key={paragraphIndex} className={paragraphIndex > 0 ? "mt-4 sm:mt-5" : ""}>
+                                        {paragraph
+                                            .split(/\.(?=\s|$)/)
+                                            .filter(sentence => sentence.trim())
+                                            .map((sentence, sentenceIndex, sentenceArray) => (
+                                                <span key={sentenceIndex}>
+                                                    {sentence.trim()}
+                                                    {sentenceIndex < sentenceArray.length - 1 && '.'}
+                                                    {sentenceIndex < sentenceArray.length - 1 && <br className="mb-1" />}
+                                                </span>
+                                            ))}
+                                    </p>
+                                ))}
+                        </div>
+                    </div>
                 </motion.div>
 
-                <motion.div variants={itemVariants}>
-                    <h2 className="text-2xl font-semibold mb-6">Principais Travamentos Encontrados:</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
+                <motion.div variants={itemVariants} className="w-full">
+                    <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-semibold mb-3 sm:mb-4 md:mb-6 px-2">Principais Travamentos Encontrados:</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3 md:gap-4 text-left">
                         {data.travas.map((item, index) => {
                             return (
                                 <motion.div
                                     key={index}
                                     custom={index}
                                     variants={itemVariants}
-                                    className="bg-white/5 border border-gray-800 rounded-lg p-4 flex items-center gap-4 transition-all duration-300 hover:border-[#007BFF] hover:shadow-[0_0_10px_rgba(0,123,255,0.5)]"
+                                    className="bg-white/5 border border-gray-800 rounded-lg p-2.5 sm:p-3 md:p-4 flex items-start sm:items-center gap-2 sm:gap-3 md:gap-4 transition-all duration-300 hover:border-[#007BFF] hover:shadow-[0_0_10px_rgba(0,123,255,0.5)]"
                                 >
-                                    <AlertTriangle className="w-8 h-8 text-[#00FF88] flex-shrink-0" />
-                                    <p className="text-base text-[#EDEDED]">{item}</p>
+                                    <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-[#00FF88] flex-shrink-0 mt-0.5 sm:mt-0" />
+                                    <p className="text-sm sm:text-base md:text-lg text-[#EDEDED]">{item}</p>
                                 </motion.div>
                             );
                         })}
                     </div>
                 </motion.div>
 
-                <motion.div variants={itemVariants} className="mt-12">
-                    <p className="text-xl text-white mb-6">Quer entender como corrigir esses pontos e acelerar seus resultados?</p>
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <motion.div variants={itemVariants} className="mt-6 sm:mt-8 md:mt-12 px-2">
+                    <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-white mb-3 sm:mb-4 md:mb-6">Quer entender como corrigir esses pontos e acelerar seus resultados?</p>
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 md:gap-4 justify-center">
                         <Button
                             size="lg"
                             onClick={() => window.open('https://wa.me/5541995252559?text=Olá!%20Quero%20entender%20meu%20diagnóstico%20e%20melhorar%20meu%20marketing.', '_blank')}
-                            className="font-bold text-lg text-white rounded-[10px] px-8 py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
+                            className="w-full sm:w-auto font-bold text-base sm:text-lg md:text-xl text-white rounded-[10px] px-5 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 transition-all duration-300 bg-gradient-to-r from-[#007BFF] to-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.7)]"
                         >
-                            <WhatsApp className="mr-2 h-5 w-5" />
                             Agendar Reunião com a JB APEX
                         </Button>
                         <Button
                             size="lg"
                             variant="outline"
                             onClick={onRestart}
-                            className="font-bold text-lg text-[#A5A5A5] border-[#A5A5A5] rounded-[10px] px-8 py-6 transition-all duration-300 hover:bg-white/10 hover:text-white"
+                            className="w-full sm:w-auto font-bold text-base sm:text-lg md:text-xl text-[#A5A5A5] border-[#A5A5A5] rounded-[10px] px-5 sm:px-6 md:px-8 py-3 sm:py-4 md:py-6 transition-all duration-300 hover:bg-white/10 hover:text-white"
                         >
                             Refazer Diagnóstico
                         </Button>
                     </div>
                 </motion.div>
-                <motion.p variants={itemVariants} className="mt-16 text-sm text-gray-600">
+                <motion.p variants={itemVariants} className="mt-6 sm:mt-8 md:mt-12 lg:mt-16 text-sm text-gray-600">
                     © {new Date().getFullYear()} JB APEX — Estratégia, Inteligência e Resultados Reais.
                 </motion.p>
             </motion.div>
@@ -702,15 +722,35 @@ import React, { useState, useEffect } from 'react';
         loadQuestions();
       }, [searchParams]);
 
+      useEffect(() => {
+        // Permite scroll na página de diagnóstico
+        document.documentElement.style.overflow = 'auto';
+        document.body.style.overflow = 'auto';
+        document.documentElement.style.height = 'auto';
+        document.body.style.height = 'auto';
+        document.documentElement.style.maxHeight = 'none';
+        document.body.style.maxHeight = 'none';
+        
+        return () => {
+          // Restaura o comportamento padrão ao sair
+          document.documentElement.style.overflow = '';
+          document.body.style.overflow = '';
+          document.documentElement.style.height = '';
+          document.body.style.height = '';
+          document.documentElement.style.maxHeight = '';
+          document.body.style.maxHeight = '';
+        };
+      }, []);
+
       return (
         <>
           <Helmet>
             <title>Diagnóstico de Marketing - JB APEX</title>
             <meta name="description" content="Descubra por que seu marketing não está vendendo como deveria com nosso diagnóstico rápido e inteligente." />
           </Helmet>
-          <div className="min-h-screen w-full flex items-center justify-center p-4 bg-black overflow-hidden relative" style={{ background: 'radial-gradient(circle, #0F0F0F, #0A0A0A)' }}>
-            <div className="absolute inset-0 bg-green-glow opacity-50"></div>
-            <div className="max-w-6xl w-full px-4 md:px-8 z-10 flex justify-center">
+          <div className="min-h-screen w-full flex items-start justify-center pt-24 pb-1 sm:pt-32 sm:pb-2 md:pt-40 md:pb-4 bg-black relative" style={{ background: 'radial-gradient(circle, #0F0F0F, #0A0A0A)', overflowY: 'auto', height: 'auto' }}>
+            <div className="absolute inset-0 bg-green-glow opacity-50 pointer-events-none"></div>
+            <div className="max-w-6xl w-full px-1 sm:px-2 md:px-4 lg:px-8 z-10 flex justify-center pb-1 sm:pb-2 md:pb-4">
               <AnimatePresence mode="wait">
                 {step === 'welcome' && <WelcomeScreen onStart={handleStart} />}
                 {step === 'form' && !loadingQuestions && <FormScreen onFinish={handleFinishForm} questions={questions} />}

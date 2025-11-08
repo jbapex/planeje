@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-    import { Save, Sparkles, AlertTriangle, PlusCircle, Trash2, Edit, Check, Plus, FileText, Video, Target, Megaphone, Lightbulb, DollarSign, List, Calendar, Loader2, Wand2, Bot, FileDown } from 'lucide-react';
+    import { Save, Sparkles, AlertTriangle, PlusCircle, Trash2, Edit, Check, Plus, FileText, Video, Target, Megaphone, Lightbulb, DollarSign, List, Calendar, Loader2, Wand2, Bot, FileDown, BookOpen, Download } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Textarea } from '@/components/ui/textarea';
@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { motion } from 'framer-motion';
     import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
     import AiChatDialog from '@/components/projects/AiChatDialog';
     import jsPDF from 'jspdf';
     import autoTable from 'jspdf-autotable';
@@ -46,6 +47,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       const [refiningFieldInfo, setRefiningFieldInfo] = useState(null);
       const [profiles, setProfiles] = useState([]);
       const [isChatOpen, setIsChatOpen] = useState(false);
+      const [showDocumentSelector, setShowDocumentSelector] = useState(false);
+      const [availableDocuments, setAvailableDocuments] = useState([]);
+      const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
+      const [loadingDocuments, setLoadingDocuments] = useState(false);
       const { toast } = useToast();
       const { user, getOpenAIKey } = useAuth();
       const debounceTimeout = useRef(null);
@@ -212,10 +217,28 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         if (!currentPlan || !currentPlan.id) return;
 
         setIsSaving(true);
-        const { error } = await supabase.from('campaign_plans').update(currentPlan).eq('id', currentPlan.id);
+        
+        // Cria uma cópia do plano para evitar modificar o original
+        const planToSave = { ...currentPlan };
+        
+        // Remove contexto_ia se a coluna não existir (evita erro)
+        // O Supabase vai reclamar se a coluna não existir no schema
+        const { error } = await supabase.from('campaign_plans').update(planToSave).eq('id', currentPlan.id);
         
         if (error) {
-          toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+          // Se o erro for sobre contexto_ia, tenta salvar sem essa coluna
+          if (error.message.includes('contexto_ia')) {
+            const planWithoutContexto = { ...planToSave };
+            delete planWithoutContexto.contexto_ia;
+            const { error: retryError } = await supabase.from('campaign_plans').update(planWithoutContexto).eq('id', currentPlan.id);
+            if (retryError) {
+              toast({ title: "Erro ao salvar", description: retryError.message, variant: "destructive" });
+            } else {
+              toast({ title: "Salvo automaticamente!", duration: 2000 });
+            }
+          } else {
+            toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+          }
         } else {
           toast({ title: "Salvo automaticamente!", duration: 2000 });
         }
@@ -317,9 +340,159 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
           project_id: project.id,
           objetivo: '', estrategia_comunicacao: { mensagem_principal: '', tom_voz: '', gatilhos: '' }, conteudo_criativos: { fases: [] }, trafego_pago: { orcamento: '', publico: '', objetivo: '' }, materiais: [], cronograma: []
         };
-        const { data, error } = await supabase.from('campaign_plans').insert(newPlan).select().single();
-        if (error) toast({ title: "Erro ao criar formulário", description: error.message, variant: "destructive" });
-        else setPlan(data);
+        
+        // Tenta adicionar contexto_ia apenas se a coluna existir
+        // Se não existir, o Supabase vai ignorar e criar sem essa coluna
+        try {
+          const { data, error } = await supabase.from('campaign_plans').insert(newPlan).select().single();
+          if (error) {
+            // Se o erro for sobre contexto_ia, tenta novamente sem essa coluna
+            if (error.message.includes('contexto_ia')) {
+              const planWithoutContexto = { ...newPlan };
+              delete planWithoutContexto.contexto_ia;
+              const { data: retryData, error: retryError } = await supabase.from('campaign_plans').insert(planWithoutContexto).select().single();
+              if (retryError) {
+                toast({ title: "Erro ao criar formulário", description: retryError.message, variant: "destructive" });
+              } else {
+                setPlan(retryData);
+              }
+            } else {
+              toast({ title: "Erro ao criar formulário", description: error.message, variant: "destructive" });
+            }
+          } else {
+            setPlan(data);
+          }
+        } catch (err) {
+          // Fallback: tenta criar sem contexto_ia
+          const planWithoutContexto = { ...newPlan };
+          delete planWithoutContexto.contexto_ia;
+          const { data, error } = await supabase.from('campaign_plans').insert(planWithoutContexto).select().single();
+          if (error) {
+            toast({ title: "Erro ao criar formulário", description: error.message, variant: "destructive" });
+          } else {
+            setPlan(data);
+          }
+        }
+      };
+
+      const openDocumentSelector = async () => {
+        if (!client?.id) {
+          toast({ title: "Erro", description: "Cliente não encontrado.", variant: "destructive" });
+          return;
+        }
+
+        setLoadingDocuments(true);
+        setShowDocumentSelector(true);
+        setSelectedDocumentIds([]);
+
+        try {
+          // Busca todos os documentos do cliente da tabela client_documents
+          const { data: documents, error } = await supabase
+            .from('client_documents')
+            .select('id, title, content')
+            .eq('client_id', client.id)
+            .order('created_at', { ascending: false });
+
+          if (error) {
+            toast({ title: "Erro ao buscar documentos", description: error.message, variant: "destructive" });
+            setShowDocumentSelector(false);
+            return;
+          }
+
+          if (!documents || documents.length === 0) {
+            // Se não tem documentos na tabela, tenta o campo client_document
+            if (client?.client_document) {
+              const textContent = client.client_document
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .trim();
+              
+              if (textContent) {
+                handleUpdate('contexto_ia', textContent);
+                toast({ title: "Documento do cliente carregado!", description: "O contexto foi adicionado ao campo de contexto para IA." });
+              } else {
+                toast({ title: "Documento vazio", description: "O documento do cliente está vazio.", variant: "destructive" });
+              }
+            } else {
+              toast({ title: "Documento não encontrado", description: "Este cliente não possui documentos cadastrados.", variant: "destructive" });
+            }
+            setShowDocumentSelector(false);
+            return;
+          }
+
+          setAvailableDocuments(documents);
+        } catch (error) {
+          toast({ title: "Erro ao carregar documentos", description: error.message, variant: "destructive" });
+          setShowDocumentSelector(false);
+        } finally {
+          setLoadingDocuments(false);
+        }
+      };
+
+      const loadSelectedDocuments = () => {
+        if (selectedDocumentIds.length === 0) {
+          toast({ title: "Nenhum documento selecionado", description: "Por favor, selecione pelo menos um documento.", variant: "destructive" });
+          return;
+        }
+
+        // Filtra apenas os documentos selecionados
+        const selectedDocs = availableDocuments.filter(doc => selectedDocumentIds.includes(doc.id));
+
+        // Combina os documentos selecionados em um único texto
+        let combinedContent = '';
+        selectedDocs.forEach((doc) => {
+          const title = doc.title || 'Documento sem título';
+          let content = '';
+          
+          if (doc.content?.text_content) {
+            content = doc.content.text_content;
+          } else if (typeof doc.content === 'string') {
+            content = doc.content;
+          }
+          
+          // Remove tags HTML se houver
+          content = content
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim();
+          
+          if (content) {
+            if (combinedContent) combinedContent += '\n\n';
+            combinedContent += `=== ${title} ===\n${content}`;
+          }
+        });
+
+        if (combinedContent) {
+          // Se já tem conteúdo, adiciona ao final. Se não, substitui.
+          const currentContext = plan.contexto_ia || '';
+          const newContext = currentContext 
+            ? `${currentContext}\n\n${combinedContent}`
+            : combinedContent;
+          
+          handleUpdate('contexto_ia', newContext);
+          toast({ 
+            title: "Documentos carregados!", 
+            description: `${selectedDocs.length} ${selectedDocs.length === 1 ? 'documento foi' : 'documentos foram'} adicionados ao contexto.` 
+          });
+          setShowDocumentSelector(false);
+          setSelectedDocumentIds([]);
+        } else {
+          toast({ title: "Documentos vazios", description: "Os documentos selecionados estão vazios.", variant: "destructive" });
+        }
+      };
+
+      const toggleDocumentSelection = (docId) => {
+        setSelectedDocumentIds(prev => 
+          prev.includes(docId) 
+            ? prev.filter(id => id !== docId)
+            : [...prev, docId]
+        );
       };
 
       const handleUpdate = (field, value) => setPlan(p => ({ ...p, [field]: value }));
@@ -395,7 +568,34 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       };
 
       const generateWithAI = async (field, materialItem = null) => {
-        const baseContext = `Para uma campanha chamada "${project.name}" para o cliente "${client.empresa}", cujo público-alvo é "${client.publico_alvo}" e o tom de voz padrão é "${client.tom_de_voz}". O sobre a empresa é: "${client.sobre_empresa}". O objetivo da campanha é: "${plan.objetivo}". A mensagem principal é "${plan.estrategia_comunicacao?.mensagem_principal}".`;
+        // Busca informações da empresa (JB APEX) para incluir no contexto
+        let companyInfo = '';
+        try {
+          const { data } = await supabase
+            .from('public_config')
+            .select('value')
+            .eq('key', 'company_info_for_ai')
+            .maybeSingle();
+          if (data?.value) {
+            companyInfo = data.value;
+          }
+        } catch (e) {
+          console.warn('Não foi possível carregar informações da empresa:', e);
+        }
+
+        // Contexto base com informações do cliente e projeto
+        let baseContext = `Para uma campanha chamada "${project.name}" para o cliente "${client.empresa}", cujo público-alvo é "${client.publico_alvo}" e o tom de voz padrão é "${client.tom_de_voz}". O sobre a empresa é: "${client.sobre_empresa}". O objetivo da campanha é: "${plan.objetivo}". A mensagem principal é "${plan.estrategia_comunicacao?.mensagem_principal}".`;
+        
+        // Adiciona informações sobre a JB APEX se existirem
+        if (companyInfo && companyInfo.trim()) {
+          baseContext += `\n\nInformações sobre a JB APEX (agência responsável pela campanha): ${companyInfo}`;
+        }
+        
+        // Adiciona o contexto adicional da IA se existir
+        if (plan.contexto_ia && plan.contexto_ia.trim()) {
+          baseContext += `\n\nContexto adicional importante sobre o cliente: ${plan.contexto_ia}`;
+        }
+        
         let prompt = '';
 
         switch (field) {
@@ -540,6 +740,33 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         return (
           <>
             <div className="space-y-6">
+              <SectionCard icon={<BookOpen className="h-6 w-6 text-indigo-600" />} title="🤖 Contexto para IA">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Informações adicionais para a IA aprender sobre o cliente</Label>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={openDocumentSelector}
+                      className="flex items-center gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      Selecionar Documentos
+                    </Button>
+                  </div>
+                  <Textarea 
+                    value={plan.contexto_ia || ''} 
+                    onChange={e => handleUpdate('contexto_ia', e.target.value)}
+                    placeholder="Adicione informações importantes sobre o cliente, produtos, serviços, histórico, preferências, ou qualquer contexto relevante que a IA deve considerar ao gerar conteúdo para esta campanha..."
+                    rows={6}
+                    className="min-h-[150px]"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Este contexto será usado em todas as gerações de IA para criar conteúdo mais personalizado e alinhado com o cliente.
+                  </p>
+                </div>
+              </SectionCard>
+
               <SectionCard icon={<Target className="h-6 w-6 text-blue-600" />} title="📌 O Que Vamos Fazer? (Objetivo Principal)">
                   <div className="flex items-center justify-between"><label>Objetivo Principal</label><AiButtonGroup field="objetivo" content={plan.objetivo} /></div>
                   <Textarea value={plan.objetivo} onChange={e => handleUpdate('objetivo', e.target.value)} />
@@ -787,6 +1014,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
             {renderAlerts()}
             {renderRefineDialog()}
             {renderChat()}
+            <DocumentSelectorDialog
+              open={showDocumentSelector}
+              onOpenChange={setShowDocumentSelector}
+              documents={availableDocuments}
+              selectedIds={selectedDocumentIds}
+              onToggle={toggleDocumentSelection}
+              onLoad={loadSelectedDocuments}
+              loading={loadingDocuments}
+            />
           </>
         );
       }
@@ -827,9 +1063,83 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
             {renderAlerts()}
             {renderRefineDialog()}
             {renderChat()}
+            <DocumentSelectorDialog
+              open={showDocumentSelector}
+              onOpenChange={setShowDocumentSelector}
+              documents={availableDocuments}
+              selectedIds={selectedDocumentIds}
+              onToggle={toggleDocumentSelection}
+              onLoad={loadSelectedDocuments}
+              loading={loadingDocuments}
+            />
           </DialogContent>
         </Dialog>
       );
     };
+
+    const DocumentSelectorDialog = ({ open, onOpenChange, documents, selectedIds, onToggle, onLoad, loading }) => (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Selecionar Documentos para Contexto da IA</DialogTitle>
+            <DialogDescription>
+              Selecione quais documentos do cliente você deseja incluir no contexto para a IA. Os documentos selecionados serão adicionados ao campo de contexto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[50vh] overflow-y-auto">
+            {loading ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="ml-2">Carregando documentos...</span>
+              </div>
+            ) : documents.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">Nenhum documento encontrado.</p>
+            ) : (
+              documents.map((doc) => (
+                <div 
+                  key={doc.id} 
+                  className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                  onClick={() => onToggle(doc.id)}
+                >
+                  <Checkbox 
+                    checked={selectedIds.includes(doc.id)}
+                    onCheckedChange={() => onToggle(doc.id)}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-500" />
+                      <span className="font-medium dark:text-white">{doc.title || 'Documento sem título'}</span>
+                    </div>
+                    {doc.content?.text_content && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                        {doc.content.text_content.replace(/<[^>]*>/g, '').substring(0, 100)}...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={onLoad} disabled={selectedIds.length === 0 || loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Carregando...
+                </>
+              ) : (
+                <>
+                  Carregar {selectedIds.length} {selectedIds.length === 1 ? 'documento' : 'documentos'}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
 
     export default CampaignPlanner;

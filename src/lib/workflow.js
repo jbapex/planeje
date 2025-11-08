@@ -66,6 +66,26 @@ import { supabase } from '@/lib/customSupabaseClient';
       let updates = {};
       let hasAssigneeChanges = false;
 
+      // Verifica se há ação de remover assignees (tem prioridade sobre reassign_previous)
+      const removeAssigneeActions = actions.filter(a => a.type === 'remove_assignee');
+      const hasRemoveAllAction = removeAssigneeActions.some(a => 
+        (!a.config?.assignee_ids || 
+         (Array.isArray(a.config.assignee_ids) && a.config.assignee_ids.length === 0))
+      );
+      
+      // Coleta todos os IDs que devem ser removidos (de todas as ações remove_assignee)
+      const allIdsToRemove = new Set();
+      removeAssigneeActions.forEach(action => {
+        if (action.config?.assignee_ids && Array.isArray(action.config.assignee_ids) && action.config.assignee_ids.length > 0) {
+          action.config.assignee_ids.forEach(id => {
+            const idStr = String(id);
+            if (idStr && idStr !== 'null' && idStr !== 'undefined') {
+              allIdsToRemove.add(idStr);
+            }
+          });
+        }
+      });
+      
       // Processa todas as ações em sequência
       for (const action of actions) {
         const config = action.config || {};
@@ -136,14 +156,23 @@ import { supabase } from '@/lib/customSupabaseClient';
             }
             break;
           case 'reassign_previous':
-            if (config.from_status && task.status_history) {
+            // Só executa reassign_previous se:
+            // 1. NÃO houver uma ação de remover todos os assignees, E
+            // 2. O usuário que seria reatribuído NÃO está na lista de usuários a serem removidos
+            if (!hasRemoveAllAction && config.from_status && task.status_history) {
                 const historyReversed = [...(task.status_history || [])].reverse();
                 const previousEntry = historyReversed.find(h => h.status === config.from_status && h.user_id);
                 if (previousEntry && previousEntry.user_id) {
                     const newAssignee = String(previousEntry.user_id);
-                    if (JSON.stringify(currentAssignees) !== JSON.stringify([newAssignee])) {
-                      currentAssignees = [newAssignee];
-                      hasAssigneeChanges = true;
+                    // Verifica se o usuário que seria reatribuído não está na lista de remoção
+                    if (!allIdsToRemove.has(newAssignee)) {
+                      if (JSON.stringify(currentAssignees) !== JSON.stringify([newAssignee])) {
+                        currentAssignees = [newAssignee];
+                        hasAssigneeChanges = true;
+                      }
+                    } else {
+                      // Se o usuário está na lista de remoção, não reatribui
+                      console.log('Reassign previous blocked: user is in remove list', newAssignee);
                     }
                 }
             }

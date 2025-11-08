@@ -32,6 +32,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const [project, setProject] = useState(null);
       const [client, setClient] = useState(null);
       const [clients, setClients] = useState([]);
+      const [users, setUsers] = useState([]);
       const [tasks, setTasks] = useState([]);
       const [campaignPlan, setCampaignPlan] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -56,6 +57,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
         const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('*').eq('project_id', id);
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('*');
+        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
         const { data: planData, error: planError } = await supabase.from('campaign_plans').select('*').eq('project_id', projectData.id).maybeSingle();
         
         if (tasksError) {
@@ -63,6 +65,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         }
         if (clientsError) {
             toast({ title: 'Erro ao buscar clientes', description: clientsError.message, variant: 'destructive' });
+        }
+        if (usersError) {
+            toast({ title: 'Erro ao buscar usuários', description: usersError.message, variant: 'destructive' });
         }
         if (planError && planError.code !== 'PGRST116') {
           toast({ title: 'Erro ao buscar plano de campanha', description: planError.message, variant: 'destructive' });
@@ -74,6 +79,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           client: projectData.clientes,
           tasks: tasksData || [],
           clients: clientsData || [],
+          users: usersData || [],
           campaignPlan: planData
         };
         
@@ -82,6 +88,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         setClient(dataToCache.client);
         setTasks(dataToCache.tasks);
         setClients(dataToCache.clients);
+        setUsers(dataToCache.users);
         setCampaignPlan(dataToCache.campaignPlan);
 
         setLoading(false);
@@ -94,6 +101,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           setClient(cachedData.client);
           setTasks(cachedData.tasks);
           setClients(cachedData.clients);
+          setUsers(cachedData.users || []);
           setCampaignPlan(cachedData.campaignPlan);
           setLoading(false);
           return; // Não faz fetch!
@@ -188,7 +196,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           </Tabs>
           
           <AnimatePresence>
-            {showForm && <ProjectForm project={project} clients={clients} onSave={handleSaveProject} onClose={() => setShowForm(false)} />}
+            {showForm && (
+              <ProjectForm 
+                project={project} 
+                clients={clients} 
+                users={users}
+                onSave={handleSaveProject} 
+                onClose={() => setShowForm(false)} 
+              />
+            )}
           </AnimatePresence>
         </div>
       );

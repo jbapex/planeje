@@ -54,6 +54,12 @@ const MIGRATIONS = {
     GRANT ALL ON TABLE public.task_comments TO anon, authenticated, service_role;
     GRANT ALL ON TABLE public.task_subtasks TO anon, authenticated, service_role;
     GRANT ALL ON TABLE public.task_attachments TO anon, authenticated, service_role;
+  `,
+  '003_add_contexto_ia_to_campaign_plans': `
+    ALTER TABLE public.campaign_plans 
+    ADD COLUMN IF NOT EXISTS contexto_ia TEXT DEFAULT '';
+    
+    COMMENT ON COLUMN public.campaign_plans.contexto_ia IS 'Contexto adicional para a IA aprender sobre o cliente e gerar conteúdo personalizado';
   `
 };
 
