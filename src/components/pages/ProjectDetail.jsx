@@ -187,8 +187,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             <TabsContent value="funnel" forceMount={true} className={activeTab === 'funnel' ? '' : 'hidden'}>
                 <SalesFunnelBuilder project={project} client={client} campaignPlan={campaignPlan} onPlanUpdate={fetchData} />
             </TabsContent>
-             <TabsContent value="documents" forceMount={true} className={activeTab === 'documents' ? '' : 'hidden'}>
-                <ProjectDocuments client={client} />
+             <TabsContent value="documents" forceMount={true} className={activeTab === 'documents' ? 'flex flex-col min-h-0 h-[calc(100vh-280px)]' : 'hidden'}>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <ProjectDocuments client={client} />
+                </div>
             </TabsContent>
              <TabsContent value="checklist" forceMount={true} className={activeTab === 'checklist' ? '' : 'hidden'}>
                 <ChecklistGenerator project={project} fetchProjects={fetchData} isPage />
