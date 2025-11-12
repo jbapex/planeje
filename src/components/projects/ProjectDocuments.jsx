@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, IndentIncrease, IndentDecrease, Eraser, Palette } from 'lucide-react';
+import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, ArrowRight, ArrowLeft, Eraser, Palette } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -886,7 +886,7 @@ const ProjectDocuments = ({ client }) => {
                   className="h-8 w-8 p-0"
                   title="Diminuir recuo"
                 >
-                  <IndentDecrease className="h-4 w-4" />
+                  <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   type="button"
@@ -896,7 +896,7 @@ const ProjectDocuments = ({ client }) => {
                   className="h-8 w-8 p-0"
                   title="Aumentar recuo"
                 >
-                  <IndentIncrease className="h-4 w-4" />
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
               </div>
 

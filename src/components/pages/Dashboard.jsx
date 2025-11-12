@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lightbulb, Bell, CheckSquare, AlertTriangle, Clock, Calendar, ListChecks } from 'lucide-react';
+import { Lightbulb, Bell, CheckSquare, AlertTriangle, Clock, Calendar, ListChecks, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
@@ -16,8 +18,12 @@ const StatCard = ({
   subtitle,
   color,
   delay,
-  isFirstMount = true
-}) => <div className="bg-card dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
+  isFirstMount = true,
+  onClick
+}) => <div 
+    className={`bg-card dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow hover:scale-[1.02]' : ''}`}
+    onClick={onClick}
+  >
     <div className="flex items-start justify-between">
       <div className="space-y-1">
         <p className="text-xs font-semibold text-muted-foreground dark:text-gray-400 uppercase tracking-wider">{title}</p>
@@ -94,6 +100,9 @@ const Dashboard = () => {
   const [overdueTasksList, setOverdueTasksList] = useState([]);
   const [todayTasksList, setTodayTasksList] = useState([]);
   const [upcomingTasksList, setUpcomingTasksList] = useState([]);
+  const [executedTasksList, setExecutedTasksList] = useState([]);
+  const [selectedTaskType, setSelectedTaskType] = useState(null);
+  const [showTasksModal, setShowTasksModal] = useState(false);
   const today = new Date();
   const formattedDate = format(today, "EEEE, d 'de' MMMM", {
     locale: ptBR
@@ -200,14 +209,16 @@ const Dashboard = () => {
       const todayStatuses = dashboardConfig.today || []; // Vazio = todos
       const upcomingStatuses = dashboardConfig.upcoming || []; // Vazio = todos
       
-      const executed = tasks.filter(t => {
+      const executedTasks = tasks.filter(t => {
         if (!t.due_date) return false;
         if (!executedStatuses.includes(t.status)) return false;
         return isWithinInterval(new Date(t.due_date), {
           start: startOfThisWeek,
           end: endOfThisWeek
         });
-      }).length;
+      });
+      const executed = executedTasks.length;
+      setExecutedTasksList(executedTasks);
       
       const overdueTasks = tasks.filter(t => {
         if (!t.due_date) return false; // Ignora tarefas sem data de vencimento
@@ -352,30 +363,70 @@ const Dashboard = () => {
   const handleNotImplemented = () => toast({
     description: "🚧 Funcionalidade não implementada! Você pode solicitar no próximo prompt! 🚀"
   });
+
+  const handleOpenTasksModal = (type) => {
+    setSelectedTaskType(type);
+    setShowTasksModal(true);
+  };
+
+  const getTasksForType = (type) => {
+    switch(type) {
+      case 'executadas':
+        return executedTasksList;
+      case 'atrasadas':
+        return overdueTasksList;
+      case 'hoje':
+        return todayTasksList;
+      case 'proximas':
+        return upcomingTasksList;
+      default:
+        return [];
+    }
+  };
+
+  const getTitleForType = (type) => {
+    switch(type) {
+      case 'executadas':
+        return 'Tarefas Executadas (Esta Semana)';
+      case 'atrasadas':
+        return 'Tarefas Atrasadas';
+      case 'hoje':
+        return 'Tarefas para Hoje';
+      case 'proximas':
+        return 'Próximas Tarefas (7 dias)';
+      default:
+        return 'Tarefas';
+    }
+  };
+
   const statCardsData = [{
     title: 'Executadas',
     value: stats.executed,
     subtitle: 'Esta semana',
     icon: CheckSquare,
-    color: 'text-green-500'
+    color: 'text-green-500',
+    type: 'executadas'
   }, {
     title: 'Atrasadas',
     value: stats.overdue,
     subtitle: 'Requer atenção',
     icon: AlertTriangle,
-    color: 'text-red-500'
+    color: 'text-red-500',
+    type: 'atrasadas'
   }, {
     title: 'Hoje',
     value: stats.today,
     subtitle: 'Para postar',
     icon: Clock,
-    color: 'text-orange-500'
+    color: 'text-orange-500',
+    type: 'hoje'
   }, {
     title: 'Próximas',
     value: stats.upcoming,
     subtitle: '7 dias',
     icon: Calendar,
-    color: 'text-blue-500'
+    color: 'text-blue-500',
+    type: 'proximas'
   }];
   return <div className="space-y-8">
       <div>
@@ -388,7 +439,15 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCardsData.map((stat) => <StatCard key={stat.title} {...stat} delay={0} isFirstMount={false} />)}
+        {statCardsData.map((stat) => (
+          <StatCard 
+            key={stat.title} 
+            {...stat} 
+            delay={0} 
+            isFirstMount={false}
+            onClick={() => handleOpenTasksModal(stat.type)}
+          />
+        ))}
       </div>
 
       <DashboardAssistant
@@ -416,6 +475,92 @@ const Dashboard = () => {
           </InfoCard>
         </div>
       </div>
+
+      <Dialog open={showTasksModal} onOpenChange={setShowTasksModal}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedTaskType && (
+                <>
+                  {statCardsData.find(s => s.type === selectedTaskType)?.icon && (
+                    React.createElement(statCardsData.find(s => s.type === selectedTaskType).icon, {
+                      className: `${statCardsData.find(s => s.type === selectedTaskType).color} w-5 h-5`
+                    })
+                  )}
+                  {getTitleForType(selectedTaskType)}
+                </>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="flex-1 pr-4">
+            <div className="space-y-3">
+              {selectedTaskType && getTasksForType(selectedTaskType).length > 0 ? (
+                getTasksForType(selectedTaskType).map((task) => {
+                  const daysLate = task.due_date && selectedTaskType === 'atrasadas' 
+                    ? differenceInDays(today, new Date(task.due_date))
+                    : null;
+                  const dueDate = task.due_date 
+                    ? format(new Date(task.due_date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+                    : 'Sem data';
+                  
+                  return (
+                    <Card key={task.id} className="p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900 dark:text-white mb-1">
+                            {task.title}
+                          </h4>
+                          <div className="flex flex-wrap gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4" />
+                              {dueDate}
+                            </span>
+                            {task.clientes?.empresa && (
+                              <span className="flex items-center gap-1">
+                                <span>•</span>
+                                Cliente: {task.clientes.empresa}
+                              </span>
+                            )}
+                            {task.priority && (
+                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                task.priority === 'alta' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                                task.priority === 'media' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                              }`}>
+                                Prioridade: {task.priority}
+                              </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded text-xs capitalize ${
+                              task.status === 'published' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                              task.status === 'em_revisao' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                              task.status === 'pendente' ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400' :
+                              'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                            }`}>
+                              {task.status}
+                            </span>
+                            {daysLate !== null && daysLate > 0 && (
+                              <span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                                {daysLate} dia{daysLate > 1 ? 's' : ''} atrasado{daysLate > 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })
+              ) : (
+                <div className="text-center py-10">
+                  <ListChecks className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <p className="text-gray-600 dark:text-gray-400">
+                    Nenhuma tarefa encontrada nesta categoria.
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>;
 };
 export default Dashboard;

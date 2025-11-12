@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Bot, User, Send, Loader2, Mic, X } from 'lucide-react';
+import { Bot, User, Send, Loader2, Mic, X, ArrowRight, Maximize2, Minimize2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { motion } from 'framer-motion';
 import { format, differenceInDays } from 'date-fns';
@@ -15,31 +15,14 @@ const DashboardAssistant = ({ overdueTasks, todayTasks, upcomingTasks, alerts, s
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [showChat, setShowChat] = useState(false);
   const [currentAIMessage, setCurrentAIMessage] = useState('');
+  const [isExpanded, setIsExpanded] = useState(false);
   const scrollAreaRef = useRef(null);
   const aiMessageContainerRef = useRef(null);
   const { toast } = useToast();
   const { profile, getOpenAIKey } = useAuth();
 
-  useEffect(() => {
-    if (showChat && messages.length === 0) {
-      // Mensagem inicial com resumo
-      const summary = generateInitialSummary();
-      setMessages([{ role: 'assistant', content: summary }]);
-    }
-  }, [showChat]);
-
-  useEffect(() => {
-    if (scrollAreaRef.current && messages.length > 0) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }
-    }
-  }, [messages, isGenerating]);
-
-  const generateInitialSummary = () => {
+  const generateInitialSummary = useCallback(() => {
     let summary = `Olá! 👋 Sou seu assistente do dashboard. Aqui está um resumo do que precisa de atenção:\n\n`;
     
     if (overdueTasks && overdueTasks.length > 0) {
@@ -91,7 +74,29 @@ const DashboardAssistant = ({ overdueTasks, todayTasks, upcomingTasks, alerts, s
 
     summary += `\n\nComo posso ajudar você hoje?`;
     return summary;
-  };
+  }, [overdueTasks, todayTasks, upcomingTasks, alerts, suggestions]);
+
+  useEffect(() => {
+    // Gera mensagem inicial automaticamente quando o componente monta
+    if (messages.length === 0) {
+      const summary = generateInitialSummary();
+      setMessages([{ role: 'assistant', content: summary }]);
+    }
+  }, [messages.length, generateInitialSummary]);
+
+  useEffect(() => {
+    // Scroll automático quando há novas mensagens ou quando está gerando
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        // Pequeno delay para garantir que o conteúdo foi renderizado
+        const timeoutId = setTimeout(() => {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }, 100);
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [messages, isGenerating, currentAIMessage, isExpanded]);
 
   const streamAIResponse = async (response) => {
     if (!response.body) {
@@ -184,30 +189,49 @@ ${dashboardContext}
     try {
       let fullResponse = '';
       
+      console.log('🔵 DashboardAssistant: Iniciando chamada para IA...', {
+        messagesCount: apiMessages.length,
+        model: 'gpt-4o-mini'
+      });
+      
       try {
         // Tenta usar Edge Function sem streaming primeiro (mais simples)
+        console.log('🔵 Tentando Edge Function (sem streaming)...');
         const { data: response, error } = await supabase.functions.invoke('openai-chat', {
           body: JSON.stringify({ messages: apiMessages, model: 'gpt-4o-mini', stream: false }),
         });
 
+        console.log('🔵 Resposta da Edge Function:', { 
+          hasData: !!response, 
+          hasError: !!error,
+          responseType: typeof response,
+          responseKeys: response ? Object.keys(response) : []
+        });
+
         if (error) {
+          console.error('❌ Erro da Edge Function:', error);
           throw error;
         }
 
         if (response && response.content) {
           fullResponse = response.content;
+          console.log('✅ Resposta recebida (response.content):', fullResponse.substring(0, 100));
         } else if (response && response.text) {
           fullResponse = response.text;
+          console.log('✅ Resposta recebida (response.text):', fullResponse.substring(0, 100));
         } else if (response && typeof response === 'string') {
           fullResponse = response;
+          console.log('✅ Resposta recebida (string):', fullResponse.substring(0, 100));
         } else if (response && response.body) {
           // Se tiver body, processa streaming
+          console.log('📡 Processando streaming...');
           fullResponse = await streamAIResponse(response);
         } else {
-          throw new Error("Resposta inválida da Edge Function");
+          console.error('❌ Resposta inválida:', response);
+          throw new Error("Resposta inválida da Edge Function. Verifique o console para mais detalhes.");
         }
       } catch (edgeFunctionError) {
-        console.warn("Edge Function falhou, tentando com streaming:", edgeFunctionError);
+        console.warn("⚠️ Edge Function falhou, tentando com streaming:", edgeFunctionError);
         
         try {
           // Tenta com streaming
@@ -216,6 +240,7 @@ ${dashboardContext}
             throw new Error('URL do Supabase não configurada');
           }
 
+          console.log('🔵 Tentando Edge Function (com streaming)...');
           const response = await fetch(`${edgeBaseUrl}/functions/v1/openai-chat`, {
             method: 'POST',
             headers: { 
@@ -226,18 +251,22 @@ ${dashboardContext}
           });
 
           if (!response.ok) {
-            throw new Error(`Erro na Edge Function: ${response.statusText}`);
+            const errorText = await response.text();
+            console.error('❌ Erro na Edge Function (streaming):', errorText);
+            throw new Error(`Erro na Edge Function: ${response.statusText} - ${errorText}`);
           }
 
+          console.log('📡 Processando streaming da Edge Function...');
           fullResponse = await streamAIResponse(response);
         } catch (streamError) {
-          console.warn("Streaming falhou, usando API direta:", streamError);
+          console.warn("⚠️ Streaming falhou, usando API direta:", streamError);
           
           const apiKey = await getOpenAIKey();
           if (!apiKey) {
             throw new Error("Chave de API da OpenAI não encontrada. Configure nas configurações.");
           }
 
+          console.log('🔵 Tentando API direta da OpenAI...');
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -253,21 +282,29 @@ ${dashboardContext}
 
           if (!response.ok) {
             const errorText = await response.text();
+            console.error('❌ Erro na API direta:', errorText);
             throw new Error(`Erro na API: ${errorText}`);
           }
 
+          console.log('📡 Processando streaming da API direta...');
           fullResponse = await streamAIResponse(response);
         }
       }
 
+      if (!fullResponse || fullResponse.trim() === '') {
+        throw new Error("A IA não retornou uma resposta válida.");
+      }
+
+      console.log('✅ Resposta completa recebida:', fullResponse.substring(0, 200));
       setMessages(prev => [...prev, { role: 'assistant', content: fullResponse }]);
       setCurrentAIMessage('');
     } catch (error) {
-      console.error('Erro ao gerar resposta:', error);
+      console.error('❌ Erro completo ao gerar resposta:', error);
       toast({
         title: "Erro ao processar mensagem",
-        description: error.message || "Ocorreu um erro ao comunicar com a IA",
-        variant: "destructive"
+        description: error.message || "Ocorreu um erro ao comunicar com a IA. Verifique o console para mais detalhes.",
+        variant: "destructive",
+        duration: 8000
       });
       // Fallback para resposta simples
       const fallbackResponse = generateFallbackResponse(userInput);
@@ -364,30 +401,52 @@ ${dashboardContext}
 
 
   return (
-    <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-      <CardContent className="p-4">
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-3">
+    <Card className={`bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all ${isExpanded ? 'fixed inset-4 z-50' : ''}`}>
+      <CardContent className={`p-4 ${isExpanded ? 'h-[calc(100vh-3rem)] flex flex-col' : ''}`}>
+        <div className={`relative ${isExpanded ? 'flex-1 flex flex-col min-h-0' : ''}`}>
+          <div className="flex items-center gap-2 mb-3 flex-shrink-0">
             <Bot className="h-5 w-5 text-orange-500" />
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Assistente ApexIA</h3>
-            {messages.length > 0 && (
+            <div className="ml-auto flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 ml-auto text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                onClick={() => {
-                  setMessages([]);
-                  setInput('');
-                }}
+                className="h-6 w-6 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                onClick={() => setIsExpanded(!isExpanded)}
+                title={isExpanded ? "Minimizar" : "Expandir para tela inteira"}
               >
-                <X className="h-4 w-4" />
+                {isExpanded ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
               </Button>
-            )}
+              {messages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  onClick={() => {
+                    setMessages([]);
+                    setInput('');
+                  }}
+                  title="Limpar conversa"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
-          {messages.length > 0 && (
-            <ScrollArea className="max-h-[300px] mb-3 p-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700" ref={scrollAreaRef}>
-              <div className="space-y-2">
+          {(messages.length > 0 || isExpanded) && (
+            <div 
+              className={`mb-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 ${isExpanded ? 'flex-1 min-h-0' : 'h-[300px]'}`}
+            >
+              <ScrollArea 
+                className={`h-full p-2`} 
+                ref={scrollAreaRef}
+              >
+                <div className="space-y-2 pr-2">
                 {messages.map((msg, index) => (
                   <motion.div
                     key={index}
@@ -437,11 +496,12 @@ ${dashboardContext}
                     </div>
                   </motion.div>
                 )}
-              </div>
-            </ScrollArea>
+                </div>
+              </ScrollArea>
+            </div>
           )}
 
-          <form onSubmit={handleSendMessage}>
+          <form onSubmit={handleSendMessage} className="flex-shrink-0">
             <div className="relative">
               <Textarea
                 value={input}

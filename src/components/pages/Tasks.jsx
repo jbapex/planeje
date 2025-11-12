@@ -175,6 +175,104 @@ import { executeAutomation } from '@/lib/workflow';
         }
       }, [user]); // Apenas user como dependência - evita re-execução
 
+      // Subscription para atualizações em tempo real
+      useEffect(() => {
+        if (!user) return;
+
+        // Configura a query base para Realtime
+        const channelName = `tarefas-changes-${user.id}`;
+        const tasksChannel = supabase
+          .channel(channelName)
+          .on(
+            'postgres_changes',
+            {
+              event: '*', // Escuta INSERT, UPDATE, DELETE
+              schema: 'public',
+              table: 'tarefas'
+            },
+            (payload) => {
+              console.log('🔴 Mudança detectada na tabela tarefas:', payload.eventType, payload.new || payload.old);
+              
+              // Para colaboradores, filtra apenas tarefas atribuídas a eles
+              if (userRole === 'colaborador' && tasksAccessLevel === 'responsible') {
+                const task = payload.new || payload.old;
+                if (task && !task.assignee_ids?.includes(user.id)) {
+                  // Ignora mudanças em tarefas não atribuídas ao usuário
+                  return;
+                }
+              }
+              
+              if (payload.eventType === 'INSERT') {
+                // Nova tarefa criada
+                const newTask = payload.new;
+                // Busca os dados relacionados (clientes, projetos)
+                supabase
+                  .from('tarefas')
+                  .select('*, clientes(empresa), projetos(name)')
+                  .eq('id', newTask.id)
+                  .single()
+                  .then(({ data, error }) => {
+                    if (!error && data) {
+                      setTasks(prev => {
+                        // Verifica se a tarefa já existe (evita duplicatas)
+                        if (prev.find(t => t.id === data.id)) {
+                          return prev;
+                        }
+                        return [...prev, data];
+                      });
+                      // Atualiza cache
+                      setCachedData(prev => prev ? {
+                        ...prev,
+                        tasks: [...(prev.tasks || []), data]
+                      } : null);
+                    }
+                  });
+              } else if (payload.eventType === 'UPDATE') {
+                // Tarefa atualizada
+                const updatedTask = payload.new;
+                // Busca os dados relacionados atualizados
+                supabase
+                  .from('tarefas')
+                  .select('*, clientes(empresa), projetos(name)')
+                  .eq('id', updatedTask.id)
+                  .single()
+                  .then(({ data, error }) => {
+                    if (!error && data) {
+                      setTasks(prev => prev.map(t => t.id === data.id ? data : t));
+                      // Atualiza cache
+                      setCachedData(prev => prev ? {
+                        ...prev,
+                        tasks: (prev.tasks || []).map(t => t.id === data.id ? data : t)
+                      } : null);
+                    }
+                  });
+              } else if (payload.eventType === 'DELETE') {
+                // Tarefa deletada
+                const deletedTask = payload.old;
+                setTasks(prev => prev.filter(t => t.id !== deletedTask.id));
+                // Atualiza cache
+                setCachedData(prev => prev ? {
+                  ...prev,
+                  tasks: (prev.tasks || []).filter(t => t.id !== deletedTask.id)
+                } : null);
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Inscrito nas mudanças em tempo real da tabela tarefas');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('❌ Erro ao se inscrever nas mudanças em tempo real');
+            }
+          });
+
+        // Cleanup: remove a subscription quando o componente desmonta
+        return () => {
+          console.log('🔌 Removendo subscription de tarefas');
+          supabase.removeChannel(tasksChannel);
+        };
+      }, [user, userRole, tasksAccessLevel, setCachedData]);
+
       useEffect(() => {
         if (taskIdFromUrl && tasks.length > 0 && !isNewTask) {
           const task = tasks.find(t => t.id === taskIdFromUrl);
