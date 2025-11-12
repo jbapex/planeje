@@ -19,9 +19,32 @@ const SignUpSuperAdmin = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validação e limpeza do email
+    const cleanedEmail = email.trim().toLowerCase();
+    if (!cleanedEmail || !cleanedEmail.includes('@')) {
+      toast({
+        title: 'Email inválido',
+        description: 'Por favor, insira um email válido.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
     setIsLoading(true);
-    const { error } = await signUp(email, password, 'superadmin', fullName);
-    if (!error) {
+    const { error } = await signUp(cleanedEmail, password, {
+      data: {
+        role: 'superadmin',
+        full_name: fullName.trim()
+      }
+    });
+    if (error) {
+      toast({
+        title: "Erro ao criar conta",
+        description: error.message || "Ocorreu um erro ao tentar criar sua conta. Verifique os dados e tente novamente.",
+        variant: "destructive"
+      });
+    } else {
       toast({
         title: "Conta Super Admin criada!",
         description: "Verifique seu e-mail para confirmar e acessar a plataforma.",

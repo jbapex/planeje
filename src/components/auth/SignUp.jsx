@@ -57,16 +57,126 @@ const SignUp = () => {
         return;
     }
 
+    // Validação e limpeza do email
+    let cleanedEmail = email.trim().toLowerCase();
+    
+    // Remove espaços e caracteres invisíveis
+    cleanedEmail = cleanedEmail.replace(/\s+/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+    
+    // Remove caracteres de controle e não-ASCII problemáticos
+    cleanedEmail = cleanedEmail.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    
+    // Validação básica de email (mais permissiva)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (!cleanedEmail || !emailRegex.test(cleanedEmail)) {
+      toast({
+        title: 'Email inválido',
+        description: 'Por favor, insira um email válido no formato exemplo@dominio.com',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    // Debug: verificar o email antes de enviar
+    console.log('Email validado no componente:', {
+      original: email,
+      cleaned: cleanedEmail,
+      isValid: emailRegex.test(cleanedEmail),
+      emailBytes: new TextEncoder().encode(cleanedEmail)
+    });
+    
+    // Validação de senha mínima
+    if (!password || password.length < 6) {
+      toast({
+        title: 'Senha inválida',
+        description: 'A senha deve ter pelo menos 6 caracteres.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setIsLoading(true);
     const roleToSignUp = inviteRole || 'colaborador';
-    const { error } = await signUp(email, password, roleToSignUp, fullName);
-    if (!error) {
-      toast({
-        title: "Cadastro realizado com sucesso!",
-        description: "Verifique seu e-mail para confirmar sua conta.",
+    
+    // Log para debug (remover em produção se necessário)
+    console.log('Tentando cadastrar:', { 
+      email: cleanedEmail, 
+      role: roleToSignUp, 
+      fullName: fullName.trim(),
+      emailLength: cleanedEmail.length 
+    });
+    
+    // Nota: Outros emails do mesmo domínio (@jbapex.com.br) já foram cadastrados com sucesso
+    // Isso indica que o problema não é o domínio, mas algo específico com este email ou payload
+    
+    try {
+      const { error } = await signUp(cleanedEmail, password, {
+        data: {
+          role: roleToSignUp,
+          full_name: fullName.trim()
+        }
       });
+      
+      if (error) {
+        // Mensagens de erro mais específicas
+        let errorMessage = "Ocorreu um erro ao tentar criar sua conta. Verifique os dados e tente novamente.";
+        
+        if (error.code === 'email_address_invalid' || error.message?.includes('email_address_invalid')) {
+          errorMessage = `O email "${cleanedEmail}" foi rejeitado pelo Supabase. 
+
+Possíveis causas:
+• O domínio pode estar bloqueado nas configurações do Supabase
+• É necessário configurar SMTP personalizado no painel do Supabase
+• O formato do email não é aceito pelo sistema
+
+Solução: Acesse o painel do Supabase > Authentication > Settings e verifique as configurações de email.`;
+        } else if (error.message?.includes('already registered') || error.code === 'user_already_registered') {
+          errorMessage = "Este email já está cadastrado. Tente fazer login ou use outro email.";
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        
+        console.error('Erro detalhado do signUp:', {
+          error,
+          email: cleanedEmail,
+          code: error.code,
+          message: error.message
+        });
+        
+        toast({
+          title: "Erro ao criar conta",
+          description: errorMessage,
+          variant: "destructive",
+          duration: 10000,
+        });
+      } else {
+        // Limpar o formulário após sucesso
+        setEmail('');
+        setPassword('');
+        setFullName('');
+        
+        toast({
+          title: "Cadastro realizado com sucesso!",
+          description: "Um email de confirmação foi enviado para seu endereço. Verifique sua caixa de entrada e clique no link para confirmar sua conta.",
+          duration: 6000,
+        });
+        
+        // Opcional: redirecionar para login após alguns segundos
+        setTimeout(() => {
+          window.location.href = '/#/login';
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Erro ao fazer cadastro:', err);
+      toast({
+        title: "Erro inesperado",
+        description: "Ocorreu um erro inesperado. Tente novamente mais tarde.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (

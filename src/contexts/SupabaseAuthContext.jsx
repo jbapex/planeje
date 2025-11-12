@@ -153,21 +153,105 @@ export const AuthProvider = ({ children }) => {
   }, []); // Array vazio - só executa uma vez na montagem
 
   const signUp = useCallback(async (email, password, options) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options,
-    });
-
-    if (error) {
+    // Garantir que o email está limpo e válido
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      const error = { message: 'Email inválido' };
       toast({
         variant: "destructive",
         title: "Sign up Failed",
-        description: error.message || "Something went wrong",
+        description: "Por favor, insira um email válido.",
       });
+      return { error };
     }
 
-    return { error };
+    try {
+      // Debug: verificar o email antes de enviar
+      console.log('Email antes do signUp:', {
+        original: email,
+        cleaned: cleanEmail,
+        length: cleanEmail.length,
+        charCodes: cleanEmail.split('').map(c => c.charCodeAt(0)),
+        isValidFormat: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
+      });
+      
+      // Estrutura correta conforme documentação do Supabase:
+      // signUp({ email, password, options: { data, emailRedirectTo, ... } })
+      const signUpPayload = {
+        email: cleanEmail,
+        password: password?.trim() || '',
+        options: {
+          emailRedirectTo: `${window.location.origin}/#/login`,
+        }
+      };
+      
+      // Adiciona data dentro de options (conforme documentação)
+      if (options?.data) {
+        signUpPayload.options.data = options.data;
+      }
+      
+      // Mescla outras opções se existirem
+      if (options && typeof options === 'object') {
+        Object.keys(options).forEach(key => {
+          if (key !== 'data' && options[key]) {
+            signUpPayload.options[key] = options[key];
+          }
+        });
+      }
+      
+      console.log('Payload do signUp (estrutura final):', {
+        email: signUpPayload.email,
+        hasPassword: !!signUpPayload.password,
+        hasOptions: !!signUpPayload.options,
+        optionsContent: signUpPayload.options
+      });
+      
+      // Chama o signUp com a estrutura correta
+      const { data, error } = await supabase.auth.signUp(signUpPayload);
+
+      if (error) {
+        console.error('Supabase signUp error completo:', {
+          error,
+          code: error.code,
+          message: error.message,
+          status: error.status
+        });
+        
+        let errorMessage = error.message || "Algo deu errado ao criar sua conta.";
+        
+        // Mensagens mais específicas para erros comuns
+        if (error.code === 'email_address_invalid' || error.message?.includes('email_address_invalid')) {
+          errorMessage = `O email "${cleanEmail}" foi rejeitado pelo Supabase. Isso pode ocorrer se:
+          - O domínio está bloqueado nas configurações do Supabase
+          - O formato do email não é aceito
+          - É necessário configurar SMTP personalizado
+          
+          Verifique as configurações de autenticação no painel do Supabase.`;
+        }
+        
+        toast({
+          variant: "destructive",
+          title: "Erro ao criar conta",
+          description: errorMessage,
+          duration: 8000,
+        });
+      } else if (data?.user) {
+        // Se o cadastro foi bem-sucedido, o Supabase envia automaticamente o email de confirmação
+        console.log('Usuário criado com sucesso. Email de confirmação será enviado.', data);
+      }
+
+      return { data, error };
+    } catch (err) {
+      console.error('Erro ao fazer signUp:', err);
+      const error = { message: err.message || 'Erro inesperado ao criar conta' };
+      toast({
+        variant: "destructive",
+        title: "Erro inesperado",
+        description: error.message,
+      });
+      return { error };
+    }
   }, [toast]);
 
   const signIn = useCallback(async (email, password) => {

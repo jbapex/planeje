@@ -8,6 +8,7 @@ import { supabase } from '@/lib/customSupabaseClient';
 import { format, startOfWeek, endOfWeek, isPast, isToday, isWithinInterval, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useDataCache } from '@/hooks/useDataCache';
+import DashboardAssistant from './DashboardAssistant';
 const StatCard = ({
   icon: Icon,
   title,
@@ -90,6 +91,9 @@ const Dashboard = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [overdueTasksList, setOverdueTasksList] = useState([]);
+  const [todayTasksList, setTodayTasksList] = useState([]);
+  const [upcomingTasksList, setUpcomingTasksList] = useState([]);
   const today = new Date();
   const formattedDate = format(today, "EEEE, d 'de' MMMM", {
     locale: ptBR
@@ -205,27 +209,33 @@ const Dashboard = () => {
         });
       }).length;
       
-      const overdue = tasks.filter(t => {
+      const overdueTasks = tasks.filter(t => {
         if (!t.due_date) return false; // Ignora tarefas sem data de vencimento
         if (overdueExcludeStatuses.includes(t.status)) return false;
         const dueDate = new Date(t.due_date);
         return isPast(dueDate) && !isToday(dueDate);
-      }).length;
+      });
+      const overdue = overdueTasks.length;
+      setOverdueTasksList(overdueTasks);
       
-      const todayTasks = tasks.filter(t => {
+      const todayTasksFiltered = tasks.filter(t => {
         if (!t.due_date) return false;
         if (todayStatuses.length > 0 && !todayStatuses.includes(t.status)) return false;
         return isToday(new Date(t.due_date));
-      }).length;
+      });
+      const todayTasks = todayTasksFiltered.length;
+      setTodayTasksList(todayTasksFiltered);
       
-      const upcoming = tasks.filter(t => {
+      const upcomingTasks = tasks.filter(t => {
         if (!t.due_date) return false;
         if (upcomingStatuses.length > 0 && !upcomingStatuses.includes(t.status)) return false;
         return isWithinInterval(new Date(t.due_date), {
           start: addDays(today, 1),
           end: next7Days
         });
-      }).length;
+      });
+      const upcoming = upcomingTasks.length;
+      setUpcomingTasksList(upcomingTasks);
       setStats({
         executed,
         overdue,
@@ -380,6 +390,15 @@ const Dashboard = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCardsData.map((stat) => <StatCard key={stat.title} {...stat} delay={0} isFirstMount={false} />)}
       </div>
+
+      <DashboardAssistant
+        overdueTasks={overdueTasksList}
+        todayTasks={todayTasksList}
+        upcomingTasks={upcomingTasksList}
+        alerts={alerts}
+        suggestions={suggestions}
+        stats={stats}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">

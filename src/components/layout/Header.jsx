@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Search, UserPlus, Plus, Sun, Moon } from 'lucide-react';
+import { Search, UserPlus, Plus, Sun, Moon, Circle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const Header = () => {
   const { toast } = useToast();
+  const { profile } = useAuth();
   const [theme, setTheme] = useState(() => {
     if (localStorage.getItem('theme')) {
       return localStorage.getItem('theme');
@@ -53,14 +55,17 @@ const Header = () => {
           <Button variant="ghost" size="icon" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-purple-600" />}
           </Button>
-          <Button variant="outline" onClick={handleNotImplemented} className="hidden sm:flex">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Convidar
-          </Button>
-          <Button className="bg-gradient-to-br from-orange-400 to-purple-600 text-white" onClick={handleNotImplemented}>
-            <Plus className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Criar</span>
-          </Button>
+          {profile && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-2">
+                <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {profile.full_name || profile.email || 'Usuário'}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Online</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>
