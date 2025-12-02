@@ -5,7 +5,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw } from 'lucide-react';
+    import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
     import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
         const [currentAgent, setCurrentAgent] = useState(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
+        const [loadingTimeout, setLoadingTimeout] = useState(false);
         const [messages, setMessages] = useState([]);
         const [input, setInput] = useState('');
         const [isGenerating, setIsGenerating] = useState(false);
@@ -57,6 +59,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
         }, [input]);
         const [currentAIMessage, setCurrentAIMessage] = useState('');
         const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+        const [selectedTemplate, setSelectedTemplate] = useState(null);
+        const [showTemplateSelector, setShowTemplateSelector] = useState(false);
         const scrollAreaRef = useRef(null);
         const [installPrompt, setInstallPrompt] = useState(null);
         const [isStoryIdeasOpen, setIsStoryIdeasOpen] = useState(false);
@@ -202,6 +206,121 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
             });
         };
 
+        // Função para carregar configuração de personalidade
+        const loadPersonalityConfig = useCallback(async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('public_config')
+                    .select('value')
+                    .eq('key', 'apexia_client_personality_config')
+                    .maybeSingle();
+                
+                if (error) {
+                    console.warn('Erro ao carregar configuração de personalidade:', error);
+                    return null;
+                }
+                
+                if (data?.value) {
+                    try {
+                        return JSON.parse(data.value);
+                    } catch (parseError) {
+                        console.warn('Erro ao fazer parse da configuração de personalidade:', parseError);
+                        return null;
+                    }
+                }
+                
+                return null;
+            } catch (err) {
+                console.warn('Erro ao carregar configuração de personalidade:', err);
+                return null;
+            }
+        }, []);
+
+        // Função para construir seção de personalidade (mesma lógica do preview)
+        const buildPersonalitySection = useCallback((configData) => {
+            if (!configData) return '';
+
+            let section = '';
+
+            // Traços de Personalidade
+            if (configData.personality?.traits?.length > 0) {
+                section += '**Traços de Personalidade:**\n';
+                section += configData.personality.traits.map(t => `- ${t.charAt(0).toUpperCase() + t.slice(1)}`).join('\n') + '\n\n';
+            }
+
+            // Tom de Voz
+            if (configData.personality?.tone_description) {
+                section += `**Tom de Voz:** ${configData.personality.tone_description}\n\n`;
+            }
+
+            // Nível de Formalidade
+            if (configData.personality?.formality) {
+                const formalityLabels = {
+                    casual: 'Casual',
+                    profissional: 'Profissional',
+                    formal: 'Formal'
+                };
+                section += `**Nível de Formalidade:** ${formalityLabels[configData.personality.formality] || configData.personality.formality}\n\n`;
+            }
+
+            // Comportamento
+            if (configData.behavior) {
+                section += '**Comportamento:**\n';
+                
+                if (configData.behavior.proactivity !== undefined) {
+                    const proactivityLevel = configData.behavior.proactivity >= 70 ? 'Alta' : 
+                                            configData.behavior.proactivity >= 40 ? 'Média' : 'Baixa';
+                    section += `- Proatividade: ${configData.behavior.proactivity}% (${proactivityLevel})\n`;
+                }
+                
+                if (configData.behavior.emoji_usage) {
+                    const emojiLabels = {
+                        none: 'Evitar emojis',
+                        moderate: 'Usar moderadamente (1-2 por resposta)',
+                        frequent: 'Usar quando apropriado'
+                    };
+                    section += `- Uso de emojis: ${emojiLabels[configData.behavior.emoji_usage] || configData.behavior.emoji_usage}\n`;
+                }
+                
+                if (configData.behavior.response_format?.length > 0) {
+                    const formatLabels = {
+                        lists: 'Listas numeradas',
+                        paragraphs: 'Parágrafos',
+                        examples: 'Exemplos práticos',
+                        highlights: 'Destaques/bold'
+                    };
+                    section += `- Formato de resposta: ${configData.behavior.response_format.map(f => formatLabels[f] || f).join(', ')}\n`;
+                }
+                
+                section += '\n';
+            }
+
+            // Regras Personalizadas
+            if (configData.custom_rules?.length > 0) {
+                section += '**Regras Importantes:**\n';
+                section += configData.custom_rules.map(rule => `- ${rule}`).join('\n') + '\n\n';
+            }
+
+            // Diretrizes de Resposta
+            if (configData.response_guidelines) {
+                const guidelines = [];
+                if (configData.response_guidelines.use_lists) guidelines.push('Use listas quando apropriado');
+                if (configData.response_guidelines.use_examples) guidelines.push('Inclua exemplos práticos');
+                if (configData.response_guidelines.use_markdown) guidelines.push('Use formatação markdown para destacar informações');
+                if (configData.response_guidelines.section_separation) guidelines.push('Separe informações em seções claras');
+                if (configData.response_guidelines.progressive_responses) guidelines.push('Seja progressivo: faça perguntas antes de elaborar respostas muito longas');
+                if (configData.response_guidelines.concise_first) guidelines.push('Seja conciso inicialmente e pergunte se o cliente quer mais detalhes');
+                if (configData.response_guidelines.interactive_dialogue) guidelines.push('Priorize diálogo interativo ao invés de monólogos longos');
+                
+                if (guidelines.length > 0) {
+                    section += '**Diretrizes de Resposta:**\n';
+                    section += guidelines.map(g => `- ${g}`).join('\n') + '\n\n';
+                }
+            }
+
+            return section.trim();
+        }, []);
+
         const generateConversationTitle = useCallback(async (userMessage, aiResponse) => {
             try {
                 const prompt = `Com base na seguinte conversa inicial, gere um título curto e descritivo (máximo 50 caracteres) para esta conversa. O título deve ser claro, profissional e resumir o assunto principal.
@@ -210,6 +329,10 @@ Mensagem do usuário: "${userMessage}"
 Resposta da IA: "${aiResponse.substring(0, 200)}..."
 
 Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o título.`;
+
+                // Carregar configuração de personalidade para obter o modelo
+                const personalityConfigForTitle = await loadPersonalityConfig();
+                const selectedModelForTitle = personalityConfigForTitle?.ai_model || 'gpt-5.1';
 
                 const { data, error } = await supabase.functions.invoke('openai-chat', {
                     body: JSON.stringify({ 
@@ -223,7 +346,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                                 content: prompt 
                             }
                         ], 
-                        model: 'gpt-4o',
+                        model: selectedModelForTitle,
                         stream: false
                     }),
                 });
@@ -305,21 +428,38 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             if (!clientId) {
                 setError("ID do cliente não fornecido.");
                 setLoading(false);
+                setLoadingTimeout(false);
                 return;
             }
             try {
                 setLoading(true);
+                setLoadingTimeout(false);
+                
+                // Timeout de segurança: força o loading como false após 15 segundos
+                const timeoutId = setTimeout(() => {
+                    console.warn('Timeout no carregamento inicial - forçando loading como false');
+                    setLoadingTimeout(true);
+                    setLoading(false);
+                }, 15000);
+                
                 const [clientRes, agentsRes, projectsRes, sessionsRes] = await Promise.all([
-                    supabase.from('clientes').select('id, empresa, nome_contato, nicho, publico_alvo, tom_de_voz, max_chat_sessions, daily_chat_limit, logo_urls').eq('id', clientId).single(),
+                    supabase.from('clientes').select('*').eq('id', clientId).single(),
                     supabase.from('ai_agents').select('*').eq('is_active', true).order('created_at'),
                     supabase.from('projetos').select('id, name, status, mes_referencia').eq('client_id', clientId),
                     supabase.from('client_chat_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false })
                 ]);
 
+                clearTimeout(timeoutId);
+
                 if (clientRes.error || !clientRes.data) throw new Error("Cliente não encontrado ou acesso não permitido.");
                 const clientData = clientRes.data;
                 setClient(clientData);
                 setLogoError(false); // Reset logo error quando cliente muda
+                
+                // Carrega template escolhido pelo cliente (se existir)
+                if (clientData.apexia_template && PERSONALITY_TEMPLATES[clientData.apexia_template]) {
+                    setSelectedTemplate(clientData.apexia_template);
+                }
 
                 if (agentsRes.error) throw new Error("Não foi possível carregar os agentes de IA.");
                 const agentsData = agentsRes.data || [];
@@ -349,31 +489,50 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 }
 
             } catch (err) {
+                console.error('Erro ao carregar dados iniciais:', err);
                 setError(err);
             } finally {
                 setLoading(false);
+                setLoadingTimeout(false);
             }
         }, [clientId, sessionId, navigate, handleNewSession]);
 
         const fetchMessagesForSession = useCallback(async () => {
             if (!sessionId || !client) return;
             setLoading(true);
-            const { data, error } = await supabase.from('client_chat_messages').select('role, content').eq('session_id', sessionId).order('created_at');
-            if (error) {
-                toast({ title: "Erro ao buscar mensagens", description: error.message, variant: "destructive" });
+            
+            // Timeout de segurança para mensagens
+            const timeoutId = setTimeout(() => {
+                console.warn('Timeout ao buscar mensagens - forçando loading como false');
+                setLoading(false);
+            }, 10000);
+            
+            try {
+                const { data, error } = await supabase.from('client_chat_messages').select('role, content').eq('session_id', sessionId).order('created_at');
+                clearTimeout(timeoutId);
+                
+                if (error) {
+                    console.error('Erro ao buscar mensagens:', error);
+                    toast({ title: "Erro ao buscar mensagens", description: error.message, variant: "destructive" });
+                    setMessages([]);
+                } else if (data.length > 0) {
+                    setMessages(data);
+                } else {
+                     const initialMessage = {
+                        role: 'assistant',
+                        content: `Olá, ${client.nome_contato}! Eu sou o **ApexIA**, seu assistente de inteligência artificial da **JB APEX**. Selecione um agente abaixo e me diga como posso ser útil hoje.`
+                    };
+                    setMessages([initialMessage]);
+                    await saveMessage(initialMessage, sessionId);
+                }
+            } catch (err) {
+                console.error('Erro inesperado ao buscar mensagens:', err);
+                clearTimeout(timeoutId);
                 setMessages([]);
-            } else if (data.length > 0) {
-                setMessages(data);
-            } else {
-                 const initialMessage = {
-                    role: 'assistant',
-                    content: `Olá, ${client.nome_contato}! Eu sou o **ApexIA**, seu assistente de inteligência artificial da **JB APEX**. Selecione um agente abaixo e me diga como posso ser útil hoje.`
-                };
-                setMessages([initialMessage]);
-                await saveMessage(initialMessage, sessionId);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
-        }, [sessionId, client, toast]);
+        }, [sessionId, client, toast, saveMessage]);
 
         useEffect(() => {
             fetchInitialData();
@@ -442,25 +601,187 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 ? selectedProjects.map(p => `- Projeto: "${p.name}", Status: ${p.status}, Mês: ${p.mes_referencia}`).join('\n') 
                 : "Nenhum projeto selecionado para o contexto.";
 
-            let systemPrompt = currentAgent.prompt
+            // Carregar configuração de personalidade
+            const personalityConfig = await loadPersonalityConfig();
+            
+            // Se o cliente escolheu um template, usar ele; senão usar a configuração global
+            let finalConfig = personalityConfig;
+            if (selectedTemplate && PERSONALITY_TEMPLATES[selectedTemplate]) {
+                // Merge: template do cliente sobrescreve configuração global
+                finalConfig = {
+                    ...personalityConfig,
+                    ...PERSONALITY_TEMPLATES[selectedTemplate].config,
+                    // Mantém client_data_access da configuração global se existir
+                    client_data_access: personalityConfig?.client_data_access || PERSONALITY_TEMPLATES[selectedTemplate].config.client_data_access
+                };
+            }
+            
+            const personalitySection = buildPersonalitySection(finalConfig);
+            const selectedModel = finalConfig?.ai_model || personalityConfig?.ai_model || 'gpt-5.1';
+
+            // Verificar quais campos o ApexIA tem permissão para acessar
+            const dataAccess = finalConfig?.client_data_access || personalityConfig?.client_data_access || {};
+            const hasAccess = (field) => dataAccess[field] !== false; // Por padrão, se não estiver configurado, tem acesso
+
+            // Construir seção de informações do cliente ANTES do prompt do agente
+            // Incluir apenas os campos que o ApexIA tem permissão para acessar
+            let clientInfoSection = `\n\n**📋 INFORMAÇÕES COMPLETAS DO CLIENTE (VOCÊ TEM ACESSO A TUDO ISSO):**\n`;
+            
+            // Informações Básicas
+            if (hasAccess('empresa') && client.empresa) clientInfoSection += `**Empresa:** ${client.empresa}\n`;
+            if (hasAccess('nome_contato') && client.nome_contato) clientInfoSection += `**Contato:** ${client.nome_contato}\n`;
+            if (hasAccess('nicho') && client.nicho) clientInfoSection += `**Nicho:** ${client.nicho}\n`;
+            if (hasAccess('publico_alvo') && client.publico_alvo) clientInfoSection += `**Público-Alvo:** ${client.publico_alvo}\n`;
+            if (hasAccess('tom_de_voz') && client.tom_de_voz) clientInfoSection += `**Tom de Voz:** ${client.tom_de_voz}\n`;
+            
+            // Informações da Empresa
+            if (hasAccess('sobre_empresa') && client.sobre_empresa) clientInfoSection += `**Sobre a Empresa:** ${client.sobre_empresa}\n`;
+            if (hasAccess('produtos_servicos') && client.produtos_servicos) clientInfoSection += `**Produtos/Serviços:** ${client.produtos_servicos}\n`;
+            if (hasAccess('avaliacao_treinamento') && client.avaliacao_treinamento) clientInfoSection += `**Avaliação/Treinamento:** ${client.avaliacao_treinamento}\n`;
+            
+            // Informações de Contrato
+            if (hasAccess('tipo_contrato') && client.tipo_contrato) clientInfoSection += `**Tipo de Contrato:** ${client.tipo_contrato}\n`;
+            if (hasAccess('valor') && client.valor) clientInfoSection += `**Valor Mensal:** R$ ${parseFloat(client.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
+            if (hasAccess('vencimento') && client.vencimento) {
+                const vencimentoDate = new Date(client.vencimento);
+                clientInfoSection += `**Vencimento do Contrato:** ${vencimentoDate.toLocaleDateString('pt-BR')}\n`;
+            }
+            
+            // Informações de Gestão
+            if (hasAccess('etapa') && client.etapa) clientInfoSection += `**Etapa do Funil:** ${client.etapa}\n`;
+            if (hasAccess('responsavel') && client.responsavel) {
+                // Buscar nome do responsável se necessário (pode ser UUID)
+                clientInfoSection += `**Responsável:** ${client.responsavel}\n`;
+            }
+            
+            // Redes Sociais
+            if (hasAccess('instagram') && client.instagram) clientInfoSection += `**Instagram:** ${client.instagram}\n`;
+            
+            // Documento do Cliente (pode conter informações importantes)
+            if (hasAccess('client_document') && client.client_document) {
+                // Remove tags HTML para exibir apenas texto
+                const docText = client.client_document.replace(/<[^>]*>/g, '').trim();
+                if (docText && docText.length > 0) {
+                    clientInfoSection += `**Documento/Notas do Cliente:** ${docText.substring(0, 1000)}${docText.length > 1000 ? '...' : ''}\n`;
+                }
+            }
+            
+            // Etiquetas se existirem
+            if (hasAccess('etiquetas') && client.etiquetas && Array.isArray(client.etiquetas) && client.etiquetas.length > 0) {
+                clientInfoSection += `**Etiquetas:** ${client.etiquetas.join(', ')}\n`;
+            }
+
+            // Construir prompt base do agente
+            let systemPrompt = `**SOBRE VOCÊ - APEXIA DA JB APEX:**
+
+Você é ApexIA, o assistente inteligente desenvolvido e configurado pela JB APEX especificamente para este cliente.
+
+**IMPORTANTE - IDENTIDADE:**
+- Você NÃO é o ChatGPT genérico da OpenAI
+- Você é um assistente personalizado criado pela JB APEX
+- Você foi configurado especificamente para este cliente com suas informações, personalidade e regras customizadas
+- Você faz parte do sistema de gestão JB APEX, não é uma cópia ou versão genérica do GPT
+- Quando o cliente perguntar sobre você, deixe claro que você é o ApexIA da JB APEX, configurado especialmente para ele
+
+**Sua missão:**
+Ajudar este cliente de forma personalizada, usando todas as informações e configurações que a JB APEX preparou especificamente para ele.
+
+---
+
+${currentAgent.prompt
                 .replace('{client_name}', client.empresa || '')
                 .replace('{contact_name}', client.nome_contato || '')
                 .replace('{client_niche}', client.nicho || '')
                 .replace('{client_target_audience}', client.publico_alvo || '')
-                .replace('{client_tone}', client.tom_de_voz || '');
+                .replace('{client_tone}', client.tom_de_voz || '')}`;
+
+            // Adicionar informações do cliente logo após o prompt base
+            systemPrompt += clientInfoSection;
+
+            // Adicionar seção de personalidade se existir configuração
+            if (personalitySection) {
+                systemPrompt += `\n\n**Personalidade e Comportamento:**\n${personalitySection}`;
+            }
+
+            // Adicionar informações de contexto (projetos) apenas se tiver acesso
+            if (hasAccess('projetos')) {
             systemPrompt += `\n\n**Informações de Contexto (se necessário):**\n**Projetos Atuais Selecionados:**\n${projectsInfo}`;
-            systemPrompt += `\n\n**Instrução Importante:** Se o usuário precisar de ajuda humana ou você não souber a resposta, primeiro pergunte se ele gostaria de criar uma solicitação para a equipe. Use o shortcode **[CONFIRMAR_SOLICITACAO]** ao final da sua pergunta. Exemplo: "Para isso, o ideal é falar com nossa equipe. Você gostaria de criar uma solicitação agora? [CONFIRMAR_SOLICITACAO]"`;
+            }
+            
+            // Adicionar instruções importantes e explícitas
+            systemPrompt += `\n\n**🚨 REGRAS CRÍTICAS DE RESPOSTA - LEIA COM ATENÇÃO:**`;
+            systemPrompt += `\n\n**SOBRE ACESSO A INFORMAÇÕES:**`;
+            systemPrompt += `\n- Você TEM ACESSO às informações do cliente listadas na seção "INFORMAÇÕES COMPLETAS DO CLIENTE" acima.`;
+            
+            // Listar quais campos estão disponíveis baseado na configuração
+            const availableFields = [];
+            if (hasAccess('empresa')) availableFields.push('empresa');
+            if (hasAccess('nome_contato')) availableFields.push('contato');
+            if (hasAccess('nicho')) availableFields.push('nicho');
+            if (hasAccess('publico_alvo')) availableFields.push('público-alvo');
+            if (hasAccess('tom_de_voz')) availableFields.push('tom de voz');
+            if (hasAccess('sobre_empresa')) availableFields.push('sobre a empresa');
+            if (hasAccess('produtos_servicos')) availableFields.push('produtos/serviços');
+            if (hasAccess('avaliacao_treinamento')) availableFields.push('avaliação/treinamento');
+            if (hasAccess('tipo_contrato')) availableFields.push('tipo de contrato');
+            if (hasAccess('valor')) availableFields.push('valor mensal');
+            if (hasAccess('vencimento')) availableFields.push('vencimento');
+            if (hasAccess('etapa')) availableFields.push('etapa do funil');
+            if (hasAccess('responsavel')) availableFields.push('responsável');
+            if (hasAccess('instagram')) availableFields.push('Instagram');
+            if (hasAccess('client_document')) availableFields.push('documento/notas');
+            if (hasAccess('etiquetas')) availableFields.push('etiquetas');
+            if (hasAccess('projetos')) availableFields.push('projetos');
+            
+            if (availableFields.length > 0) {
+                systemPrompt += `\n- Você tem acesso às seguintes informações: ${availableFields.join(', ')}.`;
+            }
+            
+            systemPrompt += `\n- Use SEMPRE as informações disponíveis acima para responder perguntas sobre o cliente de forma completa e útil.`;
+            systemPrompt += `\n- NUNCA diga que tem "informações limitadas", "informações apenas no contexto dos projetos" ou que "não sabe" sobre o cliente quando essas informações estão claramente disponíveis acima.`;
+            
+            systemPrompt += `\n\n**RESPOSTA ESPECÍFICA PARA "O QUE VOCÊ SABE SOBRE MIM?":**`;
+            systemPrompt += `\nQuando o cliente perguntar "o que você sabe sobre mim?", "oque sabe sobre mim?", "o que sabe de mim?" ou qualquer variação similar, você DEVE:`;
+            systemPrompt += `\n1. Responder de forma positiva e completa, começando com algo como "Tenho acesso às informações cadastradas sobre você!" ou "Sei bastante sobre você e sua empresa!"`;
+            systemPrompt += `\n2. Listar TODAS as informações disponíveis sobre o cliente (conforme listado acima) de forma organizada e completa.`;
+            systemPrompt += `\n3. Incluir apenas as informações que estão realmente disponíveis na seção "INFORMAÇÕES COMPLETAS DO CLIENTE" acima.`;
+            systemPrompt += `\n4. NUNCA diga que tem informações limitadas ou apenas sobre projetos. Liste todas as informações que você tem acesso.`;
+            
+            // Adicionar regras de respostas progressivas apenas se estiverem habilitadas no template/config
+            if (finalConfig?.response_guidelines?.progressive_responses || finalConfig?.response_guidelines?.concise_first || finalConfig?.response_guidelines?.interactive_dialogue) {
+                systemPrompt += `\n\n**REGRAS DE RESPOSTAS PROGRESSIVAS (MUITO IMPORTANTE):**`;
+                
+                if (finalConfig?.response_guidelines?.progressive_responses) {
+                    systemPrompt += `\n- NUNCA dê respostas muito longas de uma vez só. Sempre seja progressivo e interativo.`;
+                    systemPrompt += `\n- Quando o cliente pedir algo amplo (ex: "criar um plano", "ajudar com marketing", "fazer estratégia"), PRIMEIRO faça perguntas para entender o que ele precisa especificamente.`;
+                    systemPrompt += `\n- Evite criar planos completos, estratégias extensas ou respostas muito detalhadas sem primeiro entender melhor o que o cliente precisa.`;
+                }
+                
+                if (finalConfig?.response_guidelines?.concise_first) {
+                    systemPrompt += `\n- Seja CONCISO inicialmente. Dê uma resposta curta e pergunte se o cliente quer mais detalhes antes de elaborar muito.`;
+                }
+                
+                if (finalConfig?.response_guidelines?.interactive_dialogue) {
+                    systemPrompt += `\n- Priorize DIÁLOGO INTERATIVO ao invés de monólogos longos. Faça perguntas, espere respostas, e então expanda conforme necessário.`;
+                }
+                
+                systemPrompt += `\n- Exemplo CORRETO: Cliente: "quero criar um plano para 2026" → Você: "Ótimo! Para criar um plano personalizado, preciso entender melhor suas necessidades. Qual é o foco principal para 2026? Você quer focar em crescimento, qualidade, ou algo específico?"`;
+                systemPrompt += `\n- Exemplo INCORRETO: Cliente: "quero criar um plano para 2026" → Você: [resposta de 50+ linhas com plano completo sem perguntar nada]`;
+            }
+            
+            systemPrompt += `\n\n**OUTRAS REGRAS:**`;
+            systemPrompt += `\n- Se o usuário perguntar sobre algo que NÃO está nas informações disponíveis acima, então você pode sugerir criar uma solicitação. Use o shortcode **[CONFIRMAR_SOLICITACAO]** ao final da sua pergunta. Exemplo: "Para isso, o ideal é falar com nossa equipe. Você gostaria de criar uma solicitação agora? [CONFIRMAR_SOLICITACAO]"`;
             const conversationHistory = messages.slice(-6).map(m => ({ role: m.role, content: m.content }));
             const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
 
             try {
                 console.log('🔵 Iniciando chamada para Edge Function openai-chat...', {
                     messagesCount: apiMessages.length,
-                    model: 'gpt-4o'
+                    model: selectedModel
                 });
 
                 const { data, error } = await supabase.functions.invoke('openai-chat', {
-                    body: JSON.stringify({ messages: apiMessages, model: 'gpt-4o' }),
+                    body: JSON.stringify({ messages: apiMessages, model: selectedModel }),
                 });
 
                 console.log('🔵 Resposta da Edge Function:', { data: !!data, error: !!error, hasBody: !!data?.body });
@@ -780,6 +1101,25 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
                     <Sparkles className="h-12 w-12 text-primary animate-pulse" />
                     <p className="mt-4 text-lg">Carregando assistente...</p>
+                    {loadingTimeout && (
+                        <div className="mt-6 text-center">
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                O carregamento está demorando mais que o esperado.
+                            </p>
+                            <Button 
+                                onClick={() => {
+                                    setLoading(false);
+                                    setLoadingTimeout(false);
+                                    fetchInitialData();
+                                }}
+                                variant="outline"
+                                className="mt-2"
+                            >
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Recarregar
+                            </Button>
+                        </div>
+                    )}
                 </div>
             ); 
         }
@@ -974,6 +1314,129 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                             paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'
                         }}>
                             <div className="max-w-3xl mx-auto w-full">
+                                {/* Botão de Estilo de Conversa - Sempre visível para fácil acesso */}
+                                <div className="mb-2">
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-full sm:w-auto justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs"
+                                            >
+                                                {selectedTemplate ? (
+                                                    <>
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Consultor Estratégico' && <Briefcase className="h-3.5 w-3.5 mr-2" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Suporte Técnico' && <Wrench className="h-3.5 w-3.5 mr-2" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Assistente de Vendas' && <TrendingUp className="h-3.5 w-3.5 mr-2" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Educador' && <GraduationCap className="h-3.5 w-3.5 mr-2" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Casual e Amigável' && <Smile className="h-3.5 w-3.5 mr-2" />}
+                                                        {!['Consultor Estratégico', 'Suporte Técnico', 'Assistente de Vendas', 'Educador', 'Casual e Amigável'].includes(PERSONALITY_TEMPLATES[selectedTemplate]?.name) && <Settings className="h-3.5 w-3.5 mr-2" />}
+                                                        <span className="truncate">
+                                                            {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Consultor Estratégico' && 'Consultor'}
+                                                            {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Suporte Técnico' && 'Suporte'}
+                                                            {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Assistente de Vendas' && 'Vendas'}
+                                                            {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Educador' && 'Educador'}
+                                                            {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Casual e Amigável' && 'Casual'}
+                                                            {!['Consultor Estratégico', 'Suporte Técnico', 'Assistente de Vendas', 'Educador', 'Casual e Amigável'].includes(PERSONALITY_TEMPLATES[selectedTemplate]?.name) && PERSONALITY_TEMPLATES[selectedTemplate]?.name}
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Settings className="h-3.5 w-3.5 mr-2" />
+                                                        <span className="truncate">Como o ApexIA responde</span>
+                                                    </>
+                                                )}
+                                                <ChevronDown className="h-3.5 w-3.5 ml-auto opacity-50" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm max-h-[400px] overflow-y-auto">
+                                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                                Escolha como você quer que o ApexIA converse com você:
+                                            </div>
+                                            <DropdownMenuItem 
+                                                onSelect={(e) => e.preventDefault()} 
+                                                onClick={async () => {
+                                                    setSelectedTemplate(null);
+                                                    if (clientId) {
+                                                        const { error } = await supabase.from('clientes').update({ apexia_template: null }).eq('id', clientId);
+                                                        if (error) {
+                                                            toast({
+                                                                title: 'Ops!',
+                                                                description: 'Não foi possível salvar. Tente novamente.',
+                                                                variant: 'destructive'
+                                                            });
+                                                        } else {
+                                                            toast({
+                                                                title: 'Estilo alterado!',
+                                                                description: 'O ApexIA voltou ao estilo padrão configurado pela sua equipe.'
+                                                            });
+                                                        }
+                                                    }
+                                                }}
+                                                className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"
+                                            >
+                                                <span>Padrão da sua equipe</span>
+                                                {!selectedTemplate && <Check className="h-4 w-4 ml-auto" />}
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator className="dark:bg-gray-700/50" />
+                                            {Object.entries(PERSONALITY_TEMPLATES).map(([key, template]) => {
+                                                const Icon = 
+                                                    template.name === 'Consultor Estratégico' ? Briefcase :
+                                                    template.name === 'Suporte Técnico' ? Wrench :
+                                                    template.name === 'Assistente de Vendas' ? TrendingUp :
+                                                    template.name === 'Educador' ? GraduationCap :
+                                                    template.name === 'Casual e Amigável' ? Smile : Settings;
+                                                
+                                                const clientDescription = 
+                                                    template.name === 'Consultor Estratégico' ? 'Ideal se você quer orientação estratégica e insights profundos' :
+                                                    template.name === 'Suporte Técnico' ? 'Perfeito para resolver problemas e tirar dúvidas rapidamente' :
+                                                    template.name === 'Assistente de Vendas' ? 'Ótimo para conversas focadas em resultados e crescimento' :
+                                                    template.name === 'Educador' ? 'Ideal para aprender e entender conceitos de forma didática' :
+                                                    template.name === 'Casual e Amigável' ? 'Para conversas descontraídas, como falar com um amigo' :
+                                                    template.description;
+                                                
+                                                return (
+                                                    <DropdownMenuItem
+                                                        key={key}
+                                                        onSelect={(e) => e.preventDefault()}
+                                                        onClick={async () => {
+                                                            setSelectedTemplate(key);
+                                                            if (clientId) {
+                                                                const { error } = await supabase
+                                                                    .from('clientes')
+                                                                    .update({ apexia_template: key })
+                                                                    .eq('id', clientId);
+                                                                if (error) {
+                                                                    toast({
+                                                                        title: 'Ops!',
+                                                                        description: 'Não foi possível salvar. Tente novamente.',
+                                                                        variant: 'destructive'
+                                                                    });
+                                                                } else {
+                                                                    toast({
+                                                                        title: 'Estilo alterado!',
+                                                                        description: `Agora o ApexIA vai conversar com você no estilo "${template.name}".`
+                                                                    });
+                                                                }
+                                                            }
+                                                        }}
+                                                        className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"
+                                                    >
+                                                        <div className="flex flex-col flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <Icon className="h-4 w-4" />
+                                                                <span className="font-medium">{template.name}</span>
+                                                            </div>
+                                                            <span className="text-xs text-muted-foreground ml-6">{clientDescription}</span>
+                                                        </div>
+                                                        {selectedTemplate === key && <Check className="h-4 w-4 ml-auto flex-shrink-0" />}
+                                                    </DropdownMenuItem>
+                                                );
+                                            })}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
+
                                 {/* Container dos botões - controlado por botão + (estilo ChatGPT) */}
                                 <AnimatePresence>
                                     {isFooterButtonsExpanded && (

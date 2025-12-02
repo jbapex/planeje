@@ -106,18 +106,25 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
     }
     
-    if (currentUser?.id) {
-      await fetchProfile(currentUser.id);
-      await fetchFieldPermissions();
-    } else {
+    try {
+      if (currentUser?.id) {
+        await fetchProfile(currentUser.id);
+        await fetchFieldPermissions();
+      } else {
+        setProfile(null);
+        setFieldPermissions({});
+      }
+    } catch (error) {
+      console.error('Erro ao processar sessão:', error);
+      // Mesmo com erro, continua o fluxo para não travar
       setProfile(null);
       setFieldPermissions({});
-    }
-    
-    // Só seta loading como false na primeira carga
-    if (isInitialLoad) {
-      setLoading(false);
-      hasInitializedRef.current = true;
+    } finally {
+      // Só seta loading como false na primeira carga
+      if (isInitialLoad) {
+        setLoading(false);
+        hasInitializedRef.current = true;
+      }
     }
   }, [fetchProfile, fetchFieldPermissions]);
   
@@ -129,9 +136,28 @@ export const AuthProvider = ({ children }) => {
       if (!hasInitializedRef.current) {
         setLoading(true);
       }
-      const { data: { session } } = await supabase.auth.getSession();
-      if (handleSessionRef.current) {
-        await handleSessionRef.current(session, true); // Primeira carga
+      
+      // Timeout de segurança: força o loading como false após 10 segundos
+      const timeoutId = setTimeout(() => {
+        if (!hasInitializedRef.current) {
+          console.warn('Timeout na inicialização da autenticação - forçando loading como false');
+          setLoading(false);
+          hasInitializedRef.current = true;
+        }
+      }, 10000);
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        clearTimeout(timeoutId);
+        
+        if (handleSessionRef.current) {
+          await handleSessionRef.current(session, true); // Primeira carga
+        }
+      } catch (error) {
+        console.error('Erro ao obter sessão:', error);
+        clearTimeout(timeoutId);
+        setLoading(false);
+        hasInitializedRef.current = true;
       }
     };
 
@@ -143,7 +169,11 @@ export const AuthProvider = ({ children }) => {
         // Ignora eventos como INITIAL_SESSION que podem disparar ao mudar de aba
         if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !hasInitializedRef.current)) {
           if (handleSessionRef.current) {
-            await handleSessionRef.current(session, false);
+            try {
+              await handleSessionRef.current(session, false);
+            } catch (error) {
+              console.error('Erro ao processar mudança de autenticação:', error);
+            }
           }
         }
       }

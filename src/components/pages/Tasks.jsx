@@ -116,7 +116,9 @@ import { executeAutomation } from '@/lib/workflow';
       const fetchData = useCallback(async () => {
         if (!user) return;
         setLoading(true);
-        await Promise.all([fetchStatusOptions(), fetchScheduleData()]);
+        // Busca statusOptions primeiro e usa o resultado diretamente
+        const fetchedStatusOptions = await fetchStatusOptions();
+        await fetchScheduleData();
         
         let tasksQuery = supabase.from('tarefas').select('*, clientes(empresa), projetos(name)').or('type.is.null,type.neq.social_media,type.eq.paid_traffic');
         if (userRole === 'colaborador' && tasksAccessLevel === 'responsible') {
@@ -131,13 +133,13 @@ import { executeAutomation } from '@/lib/workflow';
         if (tasksError || clientsError || projectsError || usersError) {
           toast({ title: "Erro ao buscar dados", description: tasksError?.message || clientsError?.message || projectsError?.message || usersError?.message, variant: "destructive" });
         } else {
-          // Salva no cache
+          // Salva no cache usando os statusOptions recém-buscados
           const dataToCache = {
             tasks: tasksData || [],
             clients: clientsData || [],
             projects: projectsData || [],
             users: usersData || [],
-            statusOptions: statusOptions || []
+            statusOptions: fetchedStatusOptions || []
           };
           setCachedData(dataToCache);
           setTasks(dataToCache.tasks);
@@ -146,7 +148,14 @@ import { executeAutomation } from '@/lib/workflow';
           setUsers(dataToCache.users);
         }
         setLoading(false);
-      }, [toast, fetchStatusOptions, fetchScheduleData, user, userRole, tasksAccessLevel, statusOptions, setCachedData]);
+      }, [toast, fetchStatusOptions, fetchScheduleData, user, userRole, tasksAccessLevel, setCachedData]);
+
+      // Sempre atualiza statusOptions quando o componente é montado (dados pequenos e críticos para UI)
+      useEffect(() => {
+        if (user) {
+          fetchStatusOptions();
+        }
+      }, [user, fetchStatusOptions]);
 
       useEffect(() => {
         if (!user) return;
@@ -156,13 +165,13 @@ import { executeAutomation } from '@/lib/workflow';
           return;
         }
         
-        // Se tem cache válido, usa ele e marca como fetched
+        // Se tem cache válido, usa ele (statusOptions já foi atualizado no useEffect acima)
         if (!shouldFetch() && cachedData) {
           setTasks(cachedData.tasks);
           setClients(cachedData.clients);
           setProjects(cachedData.projects);
           setUsers(cachedData.users);
-          setStatusOptions(cachedData.statusOptions || []);
+          // Não usa statusOptions do cache, pois já foi atualizado no useEffect acima
           setLoading(false);
           hasFetchedRef.current = true;
           return;
@@ -173,9 +182,9 @@ import { executeAutomation } from '@/lib/workflow';
           hasFetchedRef.current = true;
           fetchData();
         }
-      }, [user]); // Apenas user como dependência - evita re-execução
+      }, [user, shouldFetch, cachedData, fetchData]); // Removido fetchStatusOptions para evitar loop
 
-      // Subscription para atualizações em tempo real
+      // Subscription para atualizações em tempo real - ATUALIZA TODOS OS USUÁRIOS SIMULTANEAMENTE
       useEffect(() => {
         if (!user) return;
 
@@ -190,12 +199,13 @@ import { executeAutomation } from '@/lib/workflow';
               schema: 'public',
               table: 'tarefas'
             },
-            (payload) => {
+            async (payload) => {
               console.log('🔴 Mudança detectada na tabela tarefas:', payload.eventType, payload.new || payload.old);
+              
+              const task = payload.new || payload.old;
               
               // Para colaboradores, filtra apenas tarefas atribuídas a eles
               if (userRole === 'colaborador' && tasksAccessLevel === 'responsible') {
-                const task = payload.new || payload.old;
                 if (task && !task.assignee_ids?.includes(user.id)) {
                   // Ignora mudanças em tarefas não atribuídas ao usuário
                   return;
@@ -203,34 +213,78 @@ import { executeAutomation } from '@/lib/workflow';
               }
               
               if (payload.eventType === 'INSERT') {
-                // Nova tarefa criada
+                // Nova tarefa criada - busca dados relacionados
                 const newTask = payload.new;
-                // Busca os dados relacionados (clientes, projetos)
-                supabase
+                const { data, error } = await supabase
                   .from('tarefas')
                   .select('*, clientes(empresa), projetos(name)')
                   .eq('id', newTask.id)
-                  .single()
-                  .then(({ data, error }) => {
-                    if (!error && data) {
-                      setTasks(prev => {
-                        // Verifica se a tarefa já existe (evita duplicatas)
-                        if (prev.find(t => t.id === data.id)) {
-                          return prev;
-                        }
-                        return [...prev, data];
-                      });
-                      // Atualiza cache
-                      setCachedData(prev => prev ? {
-                        ...prev,
-                        tasks: [...(prev.tasks || []), data]
-                      } : null);
+                  .single();
+                
+                if (!error && data) {
+                  setTasks(prev => {
+                    // Verifica se a tarefa já existe (evita duplicatas)
+                    if (prev.find(t => t.id === data.id)) {
+                      return prev;
                     }
+                    return [...prev, data];
                   });
+                  
+                  // Atualiza scheduleTasks se for tarefa agendada
+                  if (data.post_date) {
+                    setScheduleTasks(prev => {
+                      if (prev.find(t => t.id === data.id)) {
+                        return prev.map(t => t.id === data.id ? data : t);
+                      }
+                      return [...prev, data];
+                    });
+                  }
+                  
+                  // Atualiza cache
+                  setCachedData(prev => prev ? {
+                    ...prev,
+                    tasks: [...(prev.tasks || []), data]
+                  } : null);
+                }
               } else if (payload.eventType === 'UPDATE') {
-                // Tarefa atualizada
+                // Tarefa atualizada - ATUALIZAÇÃO IMEDIATA usando payload + busca relacionamentos se necessário
                 const updatedTask = payload.new;
-                // Busca os dados relacionados atualizados
+                
+                // Atualiza imediatamente o estado local com os dados do payload
+                setTasks(prev => {
+                  const existingTask = prev.find(t => t.id === updatedTask.id);
+                  if (existingTask) {
+                    // Mescla os dados atualizados mantendo relacionamentos existentes
+                    return prev.map(t => 
+                      t.id === updatedTask.id 
+                        ? { ...t, ...updatedTask, clientes: t.clientes, projetos: t.projetos }
+                        : t
+                    );
+                  }
+                  // Se não existe, mantém como está (será atualizado pela busca em background)
+                  return prev;
+                });
+                
+                // Atualiza scheduleTasks se for tarefa agendada
+                if (updatedTask.post_date) {
+                  setScheduleTasks(prev => {
+                    const existingTask = prev.find(t => t.id === updatedTask.id);
+                    if (existingTask) {
+                      return prev.map(t => 
+                        t.id === updatedTask.id 
+                          ? { ...t, ...updatedTask, clientes: t.clientes, projetos: t.projetos }
+                          : t
+                      );
+                    }
+                    // Se não existe e tem post_date, busca dados completos
+                    return prev;
+                  });
+                } else {
+                  // Remove de scheduleTasks se não tem mais post_date
+                  setScheduleTasks(prev => prev.filter(t => t.id !== updatedTask.id));
+                }
+                
+                // Busca dados relacionados em background para garantir que estão atualizados
                 supabase
                   .from('tarefas')
                   .select('*, clientes(empresa), projetos(name)')
@@ -238,7 +292,20 @@ import { executeAutomation } from '@/lib/workflow';
                   .single()
                   .then(({ data, error }) => {
                     if (!error && data) {
+                      // Atualiza com dados completos quando disponíveis
                       setTasks(prev => prev.map(t => t.id === data.id ? data : t));
+                      
+                      // Atualiza scheduleTasks se necessário
+                      if (data.post_date) {
+                        setScheduleTasks(prev => {
+                          const existing = prev.find(t => t.id === data.id);
+                          if (existing) {
+                            return prev.map(t => t.id === data.id ? data : t);
+                          }
+                          return [...prev, data];
+                        });
+                      }
+                      
                       // Atualiza cache
                       setCachedData(prev => prev ? {
                         ...prev,
@@ -250,6 +317,8 @@ import { executeAutomation } from '@/lib/workflow';
                 // Tarefa deletada
                 const deletedTask = payload.old;
                 setTasks(prev => prev.filter(t => t.id !== deletedTask.id));
+                setScheduleTasks(prev => prev.filter(t => t.id !== deletedTask.id));
+                
                 // Atualiza cache
                 setCachedData(prev => prev ? {
                   ...prev,
@@ -260,7 +329,7 @@ import { executeAutomation } from '@/lib/workflow';
           )
           .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
-              console.log('✅ Inscrito nas mudanças em tempo real da tabela tarefas');
+              console.log('✅ Inscrito nas mudanças em tempo real da tabela tarefas - atualizações serão refletidas para todos os usuários');
             } else if (status === 'CHANNEL_ERROR') {
               console.error('❌ Erro ao se inscrever nas mudanças em tempo real');
             }
@@ -462,9 +531,19 @@ import { executeAutomation } from '@/lib/workflow';
             }
         }
 
-        const originalTasks = tasks;
+        // ATUALIZAÇÃO OTIMISTA: atualiza o estado local imediatamente para feedback visual instantâneo
+        const originalTasks = [...tasks];
+        const originalScheduleTasks = [...scheduleTasks];
+        
         setTasks(currentTasks => 
             currentTasks.map(task => 
+                task.id === taskId ? { ...task, status: newStatus } : task
+            )
+        );
+        
+        // Atualiza também scheduleTasks se necessário
+        setScheduleTasks(currentScheduleTasks =>
+            currentScheduleTasks.map(task =>
                 task.id === taskId ? { ...task, status: newStatus } : task
             )
         );
@@ -473,6 +552,7 @@ import { executeAutomation } from '@/lib/workflow';
         if (fetchError) {
             toast({ title: "Erro ao buscar tarefa antiga", description: fetchError.message, variant: "destructive" });
             setTasks(originalTasks);
+            setScheduleTasks(originalScheduleTasks);
             return;
         }
 
@@ -488,8 +568,16 @@ import { executeAutomation } from '@/lib/workflow';
         if (updateError) {
             toast({ title: "Erro ao atualizar status", variant: "destructive" });
             setTasks(originalTasks);
+            setScheduleTasks(originalScheduleTasks);
         } else {
-            toast({ title: "Status atualizado!" });
+            // A subscription do Realtime vai atualizar automaticamente para todos os usuários
+            // Mas garantimos que o estado local está correto
+            setTasks(currentTasks => 
+                currentTasks.map(task => 
+                    task.id === updatedTask.id ? { ...task, ...updatedTask } : task
+                )
+            );
+            
             if (oldData.status !== newStatus) {
                 // Executa automações para mudança de status
                 const eventData = { old_status: oldData.status, new_status: newStatus };

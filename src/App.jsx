@@ -79,7 +79,13 @@ import React, { useEffect } from 'react';
       }, []);
 
       if (authLoading) {
-        return <div className="flex w-full h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200">Carregando...</div>;
+        return (
+          <div className="flex flex-col w-full h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+            <p>Carregando...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Se demorar, recarregue a página</p>
+          </div>
+        );
       }
 
       return (

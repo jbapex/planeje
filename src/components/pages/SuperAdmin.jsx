@@ -10,6 +10,7 @@ import React from 'react';
     import DiagnosticTemplatesManager from './DiagnosticTemplatesManager';
 import DashboardSettings from './DashboardSettings';
 import CompanyInfoSettings from './CompanyInfoSettings';
+import ApexIAClientPersonalitySettings from './ApexIAClientPersonalitySettings';
 import { LayoutDashboard } from 'lucide-react';
 
     const SuperAdmin = () => {
@@ -24,6 +25,7 @@ import { LayoutDashboard } from 'lucide-react';
             { path: '/super-admin/diagnostic-templates', label: 'Templates Diagnóstico', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/diagnostic-settings', label: 'Config. Diagnóstico', icon: <Settings className="h-4 w-4" /> },
             { path: '/super-admin/ai-agents', label: 'Agentes de IA', icon: <Sparkles className="h-4 w-4" /> },
+            { path: '/super-admin/apexia-client-personality', label: 'Personalidade ApexIA', icon: <Bot className="h-4 w-4" /> },
             { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
         ];
         
@@ -63,6 +65,7 @@ import { LayoutDashboard } from 'lucide-react';
                         <Route path="diagnostic-templates" element={<DiagnosticTemplatesManager />} />
                         <Route path="diagnostic-settings" element={<DiagnosticSettings />} />
                         <Route path="ai-agents" element={<AiAgentsManager />} />
+                        <Route path="apexia-client-personality" element={<ApexIAClientPersonalitySettings />} />
                         <Route path="chat-limits" element={<ChatLimitsManager />} />
                         <Route index element={<Navigate to="modules" replace />} />
                    </Routes>
