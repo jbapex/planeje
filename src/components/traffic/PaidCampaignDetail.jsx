@@ -28,19 +28,37 @@ import React, { useState, useEffect, useCallback } from 'react';
 
         const fetchData = useCallback(async () => {
             setLoading(true);
-            const { data: campaignData, error } = await supabase
-                .from('paid_campaigns')
-                .select('*, clientes(*), profiles!assignee_id(*)')
-                .eq('id', id)
-                .single();
+            
+            // Timeout de segurança
+            const timeoutId = setTimeout(() => {
+              console.warn('Timeout ao buscar detalhes da campanha - forçando loading como false');
+              setLoading(false);
+            }, 10000);
+            
+            try {
+                const { data: campaignData, error } = await supabase
+                    .from('paid_campaigns')
+                    .select('*, clientes(*), profiles!assignee_id(*)')
+                    .eq('id', id)
+                    .single();
 
-            if (error || !campaignData) {
-                toast({ title: 'Erro ao buscar campanha', description: error?.message || 'Campanha não encontrada', variant: 'destructive' });
+                clearTimeout(timeoutId);
+
+                if (error || !campaignData) {
+                    console.error('Erro ao buscar campanha:', error);
+                    toast({ title: 'Erro ao buscar campanha', description: error?.message || 'Campanha não encontrada', variant: 'destructive' });
+                    navigate('/paid-traffic');
+                    return;
+                }
+                setCampaign(campaignData);
+            } catch (err) {
+                console.error('Erro inesperado ao buscar campanha:', err);
+                clearTimeout(timeoutId);
+                toast({ title: 'Erro ao buscar campanha', description: err.message, variant: 'destructive' });
                 navigate('/paid-traffic');
-                return;
+            } finally {
+                setLoading(false);
             }
-            setCampaign(campaignData);
-            setLoading(false);
         }, [id, navigate, toast]);
         
         const fetchDropdownData = useCallback(async () => {
@@ -90,7 +108,12 @@ import React, { useState, useEffect, useCallback } from 'react';
         }
 
         if (loading) {
-            return <div className="flex items-center justify-center h-full"><p className="dark:text-gray-300">Carregando detalhes da campanha...</p></div>;
+            return (
+              <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+                <p className="dark:text-gray-300">Carregando detalhes da campanha...</p>
+              </div>
+            );
         }
 
         if (!campaign) {

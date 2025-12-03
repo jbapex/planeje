@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Button } from '@/components/ui/button';
-    import { Filter, Plus } from 'lucide-react';
+    import { Filter, Plus, RefreshCw } from 'lucide-react';
     import PaidCampaignKanban from '@/components/traffic/PaidCampaignKanban';
     import PaidCampaignList from '@/components/traffic/PaidCampaignList';
     import PaidCampaignForm from '@/components/traffic/PaidCampaignForm';
@@ -19,6 +19,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const [users, setUsers] = useState([]);
       const [tasks, setTasks] = useState([]);
       const [loading, setLoading] = useState(true);
+      const [loadingTimeout, setLoadingTimeout] = useState(false);
       const [activeTab, setActiveTab] = useState("kanban");
       const { toast } = useToast();
       const { profile } = useAuth();
@@ -33,6 +34,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
       const fetchData = useCallback(async () => {
         setLoading(true);
+        setLoadingTimeout(false);
+        
+        // Timeout de segurança: força o loading como false após 15 segundos
+        const timeoutId = setTimeout(() => {
+          console.warn('Timeout no carregamento de campanhas - forçando loading como false');
+          setLoadingTimeout(true);
+          setLoading(false);
+        }, 15000);
+        
         try {
           const { data: campaignsData, error: campaignsError } = await supabase.from('paid_campaigns').select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)').order('created_at', { ascending: false });
           if(campaignsError) throw campaignsError;
@@ -54,16 +64,106 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           if (tasksError) throw tasksError;
           setTasks(tasksData || []);
 
+          clearTimeout(timeoutId);
         } catch (error) {
+          console.error('Erro ao buscar dados de campanhas:', error);
+          clearTimeout(timeoutId);
           toast({ title: 'Erro ao buscar dados de campanhas', description: error.message, variant: 'destructive' });
         } finally {
           setLoading(false);
+          setLoadingTimeout(false);
         }
       }, [toast]);
       
       useEffect(() => {
         fetchData();
       }, [fetchData]);
+
+      // Subscription para atualizações em tempo real - ATUALIZA TODOS OS USUÁRIOS SIMULTANEAMENTE
+      useEffect(() => {
+        const channelName = `paid-campaigns-changes`;
+        const campaignsChannel = supabase
+          .channel(channelName)
+          .on(
+            'postgres_changes',
+            {
+              event: '*', // Escuta INSERT, UPDATE, DELETE
+              schema: 'public',
+              table: 'paid_campaigns'
+            },
+            async (payload) => {
+              console.log('🔴 Mudança detectada na tabela paid_campaigns:', payload.eventType, payload.new || payload.old);
+              
+              if (payload.eventType === 'INSERT') {
+                // Nova campanha criada - busca dados relacionados
+                const newCampaign = payload.new;
+                const { data, error } = await supabase
+                  .from('paid_campaigns')
+                  .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+                  .eq('id', newCampaign.id)
+                  .single();
+                
+                if (!error && data) {
+                  setCampaigns(prev => {
+                    // Verifica se a campanha já existe (evita duplicatas)
+                    if (prev.find(c => c.id === data.id)) {
+                      return prev;
+                    }
+                    return [data, ...prev];
+                  });
+                }
+              } else if (payload.eventType === 'UPDATE') {
+                // Campanha atualizada - ATUALIZAÇÃO IMEDIATA usando payload + busca relacionamentos se necessário
+                const updatedCampaign = payload.new;
+                
+                // Atualiza imediatamente o estado local com os dados do payload
+                setCampaigns(prev => {
+                  const existingCampaign = prev.find(c => c.id === updatedCampaign.id);
+                  if (existingCampaign) {
+                    // Mescla os dados atualizados mantendo relacionamentos existentes
+                    return prev.map(c => 
+                      c.id === updatedCampaign.id 
+                        ? { ...c, ...updatedCampaign, clientes: c.clientes, profiles: c.profiles }
+                        : c
+                    );
+                  }
+                  // Se não existe, mantém como está (será atualizado pela busca em background)
+                  return prev;
+                });
+                
+                // Busca dados relacionados em background para garantir que estão atualizados
+                supabase
+                  .from('paid_campaigns')
+                  .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+                  .eq('id', updatedCampaign.id)
+                  .single()
+                  .then(({ data, error }) => {
+                    if (!error && data) {
+                      // Atualiza com dados completos quando disponíveis
+                      setCampaigns(prev => prev.map(c => c.id === data.id ? data : c));
+                    }
+                  });
+              } else if (payload.eventType === 'DELETE') {
+                // Campanha deletada
+                const deletedCampaign = payload.old;
+                setCampaigns(prev => prev.filter(c => c.id !== deletedCampaign.id));
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Inscrito nas mudanças em tempo real da tabela paid_campaigns - atualizações serão refletidas para todos os usuários');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('❌ Erro ao se inscrever nas mudanças em tempo real de paid_campaigns');
+            }
+          });
+
+        // Cleanup: remove a subscription quando o componente desmonta
+        return () => {
+          console.log('🔌 Removendo subscription de paid_campaigns');
+          supabase.removeChannel(campaignsChannel);
+        };
+      }, []);
 
       const filteredCampaigns = useMemo(() => {
         return campaigns.filter(campaign => {
@@ -75,6 +175,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 
       const handleUpdateStatus = async (campaignId, newStatus) => {
+        // ATUALIZAÇÃO OTIMISTA: atualiza o estado local imediatamente para feedback visual instantâneo
         const originalCampaigns = [...campaigns];
         
         setCampaigns(currentCampaigns => 
@@ -83,16 +184,24 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             )
         );
 
-        const { error } = await supabase
+        const { data: updatedCampaign, error } = await supabase
             .from('paid_campaigns')
             .update({ status: newStatus })
-            .eq('id', campaignId);
+            .eq('id', campaignId)
+            .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+            .single();
         
         if (error) {
             toast({ title: 'Erro ao atualizar status', description: error.message, variant: 'destructive' });
             setCampaigns(originalCampaigns);
         } else {
-            toast({ title: 'Status da campanha atualizado!' });
+            // A subscription do Realtime vai atualizar automaticamente para todos os usuários
+            // Mas garantimos que o estado local está correto
+            setCampaigns(currentCampaigns => 
+                currentCampaigns.map(c => 
+                    c.id === updatedCampaign.id ? { ...c, ...updatedCampaign } : c
+                )
+            );
         }
       };
 
@@ -150,7 +259,31 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       };
 
       if(loading) {
-        return <p className="text-center py-10 dark:text-gray-400">Carregando campanhas...</p>
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+            <p className="text-center py-10 dark:text-gray-400">Carregando campanhas...</p>
+            {loadingTimeout && (
+              <div className="mt-6 text-center">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  O carregamento está demorando mais que o esperado.
+                </p>
+                <Button 
+                  onClick={() => {
+                    setLoading(false);
+                    setLoadingTimeout(false);
+                    fetchData();
+                  }}
+                  variant="outline"
+                  className="mt-2"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Recarregar
+                </Button>
+              </div>
+            )}
+          </div>
+        );
       }
 
       return (

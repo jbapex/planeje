@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
     import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
     import { Badge } from '@/components/ui/badge';
     import { Checkbox } from '@/components/ui/checkbox';
-    import { Calendar as CalendarIcon, DollarSign, ChevronDown, ChevronRight, ShoppingCart, Target, TrendingUp } from 'lucide-react';
+    import { Calendar as CalendarIcon, DollarSign, ChevronDown, ChevronRight, ShoppingCart, Target, TrendingUp, RefreshCw } from 'lucide-react';
     import { motion, AnimatePresence } from 'framer-motion';
     import { Button } from '@/components/ui/button';
     import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -57,10 +57,22 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
 
     const ALL_METRICS_FLAT = Object.values(METRICS_OPTIONS).flat();
 
-    const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-    const formatNumber = (value) => new Intl.NumberFormat('pt-BR').format(value || 0);
-    const formatDecimal = (value) => (value || 0).toFixed(2);
-    const formatPercentage = (value) => `${(value || 0).toFixed(2)}%`;
+    const formatCurrency = (value) => {
+        const num = typeof value === 'number' ? value : parseFloat(value) || 0;
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
+    };
+    const formatNumber = (value) => {
+        const num = typeof value === 'number' ? value : parseFloat(value) || 0;
+        return new Intl.NumberFormat('pt-BR').format(num);
+    };
+    const formatDecimal = (value) => {
+        const num = typeof value === 'number' ? value : parseFloat(value) || 0;
+        return num.toFixed(2);
+    };
+    const formatPercentage = (value) => {
+        const num = typeof value === 'number' ? value : parseFloat(value) || 0;
+        return `${num.toFixed(2)}%`;
+    };
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         try {
@@ -116,18 +128,39 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                      const metric = value.find(v => v.action_type === metricId);
                      return formatNumber(metric?.value);
                 }
-                return formatNumber(value);
+                // Garante que value seja um número antes de formatar
+                if (value === null || value === undefined || value === '') {
+                    return 'N/A';
+                }
+                const numValue = typeof value === 'number' ? value : parseFloat(value);
+                if (isNaN(numValue)) {
+                    return 'N/A';
+                }
+                return formatNumber(numValue);
         }
     };
 
     const DataRow = ({ level, data, onToggle, isExpanded, type, selectedMetrics }) => {
         const insights = data.insights?.data[0];
+        const handleRowClick = (e) => {
+            // Evita toggle se clicar diretamente no botão da seta
+            if (e.target.closest('button')) {
+                return;
+            }
+            if (onToggle) {
+                onToggle();
+            }
+        };
+        
         return (
-            <TableRow className={`dark:border-gray-700 ${level > 0 ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}>
+            <TableRow 
+                className={`dark:border-gray-700 ${level > 0 ? 'bg-gray-50 dark:bg-gray-800/50' : ''} ${onToggle ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50' : ''}`}
+                onClick={handleRowClick}
+            >
                 <TableCell style={{ paddingLeft: `${10 + level * 20}px` }}>
                     <div className="flex items-center gap-2">
                         {onToggle && (
-                            <Button variant="ghost" size="icon" onClick={onToggle} className="h-6 w-6">
+                            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onToggle(); }} className="h-6 w-6">
                                 {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             </Button>
                         )}
@@ -160,7 +193,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
         const [headerInsights, setHeaderInsights] = useState(null);
         const [loadingAccounts, setLoadingAccounts] = useState(true);
         const [loading, setLoading] = useState(false);
-        const [selectedMetrics, setSelectedMetrics] = useState(['spend', 'results', 'actions:omni_purchase', 'action_values:omni_purchase']);
+        const [selectedMetrics, setSelectedMetrics] = useState(['spend', 'results', 'actions', 'action_values']);
         const [expandedRows, setExpandedRows] = useState({});
         const [date, setDate] = useState({
           from: new Date(new Date().setDate(new Date().getDate() - 30)),
@@ -173,6 +206,10 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
         
         const [adSetOptions, setAdSetOptions] = useState([]);
         const [adOptions, setAdOptions] = useState([]);
+        const [rateLimitCooldown, setRateLimitCooldown] = useState(false);
+        const [lastRateLimitTime, setLastRateLimitTime] = useState(null);
+        const [loadingProgress, setLoadingProgress] = useState(null);
+        const [loadAllCampaigns, setLoadAllCampaigns] = useState(false);
 
         const { toast } = useToast();
 
@@ -187,15 +224,147 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                     until: format(date.to, 'yyyy-MM-dd'),
                 };
                 
-                const requestBody = { ...body, metrics: body.metrics || selectedMetrics, time_range };
+                // Filtra métricas inválidas e converte para formato da API
+                const metricsToSend = (body.metrics || selectedMetrics)
+                    .filter(m => {
+                        // Remove métricas no formato actions:xxx que não são válidas
+                        if (m.includes(':') && (m.startsWith('actions:') || m.startsWith('action_values:') || m.startsWith('cost_per_action_type:'))) {
+                            return false;
+                        }
+                        return true;
+                    })
+                    // Adiciona actions e action_values se necessário
+                    .concat(
+                        (body.metrics || selectedMetrics).some(m => m.includes('omni_purchase') || m.includes('omni_add_to_cart') || m.includes('messaging'))
+                            ? ['actions', 'action_values']
+                            : []
+                    )
+                    // Remove duplicatas
+                    .filter((v, i, a) => a.indexOf(v) === i);
+                
+                const requestBody = { ...body, metrics: metricsToSend, time_range };
                 
                 const { data, error } = await supabase.functions.invoke('meta-ads-api', { body: requestBody });
 
                 if (error) throw error;
-                if (data.error) throw new Error(data.error);
+                
+                if (data?.error) {
+                    const errorMessage = typeof data.error === 'string' 
+                        ? data.error 
+                        : data.error?.message || JSON.stringify(data.error);
+                    throw new Error(errorMessage);
+                }
+                
+                // Processa os dados para extrair métricas específicas de actions
+                if (data?.campaigns) {
+                    data.campaigns = data.campaigns.map(campaign => {
+                        if (campaign.insights?.data?.[0]) {
+                            const insight = campaign.insights.data[0];
+                            // Extrai omni_purchase do array actions
+                            if (insight.actions) {
+                                const purchaseAction = insight.actions.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseAction) {
+                                    insight['actions:omni_purchase'] = purchaseAction.value;
+                                }
+                                const addToCartAction = insight.actions.find(a => a.action_type === 'omni_add_to_cart');
+                                if (addToCartAction) {
+                                    insight['actions:omni_add_to_cart'] = addToCartAction.value;
+                                }
+                            }
+                            // Extrai omni_purchase do array action_values
+                            if (insight.action_values) {
+                                const purchaseValue = insight.action_values.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseValue) {
+                                    insight['action_values:omni_purchase'] = purchaseValue.value;
+                                }
+                            }
+                        }
+                        return campaign;
+                    });
+                }
+                
+                // Processa adsets e ads também
+                if (data?.adsets) {
+                    data.adsets = data.adsets.map(adset => {
+                        if (adset.insights?.data?.[0]) {
+                            const insight = adset.insights.data[0];
+                            if (insight.actions) {
+                                const purchaseAction = insight.actions.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseAction) {
+                                    insight['actions:omni_purchase'] = purchaseAction.value;
+                                }
+                            }
+                            if (insight.action_values) {
+                                const purchaseValue = insight.action_values.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseValue) {
+                                    insight['action_values:omni_purchase'] = purchaseValue.value;
+                                }
+                            }
+                        }
+                        return adset;
+                    });
+                }
+                
+                if (data?.ads) {
+                    data.ads = data.ads.map(ad => {
+                        if (ad.insights?.data?.[0]) {
+                            const insight = ad.insights.data[0];
+                            if (insight.actions) {
+                                const purchaseAction = insight.actions.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseAction) {
+                                    insight['actions:omni_purchase'] = purchaseAction.value;
+                                }
+                            }
+                            if (insight.action_values) {
+                                const purchaseValue = insight.action_values.find(a => a.action_type === 'omni_purchase');
+                                if (purchaseValue) {
+                                    insight['action_values:omni_purchase'] = purchaseValue.value;
+                                }
+                            }
+                        }
+                        return ad;
+                    });
+                }
+                
+                // Processa account insights também
+                if (data?.insights) {
+                    const insight = data.insights;
+                    if (insight.actions) {
+                        const purchaseAction = insight.actions.find(a => a.action_type === 'omni_purchase');
+                        if (purchaseAction) {
+                            insight['actions:omni_purchase'] = purchaseAction.value;
+                        }
+                    }
+                    if (insight.action_values) {
+                        const purchaseValue = insight.action_values.find(a => a.action_type === 'omni_purchase');
+                        if (purchaseValue) {
+                            insight['action_values:omni_purchase'] = purchaseValue.value;
+                        }
+                    }
+                }
+                
                 return data;
             } catch (err) {
-                toast({ title: `Erro ao buscar ${action}`, description: err.message, variant: 'destructive' });
+                const errorMessage = err?.message || err?.error?.message || `Erro desconhecido ao buscar ${action}`;
+                const isRateLimit = errorMessage.includes('limit') || 
+                                   errorMessage.includes('rate') || 
+                                   errorMessage.includes('User request limit');
+                
+                console.error(`Erro ao buscar ${action}:`, err);
+                
+                // Não mostra toast para rate limit (será tratado no carregamento automático)
+                // Apenas loga o erro para debug
+                if (!isRateLimit) {
+                    toast({ 
+                        title: `Erro ao buscar ${action}`, 
+                        description: errorMessage, 
+                        variant: 'destructive' 
+                    });
+                } else {
+                    console.warn(`⚠️ Rate limit detectado ao buscar ${action} - silenciado`);
+                }
+                
+                return null;
             } finally {
                 setLoading(false);
             }
@@ -207,13 +376,27 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                  try {
                     const { data, error } = await supabase.functions.invoke('meta-ads-api', { body: { action: 'get-ad-accounts' } });
                     if (error) throw error;
-                    if (data.error) throw new Error(data.error);
+                    
+                    if (data?.error) {
+                        const errorMessage = typeof data.error === 'string' 
+                            ? data.error 
+                            : data.error?.message || JSON.stringify(data.error);
+                        throw new Error(errorMessage);
+                    }
 
                     if (data?.adAccounts) {
                         setAdAccounts(data.adAccounts);
+                    } else {
+                        console.warn('Nenhuma conta de anúncio encontrada');
                     }
                 } catch (err) {
-                    toast({ title: 'Erro ao buscar contas', description: err.message, variant: 'destructive' });
+                    const errorMessage = err?.message || err?.error?.message || 'Erro desconhecido ao buscar contas';
+                    console.error('Erro ao buscar contas:', err);
+                    toast({ 
+                        title: 'Erro ao buscar contas', 
+                        description: errorMessage, 
+                        variant: 'destructive' 
+                    });
                 } finally {
                     setLoadingAccounts(false);
                 }
@@ -221,7 +404,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             fetchInitialAccounts();
         }, [toast]); 
 
-        const fetchAllDataForAccount = useCallback(async () => {
+        const fetchAllDataForAccount = useCallback(async (loadAll = false) => {
             if (!selectedAccount || !date?.from || !date?.to) return;
             
             setCampaigns({});
@@ -232,25 +415,432 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             setSelectedAdFilter('all');
             setAdSetOptions([]);
             setAdOptions([]);
+            setLoadingProgress({ current: 0, total: 0, message: 'Carregando campanhas...' });
 
-
+            try {
+                // 1. Carrega campanhas
             const campaignsData = await fetchData('campanhas', { action: 'get-campaigns', adAccountId: selectedAccount });
-            if (campaignsData?.campaigns) {
-                const activeCampaigns = campaignsData.campaigns.filter(c => c.insights && c.insights.data.length > 0);
-                const campaignsObj = activeCampaigns.reduce((acc, c) => ({...acc, [c.id]: {...c, children: {}}}), {});
+                console.log('📊 Campaigns data received:', campaignsData);
+                
+                if (!campaignsData?.campaigns || campaignsData.campaigns.length === 0) {
+                    console.warn('⚠️ Nenhuma campanha encontrada');
+                    setCampaigns({});
+                    setLoadingProgress(null);
+                    return;
+                }
+                
+                // Filtra campanhas baseado no modo selecionado
+                let campaignsToProcess = [];
+                
+                if (loadAll) {
+                    // Carrega TODAS as campanhas (ativas, pausadas, arquivadas, etc.)
+                    campaignsToProcess = campaignsData.campaigns.filter(c => {
+                        const hasValidInsights = c.insights && 
+                               c.insights.data && 
+                               Array.isArray(c.insights.data) && 
+                               c.insights.data.length > 0;
+                        
+                        if (!hasValidInsights && c.insights?.error) {
+                            console.error(`❌ Campaign ${c.id} (${c.name}) error:`, JSON.stringify(c.insights.error, null, 2));
+                        }
+                        
+                        return hasValidInsights;
+                    });
+                    console.log(`✅ Total de campanhas (todas): ${campaignsToProcess.length}`);
+                } else {
+                    // Carrega APENAS campanhas ATIVAS (mais rápido)
+                    campaignsToProcess = campaignsData.campaigns.filter(c => {
+                        // Verifica se está ativa E tem insights válidos
+                        const isActive = c.status === 'ACTIVE';
+                        const hasValidInsights = c.insights && 
+                               c.insights.data && 
+                               Array.isArray(c.insights.data) && 
+                               c.insights.data.length > 0;
+                        
+                        if (!hasValidInsights && c.insights?.error) {
+                            console.error(`❌ Campaign ${c.id} (${c.name}) error:`, JSON.stringify(c.insights.error, null, 2));
+                        }
+                        
+                        return isActive && hasValidInsights;
+                    });
+                    console.log(`✅ Total de campanhas ativas: ${campaignsToProcess.length}`);
+                }
+                
+                if (campaignsToProcess.length === 0) {
+                    console.warn(`⚠️ Nenhuma campanha ${loadAll ? '' : 'ativa'} encontrada`);
+                    setCampaigns({});
+                    setLoadingProgress(null);
+                    toast({
+                        title: loadAll ? 'Nenhuma campanha encontrada' : 'Nenhuma campanha ativa encontrada',
+                        description: loadAll 
+                            ? 'Não há campanhas com dados disponíveis.' 
+                            : 'Não há campanhas ativas. Clique em "Carregar Todas" para ver campanhas pausadas e arquivadas.',
+                        variant: 'default',
+                        duration: 5000,
+                    });
+                    return;
+                }
+                
+                // Inicializa campanhas com children vazios
+                let campaignsObj = campaignsToProcess.reduce((acc, c) => ({...acc, [c.id]: {...c, children: {}}}), {});
                 setCampaigns(campaignsObj);
-            }
-
+                
+                // 2. Carrega header insights
             const headerMetrics = ['spend', 'results', 'actions', 'action_values', 'website_purchase_roas'];
             const accountInsightsData = await fetchData('insights gerais', { action: 'get-account-insights', adAccountId: selectedAccount, metrics: headerMetrics });
             if(accountInsightsData?.insights) {
                 setHeaderInsights(accountInsightsData.insights);
             }
-        }, [selectedAccount, date, fetchData]);
+                
+                // 3. Carrega TODOS os ad sets e ads de forma controlada
+                const totalCampaigns = campaignsToProcess.length;
+                let rateLimitDetected = false;
+                let loadedCampaigns = 0;
+                const adSetsList = [];
+                const adsList = [];
+                
+                setLoadingProgress({
+                    current: 0,
+                    total: totalCampaigns,
+                    message: `Carregando conjuntos e anúncios de ${totalCampaigns} campanha(s)...`
+                });
+                
+                toast({
+                    title: 'Carregando dados completos',
+                    description: `Carregando todos os conjuntos e anúncios de ${totalCampaigns} campanha(s) ${loadAll ? '(todas)' : '(ativas)'}. Isso pode levar alguns minutos...`,
+                    variant: 'default',
+                    duration: 5000,
+                });
+                
+                for (let i = 0; i < campaignsToProcess.length; i++) {
+                    const campaign = campaignsToProcess[i];
+                    
+                    // Verifica rate limit antes de continuar
+                    if (rateLimitDetected) {
+                        console.warn('⚠️ Rate limit detectado. Pausando carregamento automático.');
+                        toast({
+                            title: 'Rate limit atingido',
+                            description: `Carregados ${loadedCampaigns} de ${totalCampaigns} campanhas. Aguarde alguns minutos antes de tentar novamente.`,
+                            variant: 'destructive',
+                            duration: 8000,
+                        });
+                        break;
+                    }
+                    
+                    // Delay entre campanhas (reduzido para 2 segundos)
+                    if (i > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                    
+                    setLoadingProgress({
+                        current: i + 1,
+                        total: totalCampaigns,
+                        message: `Carregando campanha ${i + 1}/${totalCampaigns}: ${campaign.name?.substring(0, 30)}...`
+                    });
+                    
+                    try {
+                        console.log(`📦 [${i + 1}/${totalCampaigns}] Carregando ad sets da campanha ${campaign.id}...`);
+                        
+                        // Aguarda antes de fazer a requisição (reduzido para 1 segundo)
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // Carrega ad sets da campanha
+                        let adsetsData = null;
+                        try {
+                            adsetsData = await fetchData('conjuntos de anúncios', { 
+                                action: 'get-adsets', 
+                                campaignId: campaign.id 
+                            });
+                            
+                            // Se fetchData retornou null, pode ser rate limit
+                            // Mas continua tentando as próximas campanhas (não para tudo)
+                            if (!adsetsData) {
+                                console.warn(`⚠️ Nenhum dado retornado para campanha ${campaign.id} - pode ser rate limit`);
+                                // Não para tudo, apenas marca e continua
+                                if (!rateLimitDetected) {
+                                    rateLimitDetected = true;
+                                    setRateLimitCooldown(true);
+                                    setLastRateLimitTime(Date.now());
+                                }
+                                // Continua com próxima campanha ao invés de break
+                                loadedCampaigns++;
+                                continue;
+                            }
+                        } catch (fetchErr) {
+                            const errorMsg = fetchErr.message || '';
+                            if (errorMsg.includes('limit') || errorMsg.includes('rate') || errorMsg.includes('User request limit')) {
+                                console.warn(`⚠️ Rate limit detectado na campanha ${campaign.id}`);
+                                if (!rateLimitDetected) {
+                                    rateLimitDetected = true;
+                                    setRateLimitCooldown(true);
+                                    setLastRateLimitTime(Date.now());
+                                }
+                                // Continua com próxima campanha ao invés de break
+                                loadedCampaigns++;
+                                continue;
+                            }
+                            // Se não for rate limit, continua tentando
+                            adsetsData = null;
+                            loadedCampaigns++;
+                            continue;
+                        }
+                        
+                        console.log(`📊 Ad sets recebidos para campanha ${campaign.id}:`, adsetsData?.adsets?.length || 0, adsetsData);
+                        
+                        if (!adsetsData) {
+                            console.warn(`⚠️ Nenhum dado retornado para campanha ${campaign.id}`);
+                            // Adiciona campanha mesmo sem ad sets
+                            setCampaigns(prev => ({
+                                ...prev,
+                                [campaign.id]: {
+                                    ...prev[campaign.id],
+                                    children: {}
+                                }
+                            }));
+                            loadedCampaigns++;
+                            continue;
+                        }
+                        
+                        // Sempre inicializa o objeto de ad sets, mesmo que vazio
+                        const adSetsObj = {};
+                        
+                        if (adsetsData?.adsets && adsetsData.adsets.length > 0) {
+                            console.log(`✅ Processando ${adsetsData.adsets.length} ad sets da campanha ${campaign.id}`);
+                            
+                            // Processa cada ad set
+                            for (let j = 0; j < adsetsData.adsets.length; j++) {
+                                const adset = adsetsData.adsets[j];
+                                
+                                // Verifica rate limit antes de continuar
+                                if (rateLimitDetected) {
+                                    console.warn(`⚠️ Rate limit detectado ao processar ad set ${j + 1}/${adsetsData.adsets.length}`);
+                                    break;
+                                }
+                                
+                                // Delay entre ad sets (reduzido para 1 segundo)
+                                if (j > 0) {
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                }
+                                
+                                try {
+                                    console.log(`  📦 [${j + 1}/${adsetsData.adsets.length}] Carregando ads do adset ${adset.id}...`);
+                                    
+                                    // Aguarda antes de fazer a requisição (reduzido para 1 segundo)
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                    
+                                    // Carrega ads do ad set
+                                    let adsData = null;
+                                    try {
+                                        adsData = await fetchData('anúncios', { 
+                                            action: 'get-ads', 
+                                            adsetId: adset.id 
+                                        });
+                                    } catch (adFetchErr) {
+                                        const errorMsg = adFetchErr.message || '';
+                                        if (errorMsg.includes('limit') || errorMsg.includes('rate') || errorMsg.includes('User request limit')) {
+                                            if (!rateLimitDetected) {
+                                                rateLimitDetected = true;
+                                                setRateLimitCooldown(true);
+                                                setLastRateLimitTime(Date.now());
+                                            }
+                                            console.warn(`  ⚠️ Rate limit ao buscar ads do adset ${adset.id} - continuando com próximo adset`);
+                                            // Continua com próximo adset ao invés de break
+                                            // Adiciona adset mesmo sem ads
+                                            adSetsObj[adset.id] = {
+                                                ...adset,
+                                                type: 'adset',
+                                                children: {}
+                                            };
+                                            adSetsList.push({
+                                                id: adset.id,
+                                                name: adset.name,
+                                                campaign_id: campaign.id
+                                            });
+                                            continue;
+                                        }
+                                        console.warn(`  ⚠️ Erro ao buscar ads do adset ${adset.id}:`, adFetchErr.message);
+                                        adsData = null;
+                                    }
+                                    
+                                    const adsObj = {};
+                                    if (adsData?.ads && adsData.ads.length > 0) {
+                                        adsData.ads.forEach(ad => {
+                                            adsObj[ad.id] = {
+                                                ...ad,
+                                                type: 'ad',
+                                                children: {}
+                                            };
+                                            
+                                            // Adiciona à lista de ads para o filtro
+                                            adsList.push({
+                                                id: ad.id,
+                                                name: ad.name,
+                                                adset_id: adset.id
+                                            });
+                                        });
+                                        console.log(`  ✅ ${adsData.ads.length} ads carregados para adset ${adset.id}`);
+                                    } else {
+                                        console.log(`  ⚠️ Nenhum ad encontrado para adset ${adset.id}`);
+                                    }
+                                    
+                                    // Adiciona adset mesmo sem ads (importante!)
+                                    adSetsObj[adset.id] = {
+                                        ...adset,
+                                        type: 'adset',
+                                        children: adsObj
+                                    };
+                                    
+                                    // Adiciona à lista de ad sets para o filtro
+                                    adSetsList.push({
+                                        id: adset.id,
+                                        name: adset.name,
+                                        campaign_id: campaign.id
+                                    });
+                                    
+                                    console.log(`  ✅ Adset ${adset.id} adicionado (${Object.keys(adsObj).length} ads)`);
+                                    
+                                } catch (adErr) {
+                                    const errorMsg = adErr.message || '';
+                                    if (errorMsg.includes('limit') || errorMsg.includes('rate') || errorMsg.includes('User request limit')) {
+                                        rateLimitDetected = true;
+                                        console.warn(`  ⚠️ Rate limit ao carregar ads do adset ${adset.id}`);
+                                        // Adiciona adset mesmo sem ads
+                                        adSetsObj[adset.id] = {
+                                            ...adset,
+                                            type: 'adset',
+                                            children: {}
+                                        };
+                                        adSetsList.push({
+                                            id: adset.id,
+                                            name: adset.name,
+                                            campaign_id: campaign.id
+                                        });
+                                        break;
+                                    } else {
+                                        console.warn(`  ⚠️ Erro ao carregar ads do adset ${adset.id}:`, adErr.message);
+                                        // Adiciona adset mesmo sem ads em caso de erro
+                                        adSetsObj[adset.id] = {
+                                            ...adset,
+                                            type: 'adset',
+                                            children: {}
+                                        };
+                                        adSetsList.push({
+                                            id: adset.id,
+                                            name: adset.name,
+                                            campaign_id: campaign.id
+                                        });
+                                    }
+                                }
+                            }
+                            
+                            // Atualiza o estado da campanha com os ad sets carregados (IMPORTANTE: sempre atualiza)
+                            setCampaigns(prev => ({
+                                ...prev,
+                                [campaign.id]: {
+                                    ...prev[campaign.id],
+                                    children: adSetsObj
+                                }
+                            }));
+                            
+                            // Atualiza adSetOptions imediatamente (mesmo que vazio)
+                            if (adSetsList.length > 0) {
+                                setAdSetOptions(prev => {
+                                    const filtered = prev.filter(adset => adset.campaign_id !== campaign.id);
+                                    return [...filtered, ...adSetsList];
+                                });
+                                console.log(`✅ AdSetOptions atualizado: ${adSetsList.length} ad sets adicionados`);
+                            }
+                            
+                            // Atualiza adOptions imediatamente
+                            if (adsList.length > 0) {
+                                setAdOptions(prev => {
+                                    const filtered = prev.filter(ad => !adSetsList.some(adset => adset.id === ad.adset_id));
+                                    return [...filtered, ...adsList];
+                                });
+                                console.log(`✅ AdOptions atualizado: ${adsList.length} ads adicionados`);
+                            }
+                            
+                            if (Object.keys(adSetsObj).length > 0) {
+                                console.log(`✅ Campanha ${campaign.id}: ${Object.keys(adSetsObj).length} ad sets carregados com sucesso`);
+                            } else {
+                                console.warn(`⚠️ Campanha ${campaign.id}: Nenhum ad set carregado (pode estar vazia ou erro)`);
+                            }
+                            
+                            loadedCampaigns++;
+                        } else {
+                            // Campanha sem ad sets retornados, mas marca como carregada
+                            console.warn(`⚠️ Campanha ${campaign.id}: Sem ad sets retornados (pode estar vazia)`);
+                            // Garante que a campanha tenha children vazio
+                            setCampaigns(prev => ({
+                                ...prev,
+                                [campaign.id]: {
+                                    ...prev[campaign.id],
+                                    children: {}
+                                }
+                            }));
+                            loadedCampaigns++;
+                        }
+                        
+                    } catch (adsetErr) {
+                        const errorMsg = adsetErr.message || '';
+                        // Não mostra toast de erro aqui - será tratado no final
+                        if (errorMsg.includes('limit') || errorMsg.includes('rate') || errorMsg.includes('User request limit')) {
+                            rateLimitDetected = true;
+                            console.warn(`⚠️ Rate limit ao carregar ad sets da campanha ${campaign.id}`);
+                            setRateLimitCooldown(true);
+                            setLastRateLimitTime(Date.now());
+                            break;
+                        } else {
+                            console.warn(`⚠️ Erro ao carregar ad sets da campanha ${campaign.id}:`, adsetErr.message);
+                            // Continua com a próxima campanha mesmo se der erro (mas não rate limit)
+                            loadedCampaigns++;
+                        }
+                    }
+                }
+                
+                // Atualiza os filtros com todos os dados carregados
+                setAdSetOptions(adSetsList);
+                setAdOptions(adsList);
+                
+                setLoadingProgress(null);
+                
+                if (loadedCampaigns > 0) {
+                    const successMessage = rateLimitDetected
+                        ? `Carregados ${loadedCampaigns} de ${totalCampaigns} campanhas. Rate limit detectado - alguns dados podem estar incompletos.`
+                        : `✅ Todos os dados carregados! ${loadedCampaigns} campanha(s), ${adSetsList.length} conjunto(s) e ${adsList.length} anúncio(s).`;
+                    
+                    toast({
+                        title: rateLimitDetected ? 'Carregamento parcial' : 'Carregamento concluído',
+                        description: successMessage,
+                        variant: rateLimitDetected ? 'default' : 'default',
+                        duration: 6000,
+                    });
+                    
+                    console.log(`✅ Carregamento concluído: ${loadedCampaigns} campanhas, ${adSetsList.length} ad sets, ${adsList.length} ads`);
+                }
+                
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                setLoadingProgress(null);
+                toast({
+                    title: 'Erro ao carregar dados',
+                    description: error.message || 'Erro desconhecido',
+                    variant: 'destructive',
+                });
+            }
+        }, [selectedAccount, date, fetchData, toast]);
+        
+        // Função para recarregar com todas as campanhas
+        const handleLoadAllCampaigns = useCallback(() => {
+            setLoadAllCampaigns(true);
+            fetchAllDataForAccount(true);
+        }, [fetchAllDataForAccount]);
         
         useEffect(() => {
-            fetchAllDataForAccount();
-        }, [fetchAllDataForAccount]);
+            // Reseta para carregar só ativas quando mudar conta ou data
+            setLoadAllCampaigns(false);
+            fetchAllDataForAccount(false);
+        }, [selectedAccount, date]);
 
         const fetchAdSetsForCampaign = useCallback(async (campaignId) => {
             if (campaignId === 'all') {
@@ -259,7 +849,12 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 return;
             }
             const data = await fetchData('conjuntos de anúncios', { action: 'get-adsets', campaignId: campaignId });
-            setAdSetOptions(data?.adsets.filter(c => c.insights && c.insights.data.length > 0) || []);
+            setAdSetOptions(data?.adsets?.filter(c => {
+                return c.insights && 
+                       c.insights.data && 
+                       Array.isArray(c.insights.data) && 
+                       c.insights.data.length > 0;
+            }) || []);
             setSelectedAdSetFilter('all');
         }, [fetchData]);
 
@@ -270,44 +865,202 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 return;
             }
             const data = await fetchData('anúncios', { action: 'get-ads', adsetId: adsetId });
-            setAdOptions(data?.ads.filter(c => c.insights && c.insights.data.length > 0) || []);
+            setAdOptions(data?.ads?.filter(c => {
+                return c.insights && 
+                       c.insights.data && 
+                       Array.isArray(c.insights.data) && 
+                       c.insights.data.length > 0;
+            }) || []);
             setSelectedAdFilter('all');
         }, [fetchData]);
 
         const handleToggle = async (type, parentId, id) => {
             const rowKey = `${type}-${id}`;
             const isExpanded = !!expandedRows[rowKey];
+            
+            // Verifica se já tem dados carregados
+            let hasLoadedData = false;
+            if (type === 'campaign' && campaigns[id]?.children && Object.keys(campaigns[id].children).length > 0) {
+                hasLoadedData = true;
+            } else if (type === 'adset' && parentId && campaigns[parentId]?.children?.[id]?.children && Object.keys(campaigns[parentId].children[id].children).length > 0) {
+                hasLoadedData = true;
+            }
+            
+            // Se já tem dados, apenas expande/colapsa
+            if (hasLoadedData) {
+                setExpandedRows(prev => ({ ...prev, [rowKey]: !isExpanded }));
+                return;
+            }
+            
+            // Verifica rate limit cooldown
+            if (rateLimitCooldown) {
+                const timeSinceLastLimit = Date.now() - (lastRateLimitTime || 0);
+                const cooldownTime = 30000; // 30 segundos
+                if (timeSinceLastLimit < cooldownTime) {
+                    const remainingSeconds = Math.ceil((cooldownTime - timeSinceLastLimit) / 1000);
+                    toast({
+                        title: 'Aguarde antes de tentar novamente',
+                        description: `Rate limit ativo. Aguarde ${remainingSeconds} segundos antes de expandir novamente.`,
+                        variant: 'destructive',
+                        duration: 5000,
+                    });
+                    return;
+                } else {
+                    // Cooldown expirado, reseta
+                    setRateLimitCooldown(false);
+                    setLastRateLimitTime(null);
+                }
+            }
+            
             setExpandedRows(prev => ({ ...prev, [rowKey]: !isExpanded }));
 
             if (!isExpanded) {
                 let childrenData = [];
                 let action = '';
                 let body = {};
+                let dataKey = '';
 
                 if (type === 'campaign') {
                     action = 'get-adsets';
                     body = { action, campaignId: id };
+                    dataKey = 'adsets';
                 } else if (type === 'adset') {
                     action = 'get-ads';
                     body = { action, adsetId: id };
+                    dataKey = 'ads';
                 }
                 
-                if(action){
-                    const data = await fetchData(action.replace('-', ' '), body);
-                    const dataKey = action.split('-')[1];
-                    childrenData = data?.[dataKey]?.filter(c => c.insights && c.insights.data.length > 0) || [];
-                
+                if(action && dataKey){
+                    let data = null;
+                    try {
+                        // Aguarda um pouco antes de fazer a requisição para evitar rate limit
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        data = await fetchData(action.replace('-', ' '), body);
+                        
+                        // Mostra todos os ad sets/ads, mesmo sem insights válidos
+                        childrenData = data?.[dataKey] || [];
+                        
+                        console.log(`📊 ${dataKey} recebidos:`, childrenData.length);
+                        console.log(`📊 Dados completos:`, data?.[dataKey]);
+                        
+                        // Filtra apenas se houver muitos itens (para performance)
+                        // Mas mostra todos, mesmo sem insights
                     if (childrenData.length > 0) {
-                        const children = childrenData.reduce((acc, item) => ({...acc, [item.id]: {...item, children: {}}}), {});
+                            // Log para debug
+                            childrenData.forEach((item, idx) => {
+                                const hasInsights = item.insights && 
+                                                   item.insights.data && 
+                                                   Array.isArray(item.insights.data) && 
+                                                   item.insights.data.length > 0;
+                                if (!hasInsights) {
+                                    console.log(`⚠️ ${dataKey}[${idx}] (${item.name || item.id}) sem insights válidos`);
+                                }
+                            });
+                        }
+                    } catch (err) {
+                        // Se for rate limit, ativa cooldown e fecha a expansão
+                        const isRateLimit = err.message?.includes('limit') || 
+                                          err.message?.includes('rate') || 
+                                          err.message?.includes('User request limit');
+                        
+                        if (isRateLimit) {
+                            setExpandedRows(prev => ({ ...prev, [rowKey]: false }));
+                            setRateLimitCooldown(true);
+                            setLastRateLimitTime(Date.now());
+                            
+                            // Não mostra toast - rate limit é esperado durante carregamento
+                            console.warn('⚠️ Rate limit detectado ao expandir. Aguarde alguns segundos.');
+                        } else {
+                            console.error(`Erro ao buscar ${action}:`, err);
+                            // Não mostra toast para erros não relacionados a rate limit se já tem dados
+                            if (!hasLoadedData) {
+                                toast({
+                                    title: `Erro ao buscar ${action.replace('-', ' ')}`,
+                                    description: err.message || 'Erro desconhecido',
+                                    variant: 'destructive',
+                                    duration: 5000,
+                                });
+                            }
+                        }
+                        childrenData = [];
+                    }
+                
+                    if (childrenData.length > 0 && dataKey) {
+                        console.log(`✅ Adicionando ${childrenData.length} ${dataKey} à ${type} ${id}`);
+                        const children = childrenData.reduce((acc, item) => {
+                            // Garante que o tipo está correto
+                            const itemType = dataKey === 'adsets' ? 'adset' : dataKey === 'ads' ? 'ad' : item.type || 'adset';
+                            return {
+                                ...acc, 
+                                [item.id]: {
+                                    ...item, 
+                                    type: itemType,
+                                    children: {}
+                                }
+                            };
+                        }, {});
                         setCampaigns(prev => {
                             const newCampaigns = JSON.parse(JSON.stringify(prev));
                             if (type === 'campaign') {
-                                if (newCampaigns[id]) newCampaigns[id].children = children;
-                            } else if (type === 'adset' && parentId && newCampaigns[parentId] && newCampaigns[parentId].children[id]) {
-                                newCampaigns[parentId].children[id].children = children;
+                                if (newCampaigns[id]) {
+                                    newCampaigns[id].children = children;
+                                    console.log(`✅ Children adicionados à campanha ${id}:`, Object.keys(children).length);
+                                    
+                                    // Popula adSetOptions quando ad sets são carregados
+                                    if (dataKey === 'adsets') {
+                                        const adSetsList = Object.values(children).map(item => ({
+                                            id: item.id,
+                                            name: item.name,
+                                            campaign_id: id
+                                        }));
+                                        setAdSetOptions(prev => {
+                                            // Remove ad sets antigos da mesma campanha e adiciona os novos
+                                            const filtered = prev.filter(adset => adset.campaign_id !== id);
+                                            return [...filtered, ...adSetsList];
+                                        });
+                                        console.log(`✅ AdSetOptions atualizado com ${adSetsList.length} ad sets da campanha ${id}`);
+                                    }
+                                } else {
+                                    console.warn(`⚠️ Campanha ${id} não encontrada no estado`);
+                                }
+                            } else if (type === 'adset' && parentId) {
+                                // parentId é o campaignId quando type é 'adset'
+                                const campaignId = parentId;
+                                if (newCampaigns[campaignId] && newCampaigns[campaignId].children[id]) {
+                                    newCampaigns[campaignId].children[id].children = children;
+                                    console.log(`✅ Children adicionados ao adset ${id} da campanha ${campaignId}:`, Object.keys(children).length);
+                                    
+                                    // Popula adOptions quando ads são carregados
+                                    if (dataKey === 'ads') {
+                                        const adsList = Object.values(children).map(item => ({
+                                            id: item.id,
+                                            name: item.name,
+                                            adset_id: id
+                                        }));
+                                        setAdOptions(prev => {
+                                            // Remove ads antigos do mesmo adset e adiciona os novos
+                                            const filtered = prev.filter(ad => ad.adset_id !== id);
+                                            return [...filtered, ...adsList];
+                                        });
+                                        console.log(`✅ AdOptions atualizado com ${adsList.length} ads do adset ${id}`);
+                                    }
+                                } else {
+                                    console.warn(`⚠️ Adset ${id} não encontrado na campanha ${campaignId}`);
+                                }
                             }
                             return newCampaigns;
                         });
+                    } else if (dataKey) {
+                        // Só mostra mensagem se realmente não há dados e não foi erro de rate limit
+                        if (data && data[dataKey] && data[dataKey].length === 0) {
+                            toast({
+                                title: `Nenhum ${dataKey === 'adsets' ? 'conjunto de anúncios' : 'anúncio'} encontrado`,
+                                description: `Esta ${type === 'campaign' ? 'campanha' : 'conjunto'} não possui ${dataKey === 'adsets' ? 'conjuntos de anúncios' : 'anúncios'}.`,
+                                variant: 'default',
+                                duration: 3000,
+                            });
+                        }
                     }
                 }
             }
@@ -344,21 +1097,50 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             return filtered.reduce((acc, c) => ({...acc, [c.id]: c}), {});
         }, [campaigns, selectedCampaignFilter, selectedAdSetFilter, selectedAdFilter, selectedStatusFilter]);
 
-        const renderRows = (data, level = 0, parentId = null) => {
+        const renderRows = (data, level = 0, parentId = null, campaignId = null) => {
+            if (!data || Object.keys(data).length === 0) {
+                return null;
+            }
+            
             return Object.values(data).flatMap(item => {
                 const rowKey = `${item.type || 'campaign'}-${item.id}`;
                 const isExpanded = !!expandedRows[rowKey];
+                const hasChildren = item.children && Object.keys(item.children).length > 0;
+                
+                // Determina o campaignId correto baseado no nível
+                let currentCampaignId = campaignId;
+                if (level === 0) {
+                    // É uma campanha
+                    currentCampaignId = item.id;
+                } else if (level === 1) {
+                    // É um adset, mantém o campaignId do parent
+                    currentCampaignId = campaignId || parentId;
+                } else {
+                    // É um ad, mantém o campaignId
+                    currentCampaignId = campaignId;
+                }
+                
+                if (level > 0) {
+                    console.log(`🔍 Renderizando ${item.type || 'campaign'} ${item.id} (level ${level}):`, {
+                        hasChildren,
+                        childrenCount: hasChildren ? Object.keys(item.children).length : 0,
+                        isExpanded,
+                        parentId,
+                        campaignId: currentCampaignId
+                    });
+                }
+                
                 return (
                     <Fragment key={item.id}>
                         <DataRow
                             level={level}
                             data={item}
-                            onToggle={item.type !== 'ad' ? () => handleToggle(item.type || 'campaign', parentId, item.id) : null}
+                            onToggle={item.type !== 'ad' ? () => handleToggle(item.type || 'campaign', currentCampaignId, item.id) : null}
                             isExpanded={isExpanded}
                             type={item.type || 'campaign'}
                             selectedMetrics={selectedMetrics}
                         />
-                        {isExpanded && item.children && renderRows(item.children, level + 1, item.id)}
+                        {isExpanded && hasChildren && renderRows(item.children, level + 1, item.id, currentCampaignId)}
                     </Fragment>
                 )
             });
@@ -459,7 +1241,13 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Select value={selectedCampaignFilter} onValueChange={(value) => { setSelectedCampaignFilter(value); fetchAdSetsForCampaign(value); }} disabled={!selectedAccount}>
+                        <Select value={selectedCampaignFilter} onValueChange={(value) => { 
+                            setSelectedCampaignFilter(value); 
+                            // Não busca ad sets automaticamente para evitar rate limiting
+                            // Os ad sets serão buscados apenas quando o usuário expandir a campanha na tabela
+                            setAdSetOptions([]);
+                            setSelectedAdSetFilter('all');
+                        }} disabled={!selectedAccount}>
                             <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
                                 <SelectValue placeholder="Filtrar por Campanha" />
                             </SelectTrigger>
@@ -469,23 +1257,62 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                             </SelectContent>
                         </Select>
 
-                        <Select value={selectedAdSetFilter} onValueChange={(value) => { setSelectedAdSetFilter(value); fetchAdsForAdSet(value); }} disabled={selectedCampaignFilter === 'all' || adSetOptions.length === 0}>
+                        <Select value={selectedAdSetFilter} onValueChange={(value) => { 
+                            setSelectedAdSetFilter(value); 
+                            // Não busca ads automaticamente para evitar rate limiting
+                            // Os ads serão buscados apenas quando o usuário expandir o ad set na tabela
+                            setAdOptions([]);
+                            setSelectedAdFilter('all');
+                        }} disabled={selectedCampaignFilter === 'all'}>
                             <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
                                 <SelectValue placeholder="Filtrar por Conj. de Anúncios" />
                             </SelectTrigger>
                             <SelectContent className="dark:bg-gray-700 dark:text-white">
                                 <SelectItem value="all">Todos os Conjuntos</SelectItem>
-                                {adSetOptions.map(adset => <SelectItem key={adset.id} value={adset.id}>{adset.name}</SelectItem>)}
+                                {(() => {
+                                    // Usa adSetOptions se disponível, senão busca dos campaigns carregados
+                                    let availableAdSets = adSetOptions;
+                                    if (availableAdSets.length === 0 && selectedCampaignFilter !== 'all') {
+                                        const selectedCampaign = campaigns[selectedCampaignFilter];
+                                        if (selectedCampaign?.children) {
+                                            availableAdSets = Object.values(selectedCampaign.children).map(adset => ({
+                                                id: adset.id,
+                                                name: adset.name,
+                                                campaign_id: selectedCampaignFilter
+                                            }));
+                                        }
+                                    }
+                                    return availableAdSets.map(adset => (
+                                        <SelectItem key={adset.id} value={adset.id}>{adset.name}</SelectItem>
+                                    ));
+                                })()}
                             </SelectContent>
                         </Select>
                         
-                        <Select value={selectedAdFilter} onValueChange={setSelectedAdFilter} disabled={selectedAdSetFilter === 'all' || adOptions.length === 0}>
+                        <Select value={selectedAdFilter} onValueChange={setSelectedAdFilter} disabled={selectedAdSetFilter === 'all'}>
                             <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
                                 <SelectValue placeholder="Filtrar por Anúncio" />
                             </SelectTrigger>
                             <SelectContent className="dark:bg-gray-700 dark:text-white">
                                 <SelectItem value="all">Todos os Anúncios</SelectItem>
-                                {adOptions.map(ad => <SelectItem key={ad.id} value={ad.id}>{ad.name}</SelectItem>)}
+                                {(() => {
+                                    // Usa adOptions se disponível, senão busca dos campaigns carregados
+                                    let availableAds = adOptions;
+                                    if (availableAds.length === 0 && selectedCampaignFilter !== 'all' && selectedAdSetFilter !== 'all') {
+                                        const selectedCampaign = campaigns[selectedCampaignFilter];
+                                        const selectedAdSet = selectedCampaign?.children?.[selectedAdSetFilter];
+                                        if (selectedAdSet?.children) {
+                                            availableAds = Object.values(selectedAdSet.children).map(ad => ({
+                                                id: ad.id,
+                                                name: ad.name,
+                                                adset_id: selectedAdSetFilter
+                                            }));
+                                        }
+                                    }
+                                    return availableAds.map(ad => (
+                                        <SelectItem key={ad.id} value={ad.id}>{ad.name}</SelectItem>
+                                    ));
+                                })()}
                             </SelectContent>
                         </Select>
 
@@ -515,12 +1342,62 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                             <StatCard title="ROAS" value={getFormattedValue(headerInsights, 'website_purchase_roas')} icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />} />
                         </div>
 
-                        {loading && Object.keys(campaigns).length === 0 ? (
+                        {loadingProgress !== null ? (
+                            <Card className="dark:bg-gray-800">
+                                <CardContent className="pt-6">
+                                    <div className="text-center py-10">
+                                        <p className="text-lg font-medium dark:text-gray-300 mb-2">
+                                            {loadingProgress.message || 'Carregando dados...'}
+                                        </p>
+                                        <div className="w-full max-w-md mx-auto bg-gray-700 rounded-full h-2.5 mt-4">
+                                            <div 
+                                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                                style={{ 
+                                                    width: `${(loadingProgress.current / loadingProgress.total) * 100}%` 
+                                                }}
+                                            />
+                                        </div>
+                                        <p className="text-sm text-gray-400 mt-2">
+                                            {loadingProgress.current} de {loadingProgress.total} campanhas processadas
+                                        </p>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : loading && Object.keys(campaigns).length === 0 ? (
+                            <Card className="dark:bg-gray-800">
+                                <CardContent className="pt-6">
                             <p className="text-center py-10 dark:text-gray-300">Carregando dados...</p>
+                                </CardContent>
+                            </Card>
+                        ) : Object.keys(campaigns).length === 0 ? (
+                            <Card className="dark:bg-gray-800">
+                                <CardContent className="pt-6">
+                                    <p className="text-center py-10 dark:text-gray-300">Nenhuma campanha encontrada</p>
+                                </CardContent>
+                            </Card>
                         ) : (
                             <Card className="dark:bg-gray-800">
                                 <CardHeader>
+                                    <div className="flex items-center justify-between">
                                     <CardTitle className="dark:text-white">Detalhes das Campanhas</CardTitle>
+                                        {!loadAllCampaigns && Object.keys(campaigns).length > 0 && (
+                                            <Button
+                                                onClick={handleLoadAllCampaigns}
+                                                variant="outline"
+                                                size="sm"
+                                                className="dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600"
+                                                disabled={loadingProgress !== null}
+                                            >
+                                                <RefreshCw className="mr-2 h-4 w-4" />
+                                                Carregar Todas as Campanhas
+                                            </Button>
+                                        )}
+                                        {loadAllCampaigns && (
+                                            <Badge variant="secondary" className="dark:bg-gray-700 dark:text-gray-300">
+                                                Mostrando todas as campanhas
+                                            </Badge>
+                                        )}
+                                    </div>
                                 </CardHeader>
                                 <CardContent>
                                     <div className="overflow-x-auto">

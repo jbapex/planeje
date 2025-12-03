@@ -26,20 +26,52 @@ import React, { useState, useEffect, useCallback } from 'react';
           const { data, error } = await supabase.functions.invoke('meta-ads-api', {
             body: { action: 'check-connection' },
           });
-          if (error || data.error || !data.connected) {
+          
+          // Verifica se a Edge Function não existe (404 ou função não encontrada)
+          if (error && (error.message?.includes('not found') || error.message?.includes('404') || error.status === 404)) {
             setMetaConnectionStatus('disconnected');
             if (profile?.role === 'superadmin') {
                 toast({
-                    title: "Conexão com Meta Ads inativa",
-                    description: "O token de acesso do System User não foi configurado ou é inválido. Configure-o no Vault.",
+                    title: "Edge Function não encontrada",
+                    description: "A Edge Function 'meta-ads-api' não está deployada. Veja COMO_DEPLOYAR_EDGE_FUNCTION.md para instruções.",
                     variant: "destructive",
+                    duration: 10000,
+                });
+            }
+            return;
+          }
+          
+          if (error || data?.error || !data?.connected) {
+            setMetaConnectionStatus('disconnected');
+            if (profile?.role === 'superadmin') {
+                const errorMessage = data?.error?.message || error?.message || 'Token não configurado ou inválido';
+                toast({
+                    title: "Conexão com Meta Ads inativa",
+                    description: errorMessage.includes('TOKEN_NOT_FOUND') 
+                      ? "Token não encontrado no Vault. Configure META_SYSTEM_USER_ACCESS_TOKEN no Supabase Vault."
+                      : errorMessage.includes('Invalid token') || errorMessage.includes('invalid')
+                      ? "Token inválido ou expirado. Gere um novo token no Meta Business Manager e atualize no Vault."
+                      : errorMessage.includes('Permission') || errorMessage.includes('Access denied')
+                      ? "System User não tem acesso à conta de anúncio. Atribua a conta no Meta Business Manager."
+                      : `Erro: ${errorMessage}. Verifique o token no Vault.`,
+                    variant: "destructive",
+                    duration: 10000,
                 });
             }
           } else {
             setMetaConnectionStatus('connected');
           }
         } catch (error) {
+            console.error('Erro ao verificar conexão Meta Ads:', error);
             setMetaConnectionStatus('disconnected');
+            if (profile?.role === 'superadmin' && error.message?.includes('not found')) {
+                toast({
+                    title: "Edge Function não encontrada",
+                    description: "A Edge Function 'meta-ads-api' precisa ser deployada. Veja COMO_DEPLOYAR_EDGE_FUNCTION.md",
+                    variant: "destructive",
+                    duration: 10000,
+                });
+            }
         } finally {
             setIsCheckingConnection(false);
         }
