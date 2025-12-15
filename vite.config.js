@@ -234,6 +234,8 @@ logger.error = (msg, options) => {
 
 export default defineConfig({
 	customLogger: logger,
+	// Base path para produção - usar '/' para raiz do domínio
+	base: '/',
 	plugins: [
 		...(isDev ? [inlineEditPlugin(), editModeDevPlugin(), iframeRouteRestorationPlugin()] : []),
 		react(),
@@ -260,13 +262,23 @@ export default defineConfig({
 		},
 	},
 	build: {
+		// Garantir que o build gere arquivos otimizados
+		outDir: 'dist',
+		assetsDir: 'assets',
+		sourcemap: false,
 		rollupOptions: {
 			external: [
 				'@babel/parser',
 				'@babel/traverse',
 				'@babel/generator',
 				'@babel/types'
-			]
+			],
+			output: {
+				// Garantir paths relativos para assets
+				assetFileNames: 'assets/[name].[hash].[ext]',
+				chunkFileNames: 'assets/[name].[hash].js',
+				entryFileNames: 'assets/[name].[hash].js',
+			}
 		}
 	}
 });
