@@ -8,29 +8,63 @@ import { ModuleSettingsProvider } from '@/contexts/ModuleSettingsContext';
 import '@/lib/customSupabaseClient';
 import { SWRConfig } from 'swr';
 import { MotionConfig } from 'framer-motion';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
+// Tratamento global de erros não capturados
+window.addEventListener('error', (event) => {
+  console.error('Erro global capturado:', event.error);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Promise rejeitada não tratada:', event.reason);
+});
+
+// Registrar service worker (não crítico se falhar)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(registration => {
       console.log('SW registered: ', registration);
     }).catch(registrationError => {
-      console.log('SW registration failed: ', registrationError);
+      // Não é crítico se o service worker falhar
+      console.log('SW registration failed (não crítico): ', registrationError);
     });
   });
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <>
-    <HashRouter>
-      <MotionConfig reducedMotion="always">
-        <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false, revalidateOnMount: false }}>
-          <AuthProvider>
-            <ModuleSettingsProvider>
-              <App />
-            </ModuleSettingsProvider>
-          </AuthProvider>
-        </SWRConfig>
-      </MotionConfig>
-    </HashRouter>
-  </>
-);
+// Verificar se o elemento root existe
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  console.error('Elemento #root não encontrado no DOM!');
+  document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;"><h1>Erro Crítico</h1><p>Elemento #root não encontrado. Verifique se o HTML está correto.</p></div>';
+} else {
+  try {
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(
+      <ErrorBoundary>
+        <HashRouter>
+          <MotionConfig reducedMotion="always">
+            <SWRConfig value={{ revalidateOnFocus: false, revalidateOnReconnect: false, revalidateOnMount: false }}>
+              <AuthProvider>
+                <ModuleSettingsProvider>
+                  <App />
+                </ModuleSettingsProvider>
+              </AuthProvider>
+            </SWRConfig>
+          </MotionConfig>
+        </HashRouter>
+      </ErrorBoundary>
+    );
+  } catch (error) {
+    console.error('Erro ao renderizar aplicação:', error);
+    rootElement.innerHTML = `
+      <div style="padding: 20px; font-family: sans-serif;">
+        <h1 style="color: red;">Erro ao Carregar Aplicação</h1>
+        <p>Erro: ${error.message}</p>
+        <p>Verifique o console do navegador (F12) para mais detalhes.</p>
+        <button onclick="window.location.reload()" style="padding: 10px 20px; margin-top: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Recarregar Página
+        </button>
+      </div>
+    `;
+  }
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste VPS - JB APEX</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        pre {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Teste de Diagnóstico VPS</h1>
+    
+    <div class="test-box">
+        <h2>1. Teste Básico de HTML</h2>
+        <p class="success">✅ Se você está vendo isso, o servidor está funcionando!</p>
+    </div>
+    
+    <div class="test-box">
+        <h2>2. Teste de JavaScript</h2>
+        <p id="js-test">⏳ Testando JavaScript...</p>
+        <script>
+            document.getElementById('js-test').innerHTML = '<span class="success">✅ JavaScript está funcionando!</span>';
+            console.log('✅ JavaScript executado com sucesso');
+        </script>
+    </div>
+    
+    <div class="test-box">
+        <h2>3. Informações do Navegador</h2>
+        <pre id="browser-info"></pre>
+        <script>
+            const info = {
+                'URL': window.location.href,
+                'User Agent': navigator.userAgent,
+                'Linguagem': navigator.language,
+                'Cookies habilitados': navigator.cookieEnabled ? 'Sim' : 'Não',
+                'Local Storage': typeof(Storage) !== "undefined" ? 'Disponível' : 'Não disponível',
+                'Service Worker': 'serviceWorker' in navigator ? 'Suportado' : 'Não suportado'
+            };
+            document.getElementById('browser-info').textContent = JSON.stringify(info, null, 2);
+        </script>
+    </div>
+    
+    <div class="test-box">
+        <h2>4. Teste de Carregamento de Assets</h2>
+        <p id="assets-test">⏳ Testando carregamento...</p>
+        <script>
+            // Verificar se consegue acessar a raiz
+            fetch('/')
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('assets-test').innerHTML = '<span class="success">✅ Servidor responde corretamente</span>';
+                    } else {
+                        document.getElementById('assets-test').innerHTML = '<span class="error">❌ Servidor retornou: ' + response.status + '</span>';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('assets-test').innerHTML = '<span class="error">❌ Erro: ' + error.message + '</span>';
+                });
+        </script>
+    </div>
+    
+    <div class="test-box">
+        <h2>5. Próximos Passos</h2>
+        <ol>
+            <li>Se todos os testes acima passaram, o problema pode ser específico do React/Vite</li>
+            <li>Abra o DevTools (F12) e verifique a aba Console</li>
+            <li>Verifique a aba Network para ver quais arquivos não estão carregando</li>
+            <li>Execute o script de diagnóstico: <code>./diagnostico-vps.sh</code></li>
+        </ol>
+    </div>
+    
+    <div class="test-box">
+        <h2>6. Link para Aplicação Principal</h2>
+        <p><a href="/">← Voltar para aplicação principal</a></p>
+    </div>
+</body>
+</html>
+
