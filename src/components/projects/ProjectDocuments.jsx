@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, ArrowRight, ArrowLeft, Eraser, Palette } from 'lucide-react';
+import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, ArrowRight, ArrowLeft, Eraser, Palette, Bot } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const ProjectDocuments = ({ client }) => {
@@ -38,7 +39,7 @@ const ProjectDocuments = ({ client }) => {
     setLoading(true);
     const { data, error } = await supabase
       .from('client_documents')
-      .select('id, title, created_at')
+      .select('id, title, created_at, apexia_access')
       .eq('client_id', client.id)
       .order('created_at', { ascending: false });
     
@@ -154,8 +155,9 @@ const ProjectDocuments = ({ client }) => {
         owner_id: user.id,
         title: 'Novo Documento',
         content: { text_content: '' },
+        apexia_access: false, // Por padrão, novo documento não tem acesso do ApexIA
       })
-      .select('id, title, created_at')
+      .select('id, title, created_at, apexia_access')
       .single();
     
     if (error) {
@@ -183,6 +185,42 @@ const ProjectDocuments = ({ client }) => {
         setTitle('');
         setContent('');
       }
+    }
+  };
+
+  const handleToggleApexIAAccess = async (docId, currentValue) => {
+    const newValue = !currentValue;
+    
+    const { error } = await supabase
+      .from('client_documents')
+      .update({ apexia_access: newValue })
+      .eq('id', docId);
+
+    if (error) {
+      toast({ 
+        title: 'Erro ao atualizar acesso', 
+        description: error.message, 
+        variant: 'destructive' 
+      });
+    } else {
+      setDocuments(docs => 
+        docs.map(doc => 
+          doc.id === docId ? { ...doc, apexia_access: newValue } : doc
+        )
+      );
+      
+      // Atualizar selectedDoc se for o documento atual
+      if (selectedDoc?.id === docId) {
+        setSelectedDoc({ ...selectedDoc, apexia_access: newValue });
+      }
+      
+      toast({ 
+        title: newValue ? 'Acesso do ApexIA ativado' : 'Acesso do ApexIA desativado',
+        description: newValue 
+          ? 'Este documento agora está disponível para o ApexIA' 
+          : 'Este documento não está mais disponível para o ApexIA',
+        duration: 2000
+      });
     }
   };
 
@@ -579,13 +617,23 @@ const ProjectDocuments = ({ client }) => {
             className={`flex items-center justify-between p-2 rounded-md cursor-pointer ${selectedDoc?.id === doc.id ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
             onClick={() => handleSelectDoc(doc)}
           >
-            <div className="flex items-center">
-              <FileText className="mr-2 h-4 w-4" />
-              <span>{doc.title || 'Sem título'}</span>
+            <div className="flex items-center flex-1 min-w-0">
+              <FileText className="mr-2 h-4 w-4 flex-shrink-0" />
+              <span className="truncate">{doc.title || 'Sem título'}</span>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}>
-              <Trash2 className="h-4 w-4 text-red-500" />
-            </Button>
+            <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700" title={doc.apexia_access ? 'ApexIA tem acesso' : 'ApexIA não tem acesso'}>
+                <Bot className={`h-3.5 w-3.5 ${doc.apexia_access ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} />
+                <Switch
+                  checked={doc.apexia_access || false}
+                  onCheckedChange={() => handleToggleApexIAAccess(doc.id, doc.apexia_access || false)}
+                  className="scale-75"
+                />
+              </div>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}>
+                <Trash2 className="h-4 w-4 text-red-500" />
+              </Button>
+            </div>
           </div>
         ))}
       </div>

@@ -666,6 +666,48 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 }
             }
             
+            // Documentos do Cliente com acesso do ApexIA (da tabela client_documents)
+            if (hasAccess('client_documents')) {
+                try {
+                    const { data: accessibleDocuments, error: docsError } = await supabase
+                        .from('client_documents')
+                        .select('id, title, content')
+                        .eq('client_id', client.id)
+                        .eq('apexia_access', true)
+                        .order('created_at', { ascending: false });
+                    
+                    if (!docsError && accessibleDocuments && accessibleDocuments.length > 0) {
+                        // Incluir documentos de forma discreta, sem mencionar explicitamente que são "disponíveis para o ApexIA"
+                        // Os documentos são incluídos como parte das informações do cliente
+                        accessibleDocuments.forEach((doc, index) => {
+                            // Extrair texto do conteúdo (pode ser JSON com text_content ou HTML)
+                            let docText = '';
+                            if (doc.content) {
+                                if (typeof doc.content === 'string') {
+                                    docText = doc.content.replace(/<[^>]*>/g, '').trim();
+                                } else if (doc.content.text_content) {
+                                    docText = doc.content.text_content.replace(/<[^>]*>/g, '').trim();
+                                }
+                            }
+                            
+                            if (docText && docText.length > 0) {
+                                // Limitar tamanho de cada documento para não exceder o limite do contexto
+                                const maxDocLength = 2000;
+                                const truncatedText = docText.length > maxDocLength 
+                                    ? docText.substring(0, maxDocLength) + '...' 
+                                    : docText;
+                                
+                                // Incluir como parte das informações do cliente, sem mencionar que são documentos separados
+                                clientInfoSection += `\n**${doc.title || 'Informações Adicionais'}:**\n${truncatedText}\n`;
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Erro ao buscar documentos do cliente:', error);
+                    // Não adiciona nada se houver erro, continua normalmente
+                }
+            }
+            
             // Etiquetas se existirem
             if (hasAccess('etiquetas') && client.etiquetas && Array.isArray(client.etiquetas) && client.etiquetas.length > 0) {
                 clientInfoSection += `**Etiquetas:** ${client.etiquetas.join(', ')}\n`;
@@ -739,6 +781,7 @@ ${currentAgent.prompt
             
             systemPrompt += `\n- Use SEMPRE as informações disponíveis acima para responder perguntas sobre o cliente de forma completa e útil.`;
             systemPrompt += `\n- NUNCA diga que tem "informações limitadas", "informações apenas no contexto dos projetos" ou que "não sabe" sobre o cliente quando essas informações estão claramente disponíveis acima.`;
+            systemPrompt += `\n- IMPORTANTE: Use as informações disponíveis de forma natural e discreta. NÃO mencione explicitamente que você tem acesso a "documentos", "arquivos" ou "documentos específicos" - simplesmente use as informações como parte do seu conhecimento sobre o cliente, como se fossem informações que você já conhece.`;
             
             systemPrompt += `\n\n**RESPOSTA ESPECÍFICA PARA "O QUE VOCÊ SABE SOBRE MIM?":**`;
             systemPrompt += `\nQuando o cliente perguntar "o que você sabe sobre mim?", "oque sabe sobre mim?", "o que sabe de mim?" ou qualquer variação similar, você DEVE:`;
