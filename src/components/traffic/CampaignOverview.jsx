@@ -44,25 +44,47 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         }, 15000);
         
         try {
-          const { data: campaignsData, error: campaignsError } = await supabase.from('paid_campaigns').select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)').order('created_at', { ascending: false });
+          // Executa todas as queries em PARALELO para melhor performance
+          const [
+            { data: campaignsData, error: campaignsError },
+            { data: statusesData, error: statusesError },
+            { data: clientsData, error: clientsError },
+            { data: usersData, error: usersError }
+          ] = await Promise.all([
+            supabase
+              .from('paid_campaigns')
+              .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+              .order('created_at', { ascending: false })
+              .limit(500), // Limite para evitar carregar milhares de campanhas
+            supabase
+              .from('paid_campaign_statuses')
+              .select('*')
+              .order('sort_order', { ascending: true }),
+            supabase
+              .from('clientes')
+              .select('id, empresa')
+              .order('empresa', { ascending: true }),
+            supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url')
+              .order('full_name', { ascending: true })
+          ]);
+
           if(campaignsError) throw campaignsError;
           setCampaigns(campaignsData || []);
 
-          const { data: statusesData, error: statusesError } = await supabase.from('paid_campaign_statuses').select('*').order('sort_order', { ascending: true });
           if(statusesError) throw statusesError;
           setStatuses(statusesData || []);
 
-          const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
           if (clientsError) throw clientsError;
           setClients(clientsData || []);
 
-          const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
           if (usersError) throw usersError;
           setUsers(usersData || []);
 
-          const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, title, description, type, client_id');
-          if (tasksError) throw tasksError;
-          setTasks(tasksData || []);
+          // Tarefas são carregadas apenas quando necessário (lazy loading)
+          // Isso melhora significativamente o tempo de carregamento inicial
+          setTasks([]);
 
           clearTimeout(timeoutId);
         } catch (error) {
@@ -215,8 +237,28 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         }
       };
 
-      const handleOpenForm = (campaign = null) => {
+      // Carrega tarefas apenas quando o formulário é aberto (lazy loading)
+      const loadTasksIfNeeded = useCallback(async () => {
+        if (tasks.length === 0) {
+          try {
+            const { data: tasksData, error: tasksError } = await supabase
+              .from('tarefas')
+              .select('id, title, description, type, client_id')
+              .eq('type', 'paid_traffic'); // Apenas tarefas de tráfego pago
+            
+            if (!tasksError && tasksData) {
+              setTasks(tasksData || []);
+            }
+          } catch (error) {
+            console.error('Erro ao carregar tarefas:', error);
+          }
+        }
+      }, [tasks.length]);
+
+      const handleOpenForm = async (campaign = null) => {
         setSelectedCampaign(campaign);
+        // Carrega tarefas apenas quando necessário
+        await loadTasksIfNeeded();
         setShowForm(true);
       };
 
