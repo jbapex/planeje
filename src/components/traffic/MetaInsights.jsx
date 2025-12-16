@@ -940,7 +940,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 dataKey = 'ads';
             }
             
-            if(action && dataKey){
+            if (action && dataKey) {
                 let data = null;
                 try {
                     // Aguarda mais tempo antes de fazer a requisição para evitar rate limit (aumentado para 1.5s)
@@ -1080,7 +1080,6 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                         }
                     }
                 }
-            }
         };
         
         const filteredData = useMemo(() => {
