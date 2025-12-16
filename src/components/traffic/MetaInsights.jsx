@@ -881,7 +881,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             const rowKey = `${type}-${id}`;
             const isExpanded = !!expandedRows[rowKey];
             
-            // Verifica se já tem dados carregados
+            // Verifica se já tem dados carregados (cache)
             let hasLoadedData = false;
             if (type === 'campaign' && campaigns[id]?.children && Object.keys(campaigns[id].children).length > 0) {
                 hasLoadedData = true;
@@ -889,16 +889,22 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 hasLoadedData = true;
             }
             
-            // Se já tem dados, apenas expande/colapsa
+            // Se já tem dados, apenas expande/colapsa (sem fazer requisição)
             if (hasLoadedData) {
                 setExpandedRows(prev => ({ ...prev, [rowKey]: !isExpanded }));
                 return;
             }
             
-            // Verifica rate limit cooldown
+            // Se está colapsando, apenas fecha sem fazer requisição
+            if (isExpanded) {
+                setExpandedRows(prev => ({ ...prev, [rowKey]: false }));
+                return;
+            }
+            
+            // Verifica rate limit cooldown (reduzido para 20 segundos)
             if (rateLimitCooldown) {
                 const timeSinceLastLimit = Date.now() - (lastRateLimitTime || 0);
-                const cooldownTime = 30000; // 30 segundos
+                const cooldownTime = 20000; // 20 segundos (reduzido de 30)
                 if (timeSinceLastLimit < cooldownTime) {
                     const remainingSeconds = Math.ceil((cooldownTime - timeSinceLastLimit) / 1000);
                     toast({
@@ -915,29 +921,30 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 }
             }
             
-            setExpandedRows(prev => ({ ...prev, [rowKey]: !isExpanded }));
+            // Expande a linha antes de carregar (feedback visual imediato)
+            setExpandedRows(prev => ({ ...prev, [rowKey]: true }));
 
-            if (!isExpanded) {
-                let childrenData = [];
-                let action = '';
-                let body = {};
-                let dataKey = '';
+            // Carrega dados apenas se estiver expandindo
+            let childrenData = [];
+            let action = '';
+            let body = {};
+            let dataKey = '';
 
-                if (type === 'campaign') {
-                    action = 'get-adsets';
-                    body = { action, campaignId: id };
-                    dataKey = 'adsets';
-                } else if (type === 'adset') {
-                    action = 'get-ads';
-                    body = { action, adsetId: id };
-                    dataKey = 'ads';
-                }
-                
-                if(action && dataKey){
-                    let data = null;
-                    try {
-                        // Aguarda um pouco antes de fazer a requisição para evitar rate limit (reduzido para 500ms)
-                        await new Promise(resolve => setTimeout(resolve, 500));
+            if (type === 'campaign') {
+                action = 'get-adsets';
+                body = { action, campaignId: id };
+                dataKey = 'adsets';
+            } else if (type === 'adset') {
+                action = 'get-ads';
+                body = { action, adsetId: id };
+                dataKey = 'ads';
+            }
+            
+            if(action && dataKey){
+                let data = null;
+                try {
+                    // Aguarda mais tempo antes de fazer a requisição para evitar rate limit (aumentado para 1.5s)
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                         
                         data = await fetchData(action.replace('-', ' '), body);
                         
@@ -968,11 +975,18 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                                           err.message?.includes('User request limit');
                         
                         if (isRateLimit) {
+                            // Fecha a expansão e ativa cooldown
                             setExpandedRows(prev => ({ ...prev, [rowKey]: false }));
                             setRateLimitCooldown(true);
                             setLastRateLimitTime(Date.now());
                             
-                            // Não mostra toast - rate limit é esperado durante carregamento
+                            // Mostra toast informativo
+                            toast({
+                                title: 'Rate limit atingido',
+                                description: 'Aguarde alguns segundos antes de tentar expandir novamente. Os dados podem já estar carregados - tente novamente em breve.',
+                                variant: 'destructive',
+                                duration: 6000,
+                            });
                             console.warn('⚠️ Rate limit detectado ao expandir. Aguarde alguns segundos.');
                         } else {
                             console.error(`Erro ao buscar ${action}:`, err);
