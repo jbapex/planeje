@@ -497,6 +497,22 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             }
         }, [clientId, sessionId, navigate, handleNewSession]);
 
+        const saveMessage = useCallback(async (message, currentSessionId) => {
+            if (!currentSessionId) return;
+            try {
+                const { error } = await supabase.from('client_chat_messages').insert({
+                    session_id: currentSessionId,
+                    role: message.role,
+                    content: message.content
+                });
+                if (error) {
+                    console.error('Erro ao salvar mensagem:', error);
+                }
+            } catch (err) {
+                console.error('Erro inesperado ao salvar mensagem:', err);
+            }
+        }, []);
+
         const fetchMessagesForSession = useCallback(async () => {
             if (!sessionId || !client) return;
             setLoading(true);
@@ -550,15 +566,6 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 if (scrollContainer) scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
             }
         }, [messages, currentAIMessage]);
-
-        const saveMessage = useCallback(async (message, currentSessionId) => {
-            if(!currentSessionId) return;
-            await supabase.from('client_chat_messages').insert({
-                session_id: currentSessionId,
-                role: message.role,
-                content: message.content,
-            });
-        }, []);
         
         const handleDeleteSession = async (idToDelete) => {
             const remainingSessions = sessions.filter(s => s.id !== idToDelete);
