@@ -485,12 +485,15 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 let campaignsObj = campaignsToProcess.reduce((acc, c) => ({...acc, [c.id]: {...c, children: {}}}), {});
                 setCampaigns(campaignsObj);
                 
-                // 2. Carrega header insights
-            const headerMetrics = ['spend', 'results', 'actions', 'action_values', 'website_purchase_roas'];
-            const accountInsightsData = await fetchData('insights gerais', { action: 'get-account-insights', adAccountId: selectedAccount, metrics: headerMetrics });
-            if(accountInsightsData?.insights) {
-                setHeaderInsights(accountInsightsData.insights);
-            }
+                // 2. Carrega header insights em paralelo (não bloqueia o carregamento)
+                const headerMetrics = ['spend', 'results', 'actions', 'action_values', 'website_purchase_roas'];
+                fetchData('insights gerais', { action: 'get-account-insights', adAccountId: selectedAccount, metrics: headerMetrics })
+                    .then(accountInsightsData => {
+                        if(accountInsightsData?.insights) {
+                            setHeaderInsights(accountInsightsData.insights);
+                        }
+                    })
+                    .catch(err => console.warn('Erro ao carregar header insights:', err));
                 
                 // 3. Carrega TODOS os ad sets e ads de forma controlada
                 const totalCampaigns = campaignsToProcess.length;
@@ -527,9 +530,9 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                         break;
                     }
                     
-                    // Delay entre campanhas (reduzido para 2 segundos)
+                    // Delay entre campanhas (reduzido para 500ms - mais rápido)
                     if (i > 0) {
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
                     
                     setLoadingProgress({
@@ -541,8 +544,8 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                     try {
                         console.log(`📦 [${i + 1}/${totalCampaigns}] Carregando ad sets da campanha ${campaign.id}...`);
                         
-                        // Aguarda antes de fazer a requisição (reduzido para 1 segundo)
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        // Aguarda antes de fazer a requisição (reduzido para 300ms - mais rápido)
+                        await new Promise(resolve => setTimeout(resolve, 300));
                         
                         // Carrega ad sets da campanha
                         let adsetsData = null;
@@ -617,16 +620,16 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                                     break;
                                 }
                                 
-                                // Delay entre ad sets (reduzido para 1 segundo)
+                                // Delay entre ad sets (reduzido para 300ms - mais rápido)
                                 if (j > 0) {
-                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                    await new Promise(resolve => setTimeout(resolve, 300));
                                 }
                                 
                                 try {
                                     console.log(`  📦 [${j + 1}/${adsetsData.adsets.length}] Carregando ads do adset ${adset.id}...`);
                                     
-                                    // Aguarda antes de fazer a requisição (reduzido para 1 segundo)
-                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                    // Aguarda antes de fazer a requisição (reduzido para 200ms - mais rápido)
+                                    await new Promise(resolve => setTimeout(resolve, 200));
                                     
                                     // Carrega ads do ad set
                                     let adsData = null;
@@ -933,8 +936,8 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                 if(action && dataKey){
                     let data = null;
                     try {
-                        // Aguarda um pouco antes de fazer a requisição para evitar rate limit
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        // Aguarda um pouco antes de fazer a requisição para evitar rate limit (reduzido para 500ms)
+                        await new Promise(resolve => setTimeout(resolve, 500));
                         
                         data = await fetchData(action.replace('-', ' '), body);
                         
