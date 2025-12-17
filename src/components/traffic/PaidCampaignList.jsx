@@ -97,8 +97,8 @@ import React, { useState } from 'react';
 
     const CampaignRow = ({ campaign, onOpenDetails, onDelete, userRole, users, statuses }) => {
       const [isExpanded, setIsExpanded] = useState(false);
-      const assignee = users.find(u => u.id === campaign.assignee_id);
-      const statusConfig = statuses.find(s => s.value === campaign.status) || {};
+      const assignee = users && Array.isArray(users) ? users.find(u => u.id === campaign.assignee_id) : null;
+      const statusConfig = statuses && Array.isArray(statuses) ? statuses.find(s => s.value === campaign.status) || {} : {};
 
       return (
         <>

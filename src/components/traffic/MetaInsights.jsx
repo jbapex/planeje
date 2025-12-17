@@ -188,6 +188,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
 
     const MetaInsights = () => {
         const [adAccounts, setAdAccounts] = useState([]);
+        const [allAdAccounts, setAllAdAccounts] = useState([]); // Todas as contas do Meta
         const [selectedAccount, setSelectedAccount] = useState(null);
         const [campaigns, setCampaigns] = useState({});
         const [headerInsights, setHeaderInsights] = useState(null);
@@ -204,12 +205,19 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
         const [selectedAdFilter, setSelectedAdFilter] = useState('all');
         const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
         
+        // Filtro por cliente
+        const [selectedClient, setSelectedClient] = useState('all');
+        const [clients, setClients] = useState([]);
+        const [linkedAccounts, setLinkedAccounts] = useState([]);
+        const [loadingClients, setLoadingClients] = useState(false);
+        
         const [adSetOptions, setAdSetOptions] = useState([]);
         const [adOptions, setAdOptions] = useState([]);
         const [rateLimitCooldown, setRateLimitCooldown] = useState(false);
         const [lastRateLimitTime, setLastRateLimitTime] = useState(null);
         const [loadingProgress, setLoadingProgress] = useState(null);
         const [loadAllCampaigns, setLoadAllCampaigns] = useState(false);
+        const [totalCampaignsAvailable, setTotalCampaignsAvailable] = useState(null);
 
         const { toast } = useToast();
 
@@ -370,6 +378,53 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             }
         }, [toast, selectedMetrics, date]);
         
+        // Busca clientes e contas vinculadas
+        useEffect(() => {
+            const fetchClients = async () => {
+                setLoadingClients(true);
+                try {
+                    const { data, error } = await supabase
+                        .from('clientes')
+                        .select('id, empresa')
+                        .order('empresa', { ascending: true });
+
+                    if (error) throw error;
+                    setClients(data || []);
+                } catch (err) {
+                    console.error('Erro ao buscar clientes:', err);
+                } finally {
+                    setLoadingClients(false);
+                }
+            };
+            fetchClients();
+        }, []);
+
+        // Busca contas vinculadas quando cliente é selecionado
+        useEffect(() => {
+            const fetchLinkedAccounts = async () => {
+                if (selectedClient === 'all') {
+                    setLinkedAccounts([]);
+                    return;
+                }
+
+                try {
+                    const { data, error } = await supabase
+                        .from('cliente_meta_accounts')
+                        .select('meta_account_id, meta_account_name')
+                        .eq('cliente_id', selectedClient)
+                        .eq('is_active', true);
+
+                    if (error) throw error;
+                    setLinkedAccounts(data || []);
+                } catch (err) {
+                    console.error('Erro ao buscar contas vinculadas:', err);
+                    setLinkedAccounts([]);
+                }
+            };
+            fetchLinkedAccounts();
+        }, [selectedClient]);
+
+        // Busca todas as contas do Meta e filtra baseado no cliente selecionado
         useEffect(() => {
             setLoadingAccounts(true);
             const fetchInitialAccounts = async () => {
@@ -385,9 +440,26 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                     }
 
                     if (data?.adAccounts) {
-                        setAdAccounts(data.adAccounts);
+                        setAllAdAccounts(data.adAccounts);
+                        
+                        // Filtra contas baseado no cliente selecionado
+                        if (selectedClient === 'all' || linkedAccounts.length === 0) {
+                            // Mostra todas as contas se "Todos" ou se não há vinculações
+                            setAdAccounts(data.adAccounts);
+                        } else {
+                            // Mostra apenas contas vinculadas ao cliente
+                            const linkedIds = linkedAccounts.map(link => link.meta_account_id);
+                            const filtered = data.adAccounts.filter(acc => linkedIds.includes(acc.id));
+                            setAdAccounts(filtered);
+                            
+                            // Se a conta selecionada não está mais na lista filtrada, limpa a seleção
+                            if (selectedAccount && !filtered.some(acc => acc.id === selectedAccount)) {
+                                setSelectedAccount(null);
+                            }
+                        }
                     } else {
                         console.warn('Nenhuma conta de anúncio encontrada');
+                        setAdAccounts([]);
                     }
                 } catch (err) {
                     const errorMessage = err?.message || err?.error?.message || 'Erro desconhecido ao buscar contas';
@@ -397,12 +469,13 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                         description: errorMessage, 
                         variant: 'destructive' 
                     });
+                    setAdAccounts([]);
                 } finally {
                     setLoadingAccounts(false);
                 }
             };
             fetchInitialAccounts();
-        }, [toast]); 
+        }, [toast, selectedClient, linkedAccounts]); 
 
         const fetchAllDataForAccount = useCallback(async (loadAll = false) => {
             if (!selectedAccount || !date?.from || !date?.to) return;
@@ -464,6 +537,42 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                         return isActive && hasValidInsights;
                     });
                     console.log(`✅ Total de campanhas ativas: ${campaignsToProcess.length}`);
+                }
+                
+                // Ordena por data de atualização (mais recentes primeiro) para priorizar campanhas ativas
+                campaignsToProcess.sort((a, b) => {
+                    const dateA = a.updated_time ? new Date(a.updated_time) : new Date(0);
+                    const dateB = b.updated_time ? new Date(b.updated_time) : new Date(0);
+                    return dateB - dateA; // Mais recentes primeiro
+                });
+                
+                // Limita o número de campanhas processadas inicialmente para contas com muitos dados
+                // Isso melhora significativamente o tempo de carregamento para contas grandes
+                const MAX_CAMPAIGNS_INITIAL = 50; // Limite inicial de campanhas
+                const totalAvailable = campaignsToProcess.length;
+                const hasManyCampaigns = totalAvailable > MAX_CAMPAIGNS_INITIAL;
+                
+                // Armazena o total disponível para mostrar no botão
+                setTotalCampaignsAvailable(totalAvailable);
+                
+                if (hasManyCampaigns && !loadAll) {
+                    // Para contas com muitas campanhas, carrega apenas as primeiras N (mais recentes)
+                    const initialCampaigns = campaignsToProcess.slice(0, MAX_CAMPAIGNS_INITIAL);
+                    const remainingCount = totalAvailable - MAX_CAMPAIGNS_INITIAL;
+                    
+                    console.log(`⚠️ Conta com muitas campanhas (${totalAvailable}). Carregando apenas as ${MAX_CAMPAIGNS_INITIAL} mais recentes inicialmente.`);
+                    
+                    toast({
+                        title: 'Muitas campanhas detectadas',
+                        description: `Esta conta tem ${totalAvailable} campanhas. Carregando as ${MAX_CAMPAIGNS_INITIAL} mais recentes. Use "Carregar Todas" para ver todas (${remainingCount} restantes).`,
+                        variant: 'default',
+                        duration: 6000,
+                    });
+                    
+                    campaignsToProcess = initialCampaigns;
+                } else {
+                    // Se não há limite ou se está carregando todas, limpa o estado
+                    setTotalCampaignsAvailable(null);
                 }
                 
                 if (campaignsToProcess.length === 0) {
@@ -1185,10 +1294,39 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
         return (
             <div className="space-y-6">
                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                         <Select onValueChange={setSelectedAccount} value={selectedAccount || ''} disabled={loadingAccounts}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                        {/* Filtro por Cliente */}
+                        <Select 
+                            onValueChange={setSelectedClient} 
+                            value={selectedClient || 'all'} 
+                            disabled={loadingClients}
+                        >
                             <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
-                                <SelectValue placeholder={loadingAccounts ? "Carregando..." : "Selecione uma conta"} />
+                                <SelectValue placeholder={loadingClients ? "Carregando..." : "Filtrar por Cliente"} />
+                            </SelectTrigger>
+                            <SelectContent className="dark:bg-gray-700 dark:text-white">
+                                <SelectItem value="all" className="dark:hover:bg-gray-600">
+                                    Todos os Clientes
+                                </SelectItem>
+                                {clients.map(client => (
+                                    <SelectItem key={client.id} value={client.id} className="dark:hover:bg-gray-600">
+                                        {client.empresa}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        
+                         <Select onValueChange={setSelectedAccount} value={selectedAccount || ''} disabled={loadingAccounts || (selectedClient !== 'all' && linkedAccounts.length === 0)}>
+                            <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                                <SelectValue 
+                                    placeholder={
+                                        loadingAccounts 
+                                            ? "Carregando..." 
+                                            : selectedClient !== 'all' && linkedAccounts.length === 0
+                                            ? "Nenhuma conta vinculada"
+                                            : "Selecione uma conta"
+                                    } 
+                                />
                             </SelectTrigger>
                             <SelectContent className="dark:bg-gray-700 dark:text-white">
                                 {adAccounts.map(account => (
@@ -1396,7 +1534,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                     <CardTitle className="dark:text-white">Detalhes das Campanhas</CardTitle>
-                                        {!loadAllCampaigns && Object.keys(campaigns).length > 0 && (
+                                        {!loadAllCampaigns && Object.keys(campaigns).length > 0 && totalCampaignsAvailable && totalCampaignsAvailable > Object.keys(campaigns).length && (
                                             <Button
                                                 onClick={handleLoadAllCampaigns}
                                                 variant="outline"
@@ -1405,7 +1543,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                                                 disabled={loadingProgress !== null}
                                             >
                                                 <RefreshCw className="mr-2 h-4 w-4" />
-                                                Carregar Todas as Campanhas
+                                                Carregar Todas as Campanhas ({totalCampaignsAvailable} total)
                                             </Button>
                                         )}
                                         {loadAllCampaigns && (

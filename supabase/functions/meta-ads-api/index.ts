@@ -380,7 +380,7 @@ serve(async (req) => {
 
       try {
         const accountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
-        const campaignFields = "id,name,status,objective,created_time,updated_time";
+        const campaignFields = "id,name,status,effective_status,objective,created_time,updated_time";
         let url = `https://graph.facebook.com/v18.0/${accountId}/campaigns?fields=${campaignFields}&access_token=${metaToken}`;
         
         const campaignsResponse = await fetch(url);
@@ -393,6 +393,18 @@ serve(async (req) => {
           );
         }
 
+        // Debug: verifica se effective_status está sendo retornado
+        if (campaignsData.data && campaignsData.data.length > 0) {
+          const firstCampaign = campaignsData.data[0];
+          console.log(`📊 Primeira campanha retornada pela API:`, {
+            id: firstCampaign.id,
+            name: firstCampaign.name,
+            status: firstCampaign.status,
+            effective_status: firstCampaign.effective_status,
+            allFields: Object.keys(firstCampaign)
+          });
+        }
+
         const metricsStr = Array.isArray(metrics) ? metrics.join(",") : metrics || "spend,impressions,clicks,results";
         
         // Garante que time_range seja válido (últimos 30 dias se não especificado)
@@ -403,37 +415,77 @@ serve(async (req) => {
         console.log(`📅 Time range:`, validTimeRange);
         console.log(`📊 Metrics:`, metricsStr);
         
-        const campaignsWithInsights = await Promise.all(
-          (campaignsData.data || []).map(async (campaign) => {
-            try {
-              // Usa encodeURIComponent para garantir que o JSON seja codificado corretamente
-              const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
-              const insightsUrl = `https://graph.facebook.com/v18.0/${campaign.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
-              
-              console.log(`🔍 Fetching insights for campaign ${campaign.id}...`);
-              const insightsResponse = await fetch(insightsUrl);
-              const insightsData = await insightsResponse.json();
-              
-              // Garante que sempre retorna um formato consistente
-              if (insightsData.error) {
-                console.error(`❌ Error fetching insights for campaign ${campaign.id} (${campaign.name}):`, JSON.stringify(insightsData.error, null, 2));
-                console.error(`   URL: ${insightsUrl.replace(metaToken, 'TOKEN_HIDDEN')}`);
-                return { ...campaign, insights: { data: [], error: insightsData.error } };
-              }
-              
-              // Garante que data seja sempre um array
-              return { 
-                ...campaign, 
-                insights: { 
-                  data: Array.isArray(insightsData.data) ? insightsData.data : (insightsData.data ? [insightsData.data] : []),
-                  paging: insightsData.paging || null
-                } 
-              };
-            } catch (err) {
-              console.error(`Exception fetching insights for campaign ${campaign.id}:`, err);
-              return { ...campaign, insights: { data: [], error: { message: err.message } } };
+        // Processa campanhas sequencialmente com delay para evitar rate limiting
+        // Para contas com muitas campanhas, isso é mais seguro que Promise.all
+        const campaignsWithInsights = [];
+        const campaignsList = campaignsData.data || [];
+        
+        console.log(`📊 Processando ${campaignsList.length} campanhas...`);
+        
+        for (let i = 0; i < campaignsList.length; i++) {
+          const campaign = campaignsList[i];
+          
+          // Delay entre requisições para evitar rate limiting (200ms)
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          
+          try {
+            // Usa encodeURIComponent para garantir que o JSON seja codificado corretamente
+            const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
+            const insightsUrl = `https://graph.facebook.com/v18.0/${campaign.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
+            
+            console.log(`🔍 [${i + 1}/${campaignsList.length}] Fetching insights for campaign ${campaign.id}...`);
+            const insightsResponse = await fetch(insightsUrl);
+            const insightsData = await insightsResponse.json();
+            
+            // Garante que sempre retorna um formato consistente
+            if (insightsData.error) {
+              console.error(`❌ Error fetching insights for campaign ${campaign.id} (${campaign.name}):`, JSON.stringify(insightsData.error, null, 2));
+              console.error(`   URL: ${insightsUrl.replace(metaToken, 'TOKEN_HIDDEN')}`);
+              campaignsWithInsights.push({ ...campaign, insights: { data: [], error: insightsData.error } });
+              continue;
             }
-          })
+            
+            // Debug: log do effective_status da campanha
+            console.log(`📊 Campaign ${campaign.id} (${campaign.name}): status=${campaign.status}, effective_status=${campaign.effective_status}`);
+            
+            // Tenta buscar effective_status novamente se não estiver presente
+            let finalCampaign = { ...campaign };
+            if (!finalCampaign.effective_status) {
+              try {
+                // Faz uma requisição adicional para obter effective_status
+                const campaignDetailsUrl = `https://graph.facebook.com/v18.0/${campaign.id}?fields=id,name,status,effective_status,objective&access_token=${metaToken}`;
+                const campaignDetailsResponse = await fetch(campaignDetailsUrl);
+                const campaignDetailsData = await campaignDetailsResponse.json();
+                
+                if (!campaignDetailsData.error && campaignDetailsData.effective_status) {
+                  finalCampaign.effective_status = campaignDetailsData.effective_status;
+                  console.log(`✅ effective_status obtido para campanha ${campaign.id}: ${campaignDetailsData.effective_status}`);
+                } else if (campaignDetailsData.error) {
+                  console.warn(`⚠️ Erro ao buscar effective_status para campanha ${campaign.id}:`, campaignDetailsData.error);
+                }
+              } catch (err) {
+                console.warn(`⚠️ Exception ao buscar effective_status para campanha ${campaign.id}:`, err);
+              }
+            }
+            
+            // Debug: log do effective_status da campanha
+            console.log(`📊 Campaign ${campaign.id} (${campaign.name}): status=${finalCampaign.status}, effective_status=${finalCampaign.effective_status}`);
+            
+            // Garante que data seja sempre um array
+            campaignsWithInsights.push({ 
+              ...finalCampaign, 
+              insights: { 
+                data: Array.isArray(insightsData.data) ? insightsData.data : (insightsData.data ? [insightsData.data] : []),
+                paging: insightsData.paging || null
+              } 
+            });
+          } catch (err) {
+            console.error(`Exception fetching insights for campaign ${campaign.id}:`, err);
+            campaignsWithInsights.push({ ...campaign, insights: { data: [], error: { message: err.message } } });
+          }
+        }
         );
 
         return new Response(
@@ -490,36 +542,47 @@ serve(async (req) => {
       }
     }
 
-    // Get ad sets for a campaign
+    // Get ad sets for a campaign or account
     if (action === "get-adsets") {
-      const { campaignId, time_range, metrics } = body;
+      const { campaignId, adAccountId, time_range, metrics } = body;
 
-      if (!campaignId) {
+      // Permite buscar por campanha ou por conta
+      if (!campaignId && !adAccountId) {
         return new Response(
-          JSON.stringify({ error: { message: "campaignId is required" } }),
+          JSON.stringify({ error: { message: "campaignId or adAccountId is required" } }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       try {
-        const adsetFields = "id,name,status,campaign_id,created_time,updated_time";
+        const adsetFields = "id,name,status,effective_status,campaign_id,created_time,updated_time";
         const metricsStr = Array.isArray(metrics) ? metrics.join(",") : metrics || "spend,impressions,clicks,results";
-        let url = `https://graph.facebook.com/v18.0/${campaignId}/adsets?fields=${adsetFields}&access_token=${metaToken}`;
+        // Se campaignId fornecido, busca ad sets da campanha; senão, busca da conta
+        const entityId = campaignId || adAccountId;
+        const endpoint = campaignId ? `${campaignId}/adsets` : `${adAccountId}/adsets`;
+        let url = `https://graph.facebook.com/v18.0/${endpoint}?fields=${adsetFields}&access_token=${metaToken}`;
         
         const adsetsResponse = await fetch(url);
         const adsetsData = await adsetsResponse.json();
 
+        console.log(`📊 [get-adsets] Resposta bruta do Meta para campanha ${campaignId}:`, JSON.stringify(adsetsData, null, 2));
+
         if (adsetsData.error) {
+          console.error(`❌ [get-adsets] Erro do Meta:`, adsetsData.error);
           return new Response(
             JSON.stringify({ error: adsetsData.error, adsets: [] }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
+        const rawAdsets = adsetsData.data || [];
+        console.log(`📋 [get-adsets] ${rawAdsets.length} conjuntos brutos encontrados do Meta`);
+
         // Processa ad sets com delay maior para evitar rate limiting
         // Limita a 20 ad sets por vez para evitar rate limiting
         const maxAdsets = 20;
-        const adsetsToProcess = (adsetsData.data || []).slice(0, maxAdsets);
+        const adsetsToProcess = rawAdsets.slice(0, maxAdsets);
+        console.log(`🔄 [get-adsets] Processando ${adsetsToProcess.length} conjuntos...`);
         
         const adsetsWithInsights: any[] = [];
         for (let i = 0; i < adsetsToProcess.length; i++) {
@@ -577,21 +640,25 @@ serve(async (req) => {
       }
     }
 
-    // Get ads for an ad set
+    // Get ads for an ad set or account
     if (action === "get-ads") {
-      const { adsetId, time_range, metrics } = body;
+      const { adsetId, adAccountId, time_range, metrics } = body;
 
-      if (!adsetId) {
+      // Permite buscar por ad set ou por conta
+      if (!adsetId && !adAccountId) {
         return new Response(
-          JSON.stringify({ error: { message: "adsetId is required" } }),
+          JSON.stringify({ error: { message: "adsetId or adAccountId is required" } }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       try {
-        const adFields = "id,name,status,adset_id,created_time,updated_time";
+        const adFields = "id,name,status,effective_status,adset_id,created_time,updated_time";
         const metricsStr = Array.isArray(metrics) ? metrics.join(",") : metrics || "spend,impressions,clicks,results";
-        let url = `https://graph.facebook.com/v18.0/${adsetId}/ads?fields=${adFields}&access_token=${metaToken}`;
+        // Se adsetId fornecido, busca ads do ad set; senão, busca da conta
+        const entityId = adsetId || adAccountId;
+        const endpoint = adsetId ? `${adsetId}/ads` : `${adAccountId}/ads`;
+        let url = `https://graph.facebook.com/v18.0/${endpoint}?fields=${adFields}&access_token=${metaToken}`;
         
         const adsResponse = await fetch(url);
         const adsData = await adsResponse.json();
@@ -639,8 +706,24 @@ serve(async (req) => {
               }
             }
             
+            // Tenta buscar effective_status novamente se não estiver presente
+            let finalAd = { ...ad };
+            if (!finalAd.effective_status) {
+              try {
+                const adDetailsUrl = `https://graph.facebook.com/v18.0/${ad.id}?fields=id,name,status,effective_status&access_token=${metaToken}`;
+                const adDetailsResponse = await fetch(adDetailsUrl);
+                const adDetailsData = await adDetailsResponse.json();
+                
+                if (!adDetailsData.error && adDetailsData.effective_status) {
+                  finalAd.effective_status = adDetailsData.effective_status;
+                }
+              } catch (err) {
+                // Ignora erro
+              }
+            }
+            
             adsWithInsights.push({ 
-              ...ad, 
+              ...finalAd, 
               insights: { 
                 data: Array.isArray(insightsData.data) ? insightsData.data : (insightsData.data ? [insightsData.data] : []),
                 paging: insightsData.paging || null

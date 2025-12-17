@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { X, Save, User, Building, Phone, Mail, Instagram, Briefcase, Tags, DollarSign, Calendar, Star, Mic, Target, Lock, Upload, Trash2, Download, Info } from 'lucide-react';
+    import { X, Save, User, Building, Phone, Mail, Instagram, Briefcase, Tags, DollarSign, Calendar, Star, Mic, Target, Lock, Upload, Trash2, Download, Info, Link2 } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Textarea } from '@/components/ui/textarea';
     import { Label } from '@/components/ui/label';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-    import { useAuth } from '@/contexts/SupabaseAuthContext';
-    import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-    import { supabase } from '@/lib/customSupabaseClient';
-    import { useToast } from '@/components/ui/use-toast';
-    import { useSessionFormState } from '@/hooks/useSessionFormState';
+import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { supabase } from '@/lib/customSupabaseClient';
+import { useToast } from '@/components/ui/use-toast';
+import { useSessionFormState } from '@/hooks/useSessionFormState';
+import ClientMetaAccountsManager from './ClientMetaAccountsManager';
 
 const ETAPAS = [
   { value: 'prospect', label: 'Prospect' },
@@ -55,6 +56,10 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
         instagram_password: client.instagram_password || '',
         logo_urls: client.logo_urls || [],
         sobre_empresa: client.sobre_empresa || '',
+        objetivo_meta: client.objetivo_meta || '',
+        meta_custo_mensagem: client.meta_custo_mensagem || '',
+        meta_custo_compra: client.meta_custo_compra || '',
+        roas_alvo: client.roas_alvo || '',
       };
     }
     return {
@@ -75,6 +80,10 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
       instagram_password: '',
       logo_urls: [],
       sobre_empresa: '',
+      objetivo_meta: '',
+      meta_custo_mensagem: '',
+      meta_custo_compra: '',
+      roas_alvo: '',
     };
   };
 
@@ -186,6 +195,7 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    console.log('📝 Salvando cliente com objetivo_meta:', formData.objetivo_meta);
     // Limpa o estado salvo após salvar com sucesso
     clearFormData();
     onSave(formData, !client);
@@ -201,6 +211,38 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
     { id: 'nicho', label: 'Nicho de mercado', icon: Target, type: 'text' },
     { id: 'vencimento', label: 'Vencimento do Contrato', icon: Calendar, type: 'date' },
     { id: 'valor', label: 'Valor Mensal (R$)', icon: DollarSign, type: 'number', placeholder: '1500.00' },
+    { 
+      id: 'objetivo_meta', 
+      label: 'Objetivo de Tráfego (Meta Ads)', 
+      icon: Target, 
+      type: 'select', 
+      options: [
+        { value: 'mensagens', label: 'Mensagens / Leads' },
+        { value: 'compras', label: 'Compras / E-commerce' },
+        { value: 'misto', label: 'Misto (Mensagens + Compras)' },
+      ],
+    },
+    { 
+      id: 'meta_custo_mensagem', 
+      label: 'Meta Custo por Mensagem (R$)', 
+      icon: DollarSign, 
+      type: 'number', 
+      placeholder: 'Ex: 4.00' 
+    },
+    { 
+      id: 'meta_custo_compra', 
+      label: 'Meta Custo por Compra (R$)', 
+      icon: DollarSign, 
+      type: 'number', 
+      placeholder: 'Ex: 25.00' 
+    },
+    { 
+      id: 'roas_alvo', 
+      label: 'ROAS Alvo (ex: 3 = 3x)', 
+      icon: Target, 
+      type: 'number', 
+      placeholder: 'Ex: 3' 
+    },
     { id: 'tipo_contrato', label: 'Tipo de Contrato', icon: Briefcase, type: 'text', placeholder: 'Ex: Social Media' },
     { id: 'sobre_empresa', label: 'Sobre a Empresa', icon: Info, type: 'textarea' },
     { id: 'publico_alvo', label: 'Público Alvo', icon: Target, type: 'textarea' },
@@ -334,6 +376,25 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
                           </Button>
                       ))}
                   </div>
+              </div>
+              
+              {/* Seção de Contas Meta - apenas se já tem cliente (editando) */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                  <Link2 className="w-4 h-4" /> Contas de Anúncios Meta
+                </Label>
+                {client?.id ? (
+                  <ClientMetaAccountsManager 
+                    clientId={client.id} 
+                    clientName={formData.empresa || client.empresa}
+                  />
+                ) : (
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      💡 <strong>Dica:</strong> Salve o cliente primeiro para vincular contas de anúncios do Meta.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

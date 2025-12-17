@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
     import { Filter, Plus, RefreshCw } from 'lucide-react';
     import PaidCampaignKanban from '@/components/traffic/PaidCampaignKanban';
     import PaidCampaignList from '@/components/traffic/PaidCampaignList';
+    import ClientMetaList from '@/components/traffic/ClientMetaList';
     import PaidCampaignForm from '@/components/traffic/PaidCampaignForm';
     import { AnimatePresence } from 'framer-motion';
     import AdRequestForm from '@/components/traffic/AdRequestForm';
@@ -362,7 +363,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
                   <PaidCampaignKanban {...commonProps} />
                 </TabsContent>
                 <TabsContent value="list" className="flex-grow mt-4">
-                  <PaidCampaignList {...commonProps} />
+                  <ClientMetaList />
                 </TabsContent>
             </Tabs>
              <AnimatePresence>

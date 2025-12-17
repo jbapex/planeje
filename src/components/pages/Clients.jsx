@@ -150,7 +150,12 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
           owner_id: user.id,
           vencimento: clientData.vencimento || null,
           valor: clientData.valor || null,
+          objetivo_meta: clientData.objetivo_meta || null,
+          meta_custo_mensagem: clientData.meta_custo_mensagem || null,
+          meta_custo_compra: clientData.meta_custo_compra || null,
+          roas_alvo: clientData.roas_alvo || null,
         };
+        console.log('💾 Salvando cliente (dataToSave):', dataToSave);
         
         if (isNew) {
           dataToSave.client_document = '<p>Este é o documento do seu novo cliente. Adicione aqui senhas, links importantes, e-mails e qualquer outra informação relevante.</p>';
