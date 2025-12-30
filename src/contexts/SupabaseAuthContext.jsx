@@ -101,11 +101,6 @@ export const AuthProvider = ({ children }) => {
     const currentUser = session?.user ?? null;
     setUser(currentUser);
     
-    // Só seta loading como true na primeira carga
-    if (isInitialLoad && !hasInitializedRef.current) {
-      setLoading(true);
-    }
-    
     try {
       if (currentUser?.id) {
         await fetchProfile(currentUser.id);
@@ -127,60 +122,91 @@ export const AuthProvider = ({ children }) => {
       }
     }
   }, [fetchProfile, fetchFieldPermissions]);
-  
-  // Atualiza ref sempre que handleSession mudar
-  handleSessionRef.current = handleSession;
 
   useEffect(() => {
-    const getSession = async () => {
+    let isMounted = true;
+    let subscription = null;
+    
+    const initializeAuth = async () => {
+      // Garante que loading está true no início
       if (!hasInitializedRef.current) {
         setLoading(true);
       }
       
-      // Timeout de segurança: força o loading como false após 10 segundos
+      // Timeout de segurança: força o loading como false após 5 segundos
       const timeoutId = setTimeout(() => {
-        if (!hasInitializedRef.current) {
+        if (isMounted && !hasInitializedRef.current) {
           console.warn('Timeout na inicialização da autenticação - forçando loading como false');
           setLoading(false);
           hasInitializedRef.current = true;
         }
-      }, 10000);
+      }, 5000);
       
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Primeiro, obtém a sessão atual
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Erro ao obter sessão:', sessionError);
+          if (isMounted) {
+            setLoading(false);
+            hasInitializedRef.current = true;
+          }
+          clearTimeout(timeoutId);
+          return;
+        }
+        
+        // Processa a sessão inicial
+        if (isMounted) {
+          await handleSession(session, true); // Primeira carga
+        }
+        
         clearTimeout(timeoutId);
         
-        if (handleSessionRef.current) {
-          await handleSessionRef.current(session, true); // Primeira carga
+        // Só configura o listener de mudanças de autenticação DEPOIS da inicialização
+        // Isso evita race conditions onde o listener dispara antes da inicialização completar
+        if (isMounted) {
+          const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
+            async (event, newSession) => {
+              // Ignora eventos durante a inicialização
+              if (!hasInitializedRef.current) {
+                return;
+              }
+              
+              // Só atualiza se realmente mudou (login/logout)
+              // Ignora INITIAL_SESSION e outros eventos que podem causar loops
+              if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+                if (isMounted) {
+                  try {
+                    await handleSession(newSession, false);
+                  } catch (error) {
+                    console.error('Erro ao processar mudança de autenticação:', error);
+                  }
+                }
+              }
+            }
+          );
+          subscription = authSubscription;
         }
       } catch (error) {
-        console.error('Erro ao obter sessão:', error);
+        console.error('Erro ao inicializar autenticação:', error);
+        if (isMounted) {
+          setLoading(false);
+          hasInitializedRef.current = true;
+        }
         clearTimeout(timeoutId);
-        setLoading(false);
-        hasInitializedRef.current = true;
       }
     };
 
-    getSession();
+    initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        // Só atualiza se realmente mudou (login/logout), não ao mudar de aba
-        // Ignora eventos como INITIAL_SESSION que podem disparar ao mudar de aba
-        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !hasInitializedRef.current)) {
-          if (handleSessionRef.current) {
-            try {
-              await handleSessionRef.current(session, false);
-            } catch (error) {
-              console.error('Erro ao processar mudança de autenticação:', error);
-            }
-          }
-        }
+    return () => {
+      isMounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
       }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []); // Array vazio - só executa uma vez na montagem
+    };
+  }, [handleSession]); // Inclui handleSession nas dependências
 
   const signUp = useCallback(async (email, password, options) => {
     // Garantir que o email está limpo e válido
