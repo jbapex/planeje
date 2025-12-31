@@ -28,18 +28,19 @@ const StoryIdeasGenerator = ({ client, isOpen, onClose, currentAgent }) => {
     const [savedIdeas, setSavedIdeas] = useState([]);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
     
-    // Filtros para melhorar a qualidade
+    // Fluxo simplificado - apenas perguntas essenciais
+    const [step, setStep] = useState(1); // 1: categoria, 2: pergunta rápida, 3: gerar
     const [clientWantsToAppear, setClientWantsToAppear] = useState('indiferente'); // 'sim', 'nao', 'indiferente'
-    const [storyFormat, setStoryFormat] = useState('indiferente'); // 'foto', 'video', 'carrossel', 'indiferente'
-    const [contentFocus, setContentFocus] = useState('indiferente'); // 'produto', 'servico', 'dica', 'promocao', 'indiferente'
-    const [toneOfVoice, setToneOfVoice] = useState('indiferente'); // 'casual', 'profissional', 'inspirador', 'divertido', 'conversacional', 'indiferente'
-    const [firstStoryOfDay, setFirstStoryOfDay] = useState('indiferente'); // 'sim', 'nao', 'indiferente'
-    const [timeOfDay, setTimeOfDay] = useState('indiferente'); // 'manha', 'tarde', 'noite', 'indiferente'
-    const [storyObjective, setStoryObjective] = useState('indiferente'); // 'educar', 'vender', 'entreter', 'comunidade', 'indiferente'
+    const [showAdvancedOptions, setShowAdvancedOptions] = useState(false); // Opções avançadas colapsadas
+    
+    // Opções avançadas (escondidas por padrão)
+    const [storyFormat, setStoryFormat] = useState('indiferente');
+    const [contentFocus, setContentFocus] = useState('indiferente');
+    const [toneOfVoice, setToneOfVoice] = useState('indiferente');
     
     // Estados para correção/contextualização
     const [isCorrectingOpen, setIsCorrectingOpen] = useState(false);
-    const [correctingField, setCorrectingField] = useState(null); // 'concept', 'visual_suggestion', 'caption', 'cta'
+    const [correctingField, setCorrectingField] = useState(null);
     const [correctionContext, setCorrectionContext] = useState('');
     const [isCorrecting, setIsCorrecting] = useState(false);
 
@@ -56,18 +57,24 @@ const StoryIdeasGenerator = ({ client, isOpen, onClose, currentAgent }) => {
             setSelectedCategory(null);
             setContext('');
             setGeneratedIdea(null);
+            setStep(1);
             setClientWantsToAppear('indiferente');
+            setShowAdvancedOptions(false);
             setStoryFormat('indiferente');
             setContentFocus('indiferente');
             setToneOfVoice('indiferente');
-            setFirstStoryOfDay('indiferente');
-            setTimeOfDay('indiferente');
-            setStoryObjective('indiferente');
             setIsCorrectingOpen(false);
             setCorrectingField(null);
             setCorrectionContext('');
         }
     }, [isOpen]);
+    
+    // Resetar step quando categoria mudar
+    useEffect(() => {
+        if (!selectedCategory && step > 1) {
+            setStep(1);
+        }
+    }, [selectedCategory, step]);
 
     const fetchSavedIdeas = async () => {
         if (!client?.id) return;
@@ -125,9 +132,6 @@ ${clientWantsToAppear !== 'indiferente' ? `- Cliente quer aparecer no story: ${c
 ${storyFormat !== 'indiferente' ? `- Formato preferido: ${storyFormat === 'foto' ? 'Foto estática' : storyFormat === 'video' ? 'Vídeo curto (15 segundos)' : 'Carrossel de imagens'}` : ''}
 ${contentFocus !== 'indiferente' ? `- Foco do conteúdo: ${contentFocus === 'produto' ? 'Destaque para produto' : contentFocus === 'servico' ? 'Destaque para serviço' : contentFocus === 'dica' ? 'Dica educativa' : 'Promoção/oferta especial'}` : ''}
 ${toneOfVoice !== 'indiferente' ? `- Tom de voz específico: ${toneOfVoice === 'casual' ? 'Casual e descontraído, como falar com um amigo' : toneOfVoice === 'profissional' ? 'Profissional mas acessível, mantendo credibilidade' : toneOfVoice === 'inspirador' ? 'Inspirador e motivador, que gera conexão emocional' : toneOfVoice === 'divertido' ? 'Divertido e leve, com humor quando apropriado' : 'Conversacional e natural, como uma conversa real'}` : ''}
-${firstStoryOfDay !== 'indiferente' ? `- Primeiro story do dia: ${firstStoryOfDay === 'sim' ? 'SIM, é o primeiro story do dia - pode incluir saudação, apresentação do dia, novidades' : 'NÃO, não é o primeiro - pode fazer referência a stories anteriores ou continuar uma sequência'}` : ''}
-${timeOfDay !== 'indiferente' ? `- Horário do dia: ${timeOfDay === 'manha' ? 'Manhã - energia para começar o dia, pode ser mais direto e ativo' : timeOfDay === 'tarde' ? 'Tarde - pico de engajamento, momento de maior atenção' : 'Noite - encerramento do dia, pode ser mais reflexivo ou com call to action mais suave'}` : ''}
-${storyObjective !== 'indiferente' ? `- Objetivo principal: ${storyObjective === 'educar' ? 'Educar - entregar dicas, conhecimento, valor educativo' : storyObjective === 'vender' ? 'Vender - focar em conversão, promoção direta, produto/serviço' : storyObjective === 'entreter' ? 'Entreter - conteúdo leve, divertido, para engajamento' : 'Construir comunidade - conexão, interação, fortalecer relacionamento com o público'}` : ''}
 
 **SUA TAREFA:**
 Crie uma ideia completa para um Story do Instagram no formato JSON estruturado abaixo:
@@ -144,9 +148,6 @@ ${clientWantsToAppear === 'nao' ? '- IMPORTANTE: O cliente NÃO vai aparecer. Fo
 ${storyFormat !== 'indiferente' ? `- Formato: ${storyFormat === 'foto' ? 'Crie para foto estática - texto deve ser pensado para imagem fixa' : storyFormat === 'video' ? 'Crie para vídeo curto - texto deve ser pensado para movimento e ação' : 'Crie para carrossel - texto pode ser dividido em várias imagens'}` : ''}
 ${contentFocus !== 'indiferente' ? `- Foco principal: ${contentFocus === 'produto' ? 'O produto é o protagonista - destaque características, benefícios, uso' : contentFocus === 'servico' ? 'O serviço é o protagonista - destaque valor entregue, processo' : contentFocus === 'dica' ? 'Foco em educar e agregar valor ao público' : 'Foco em comunicar oferta/promoção de forma clara e atrativa'}` : ''}
 ${toneOfVoice !== 'indiferente' ? `- Tom de voz: ${toneOfVoice === 'casual' ? 'Use linguagem casual, descontraída, como uma conversa com amigo próximo. Seja direto e sem formalidade desnecessária.' : toneOfVoice === 'profissional' ? 'Use tom profissional mas acessível. Mantenha credibilidade sem soar distante ou frio.' : toneOfVoice === 'inspirador' ? 'Use tom inspirador e motivador. Crie conexão emocional sem soar piegas ou genérico.' : toneOfVoice === 'divertido' ? 'Use tom leve e divertido. Pode usar humor sutil quando apropriado, mas sempre natural.' : 'Use tom conversacional natural. Como se estivesse falando pessoalmente, sem artificialidade.'}` : ''}
-${firstStoryOfDay === 'sim' ? '- IMPORTANTE: É o primeiro story do dia. Pode incluir saudação apropriada para o horário, apresentação do que vem pela frente no dia, novidades ou destaques principais. Comece de forma a captar atenção para o que vem a seguir.' : firstStoryOfDay === 'nao' ? '- IMPORTANTE: NÃO é o primeiro story. Pode fazer referência discreta a stories anteriores ("Como vocês viram...", "Lembra do que mostrei antes?"), continuar uma sequência, ou seguir um tema já estabelecido no dia.' : ''}
-${timeOfDay === 'manha' ? '- Horário: Manhã. Use energia e direção. Pode ser mais direto e ativo. Boas-vindas matinais são naturais se for o primeiro story.' : timeOfDay === 'tarde' ? '- Horário: Tarde. Momento de maior engajamento. Pode ser mais detalhado ou explorar mais profundamente o assunto.' : timeOfDay === 'noite' ? '- Horário: Noite. Tom pode ser mais reflexivo, encerrando o dia. Call to action pode ser mais suave. Seja mais conversacional.' : ''}
-${storyObjective === 'educar' ? '- Objetivo: Educar. Priorize entregar valor, conhecimento útil, dicas práticas. O conteúdo deve deixar o público mais informado.' : storyObjective === 'vender' ? '- Objetivo: Vender. Foque em conversão direta, destaque benefícios claros, use call to action forte mas natural. Mostre o valor de forma convincente mas autêntica.' : storyObjective === 'entreter' ? '- Objetivo: Entreter. Conteúdo leve, divertido, que gera engajamento. Pode ser mais descontraído e menos comercial.' : storyObjective === 'comunidade' ? '- Objetivo: Construir comunidade. Priorize conexão, interação, perguntas, fazer o público participar. Crie senso de pertencimento.' : ''}
 
 **O QUE NÃO FAZER (EXEMPLOS DE TEXTO RUIM):**
 - NÃO use frases genéricas como "Olá a todos!", "Estamos aqui para", "não vai querer perder", "super desconto"
@@ -276,6 +277,9 @@ ${storyObjective === 'educar' ? '- Objetivo: Educar. Priorize entregar valor, co
                 category: category.id,
                 categoryLabel: category.label
             });
+            
+            // Avançar para mostrar resultado
+            setStep(3);
 
         } catch (error) {
             console.error('Erro ao gerar ideia:', error);
@@ -575,248 +579,220 @@ ${correctionContext}
                                 </div>
                             </div>
 
-                            {/* Seleção de Categoria */}
-                            <div>
-                                <h3 className="text-sm font-medium mb-4 dark:text-gray-300 uppercase tracking-wide">
-                                    Selecione o tipo de Story
-                                </h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                    {STORY_CATEGORIES.map((category) => {
-                                        const CategoryIcon = category.icon;
-                                        const isSelected = selectedCategory === category.id;
-                                        return (
-                                            <button
-                                                key={category.id}
-                                                onClick={() => setSelectedCategory(category.id)}
-                                                className={`p-4 rounded-lg border-2 transition-all text-left ${
-                                                    isSelected
-                                                        ? 'border-primary bg-primary/10 dark:bg-primary/20 dark:border-primary shadow-sm'
-                                                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                                                }`}
-                                            >
-                                                <div className="flex items-center gap-3 mb-3">
-                                                    <CategoryIcon className={`h-5 w-5 ${isSelected ? 'text-primary' : 'text-gray-500 dark:text-gray-400'}`} />
-                                                    <div className="font-semibold dark:text-white">{category.label}</div>
-                                                </div>
-                                                <div className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                                    {category.description}
-                                                </div>
-                                                {isSelected && (
-                                                    <div className="mt-3 pt-3 border-t border-primary/20 dark:border-primary/30">
-                                                        <div className="text-primary text-xs font-medium flex items-center gap-1">
-                                                            <Check className="h-3 w-3" />
-                                                            Selecionado
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Filtros para melhorar qualidade */}
-                            <div className="border-t dark:border-gray-800 pt-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Settings className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                                    <h3 className="text-sm font-semibold dark:text-gray-300 uppercase tracking-wide">
-                                        Filtros para Melhor Entrega
+                            {/* Passo 1: Seleção de Categoria */}
+                            {step === 1 && (
+                                <div>
+                                    <h3 className="text-sm font-medium mb-4 dark:text-gray-300 uppercase tracking-wide">
+                                        Passo 1: Selecione o tipo de Story
                                     </h3>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Cliente vai aparecer?
-                                        </label>
-                                        <Select value={clientWantsToAppear} onValueChange={setClientWantsToAppear}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="sim">Sim, vai aparecer</SelectItem>
-                                                <SelectItem value="nao">Não, não vai aparecer</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            {clientWantsToAppear === 'sim' && 'Ideia incluirá sugestões de fala/aparição'}
-                                            {clientWantsToAppear === 'nao' && 'Ideia focará em produto/ambiente/texto'}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Formato do Story
-                                        </label>
-                                        <Select value={storyFormat} onValueChange={setStoryFormat}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="foto">Foto estática</SelectItem>
-                                                <SelectItem value="video">Vídeo curto</SelectItem>
-                                                <SelectItem value="carrossel">Carrossel</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            Tipo de mídia para o story
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Foco do Conteúdo
-                                        </label>
-                                        <Select value={contentFocus} onValueChange={setContentFocus}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="produto">Produto</SelectItem>
-                                                <SelectItem value="servico">Serviço</SelectItem>
-                                                <SelectItem value="dica">Dica educativa</SelectItem>
-                                                <SelectItem value="promocao">Promoção/Oferta</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            O que será o protagonista
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Tom de Voz
-                                        </label>
-                                        <Select value={toneOfVoice} onValueChange={setToneOfVoice}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente (usar tom do cliente)</SelectItem>
-                                                <SelectItem value="casual">Casual e descontraído</SelectItem>
-                                                <SelectItem value="conversacional">Conversacional e natural</SelectItem>
-                                                <SelectItem value="profissional">Profissional mas acessível</SelectItem>
-                                                <SelectItem value="inspirador">Inspirador e motivador</SelectItem>
-                                                <SelectItem value="divertido">Divertido e leve</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            Como o texto deve soar
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Primeiro story do dia?
-                                        </label>
-                                        <Select value={firstStoryOfDay} onValueChange={setFirstStoryOfDay}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="sim">Sim, primeiro do dia</SelectItem>
-                                                <SelectItem value="nao">Não, não é o primeiro</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            {firstStoryOfDay === 'sim' && 'Pode incluir saudação e apresentação do dia'}
-                                            {firstStoryOfDay === 'nao' && 'Pode referenciar stories anteriores'}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Horário do dia
-                                        </label>
-                                        <Select value={timeOfDay} onValueChange={setTimeOfDay}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="manha">Manhã</SelectItem>
-                                                <SelectItem value="tarde">Tarde</SelectItem>
-                                                <SelectItem value="noite">Noite</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            {timeOfDay === 'manha' && 'Energia para começar o dia'}
-                                            {timeOfDay === 'tarde' && 'Pico de engajamento'}
-                                            {timeOfDay === 'noite' && 'Tom mais reflexivo'}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
-                                            Objetivo principal
-                                        </label>
-                                        <Select value={storyObjective} onValueChange={setStoryObjective}>
-                                            <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                                                <SelectItem value="indiferente">Indiferente</SelectItem>
-                                                <SelectItem value="educar">Educar</SelectItem>
-                                                <SelectItem value="vender">Vender</SelectItem>
-                                                <SelectItem value="entreter">Entreter</SelectItem>
-                                                <SelectItem value="comunidade">Construir comunidade</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            {storyObjective === 'educar' && 'Entregar conhecimento e valor'}
-                                            {storyObjective === 'vender' && 'Focar em conversão'}
-                                            {storyObjective === 'entreter' && 'Conteúdo leve e divertido'}
-                                            {storyObjective === 'comunidade' && 'Criar conexão e interação'}
-                                        </p>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        {STORY_CATEGORIES.map((category) => {
+                                            const CategoryIcon = category.icon;
+                                            const isSelected = selectedCategory === category.id;
+                                            return (
+                                                <button
+                                                    key={category.id}
+                                                    onClick={() => {
+                                                        setSelectedCategory(category.id);
+                                                        setStep(2); // Avança para próximo passo
+                                                    }}
+                                                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                                        isSelected
+                                                            ? 'border-primary bg-primary/10 dark:bg-primary/20 dark:border-primary shadow-sm'
+                                                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 mb-3">
+                                                        <CategoryIcon className={`h-5 w-5 ${isSelected ? 'text-primary' : 'text-gray-500 dark:text-gray-400'}`} />
+                                                        <div className="font-semibold dark:text-white">{category.label}</div>
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                                        {category.description}
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            {/* Campo de Contexto */}
-                            <div>
-                                <label className="text-sm font-medium mb-2 block dark:text-gray-300">
-                                    Contexto Adicional (opcional)
-                                </label>
-                                <Textarea
-                                    value={context}
-                                    onChange={(e) => setContext(e.target.value)}
-                                    placeholder="Ex: 'Produto novo lançado hoje', 'Semana de promoção', 'Evento na próxima semana'"
-                                    className="dark:bg-gray-800 dark:border-gray-700"
-                                    rows={2}
-                                />
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                                    Adicione contexto específico para ideias mais personalizadas
-                                </p>
-                            </div>
+                            {/* Passo 2: Pergunta Rápida */}
+                            {step === 2 && selectedCategory && (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setStep(1)}
+                                            className="text-xs"
+                                        >
+                                            ← Voltar
+                                        </Button>
+                                        <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">Passo 2 de 2</span>
+                                    </div>
 
-                            {/* Botão Gerar */}
-                            <div className="flex justify-center">
-                                <Button
-                                    onClick={generateIdea}
-                                    disabled={!selectedCategory || isGenerating}
-                                    size="lg"
-                                    className="min-w-[200px]"
-                                >
-                                    {isGenerating ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Gerando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Lightbulb className="h-4 w-4 mr-2" />
-                                            Gerar Ideia de Story
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
+                                    <div className="bg-primary/10 dark:bg-primary/20 p-6 rounded-lg border dark:border-gray-800">
+                                        <h3 className="text-lg font-semibold dark:text-white mb-3">
+                                            Você vai aparecer no story?
+                                        </h3>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                                            Isso ajuda a criar uma ideia mais personalizada para você.
+                                        </p>
+                                        <div className="flex flex-wrap gap-3">
+                                            <Button
+                                                variant={clientWantsToAppear === 'sim' ? 'default' : 'outline'}
+                                                onClick={() => setClientWantsToAppear('sim')}
+                                                className="flex-1 min-w-[120px]"
+                                            >
+                                                Sim, vou aparecer
+                                            </Button>
+                                            <Button
+                                                variant={clientWantsToAppear === 'nao' ? 'default' : 'outline'}
+                                                onClick={() => setClientWantsToAppear('nao')}
+                                                className="flex-1 min-w-[120px]"
+                                            >
+                                                Não, não vou aparecer
+                                            </Button>
+                                            <Button
+                                                variant={clientWantsToAppear === 'indiferente' ? 'default' : 'outline'}
+                                                onClick={() => setClientWantsToAppear('indiferente')}
+                                                className="flex-1 min-w-[120px]"
+                                            >
+                                                Tanto faz
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    {/* Opções Avançadas (Colapsadas) */}
+                                    <div className="border-t dark:border-gray-800 pt-4">
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                                            className="w-full justify-between"
+                                        >
+                                            <span className="text-sm dark:text-gray-300">
+                                                {showAdvancedOptions ? 'Ocultar' : 'Mostrar'} opções avançadas
+                                            </span>
+                                            <Settings className={`h-4 w-4 transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`} />
+                                        </Button>
+
+                                        {showAdvancedOptions && (
+                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                                                <div>
+                                                    <label className="text-xs font-medium mb-2 block dark:text-gray-400">
+                                                        Formato do Story
+                                                    </label>
+                                                    <Select value={storyFormat} onValueChange={setStoryFormat}>
+                                                        <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
+                                                            <SelectItem value="indiferente">Indiferente</SelectItem>
+                                                            <SelectItem value="foto">Foto estática</SelectItem>
+                                                            <SelectItem value="video">Vídeo curto</SelectItem>
+                                                            <SelectItem value="carrossel">Carrossel</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-xs font-medium mb-2 block dark:text-gray-400">
+                                                        Foco do Conteúdo
+                                                    </label>
+                                                    <Select value={contentFocus} onValueChange={setContentFocus}>
+                                                        <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
+                                                            <SelectItem value="indiferente">Indiferente</SelectItem>
+                                                            <SelectItem value="produto">Produto</SelectItem>
+                                                            <SelectItem value="servico">Serviço</SelectItem>
+                                                            <SelectItem value="dica">Dica educativa</SelectItem>
+                                                            <SelectItem value="promocao">Promoção/Oferta</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="md:col-span-2">
+                                                    <label className="text-xs font-medium mb-2 block dark:text-gray-400">
+                                                        Tom de Voz
+                                                    </label>
+                                                    <Select value={toneOfVoice} onValueChange={setToneOfVoice}>
+                                                        <SelectTrigger className="dark:bg-gray-800 dark:border-gray-700 dark:text-white">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
+                                                            <SelectItem value="indiferente">Indiferente (usar tom do cliente)</SelectItem>
+                                                            <SelectItem value="casual">Casual e descontraído</SelectItem>
+                                                            <SelectItem value="conversacional">Conversacional e natural</SelectItem>
+                                                            <SelectItem value="profissional">Profissional mas acessível</SelectItem>
+                                                            <SelectItem value="inspirador">Inspirador e motivador</SelectItem>
+                                                            <SelectItem value="divertido">Divertido e leve</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Contexto Adicional (Opcional) */}
+                                    <div>
+                                        <label className="text-xs font-medium mb-2 block dark:text-gray-400">
+                                            Contexto adicional (opcional)
+                                        </label>
+                                        <Textarea
+                                            value={context}
+                                            onChange={(e) => setContext(e.target.value)}
+                                            placeholder="Ex: Quero destacar nosso novo produto de queijo artesanal..."
+                                            className="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                                            rows={3}
+                                        />
+                                    </div>
+
+                                    {/* Botões de Ação */}
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <Button
+                                            onClick={generateIdea}
+                                            disabled={isGenerating}
+                                            className="flex-1"
+                                            size="lg"
+                                        >
+                                            {isGenerating ? (
+                                                <>
+                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                    Gerando...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="h-4 w-4 mr-2" />
+                                                    Gerar Ideia Agora
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Resultado Gerado */}
                             {generatedIdea && (
                                 <div className="border-t dark:border-gray-800 pt-6 mt-6">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setGeneratedIdea(null);
+                                                setStep(1);
+                                                setSelectedCategory(null);
+                                                setClientWantsToAppear('indiferente');
+                                                setContext('');
+                                            }}
+                                            className="text-xs"
+                                        >
+                                            ← Gerar Nova Ideia
+                                        </Button>
+                                    </div>
                                     <div className="bg-gradient-to-r from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 p-6 rounded-lg border dark:border-gray-800">
                                         <div className="flex items-center gap-3 mb-6 pb-4 border-b dark:border-gray-800">
                                             <Lightbulb className="h-5 w-5 text-primary" />

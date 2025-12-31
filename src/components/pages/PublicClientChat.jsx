@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
@@ -72,6 +72,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
         const [isStandalone, setIsStandalone] = useState(false);
         const [showIOSInstructions, setShowIOSInstructions] = useState(false);
         const textareaRef = useRef(null);
+        
+        // Estados para imagem anexada no chat
+        const [attachedImage, setAttachedImage] = useState(null);
+        const [attachedImagePreview, setAttachedImagePreview] = useState(null);
+        const [imageActionMode, setImageActionMode] = useState(null); // 'analyze', 'caption', 'post', null
+        const fileInputRef = useRef(null);
+        const cameraInputRef = useRef(null);
+        const initialMessageCreatedRef = useRef(new Set()); // Rastreia sessões que já tiveram mensagem inicial criada
 
         useEffect(() => {
             // Salva a URL atual no localStorage para o PWA saber para onde voltar
@@ -500,11 +508,18 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
         const saveMessage = useCallback(async (message, currentSessionId) => {
             if (!currentSessionId) return;
             try {
-                const { error } = await supabase.from('client_chat_messages').insert({
+                const messageData = {
                     session_id: currentSessionId,
                     role: message.role,
                     content: message.content
-                });
+                };
+                
+                // Incluir imagem se existir
+                if (message.image) {
+                    messageData.image = message.image;
+                }
+                
+                const { error } = await supabase.from('client_chat_messages').insert(messageData);
                 if (error) {
                     console.error('Erro ao salvar mensagem:', error);
                 }
@@ -524,17 +539,106 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             }, 10000);
             
             try {
-                const { data, error } = await supabase.from('client_chat_messages').select('role, content').eq('session_id', sessionId).order('created_at');
+                const { data, error } = await supabase
+                    .from('client_chat_messages')
+                    .select('role, content, image')
+                    .eq('session_id', sessionId)
+                    .order('created_at');
+                
                 clearTimeout(timeoutId);
                 
                 if (error) {
                     console.error('Erro ao buscar mensagens:', error);
                     toast({ title: "Erro ao buscar mensagens", description: error.message, variant: "destructive" });
                     setMessages([]);
-                } else if (data.length > 0) {
-                    setMessages(data);
+                } else if (data && data.length > 0) {
+                    // Remove duplicatas baseado no conteúdo e role (caso haja duplicatas no banco)
+                    const uniqueMessages = [];
+                    const seen = new Set();
+                    for (const msg of data) {
+                        const key = `${msg.role}-${msg.content}`;
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            uniqueMessages.push(msg);
+                        }
+                    }
+                    setMessages(uniqueMessages);
+                    // Marcar que esta sessão já tem mensagens
+                    initialMessageCreatedRef.current.add(sessionId);
                 } else {
-                     const initialMessage = {
+                    // Nenhuma mensagem encontrada na primeira query
+                    // Verificar novamente no banco se realmente não existe mensagem (double-check crítico)
+                    // Isso evita criar mensagem duplicada ao recarregar a página
+                    const { data: doubleCheck, error: doubleCheckError } = await supabase
+                        .from('client_chat_messages')
+                        .select('id, role, content, image')
+                        .eq('session_id', sessionId)
+                        .order('created_at');
+                    
+                    if (doubleCheckError) {
+                        console.error('Erro ao verificar mensagens existentes:', doubleCheckError);
+                        setMessages([]);
+                        return;
+                    }
+                    
+                    // Se encontrou mensagens no double-check, usa elas (remove duplicatas)
+                    if (doubleCheck && doubleCheck.length > 0) {
+                        const uniqueMessages = [];
+                        const seen = new Set();
+                        for (const msg of doubleCheck) {
+                            const key = `${msg.role}-${msg.content}`;
+                            if (!seen.has(key)) {
+                                seen.add(key);
+                                uniqueMessages.push(msg);
+                            }
+                        }
+                        setMessages(uniqueMessages);
+                        initialMessageCreatedRef.current.add(sessionId);
+                        return;
+                    }
+                    
+                    // Só cria mensagem inicial se REALMENTE não existir nenhuma mensagem no banco
+                    // Verificar uma terceira vez para garantir (evita race conditions em recarregamentos)
+                    const { data: finalCheck } = await supabase
+                        .from('client_chat_messages')
+                        .select('id')
+                        .eq('session_id', sessionId)
+                        .limit(1);
+                    
+                    if (finalCheck && finalCheck.length > 0) {
+                        // Existe mensagem, buscar todas novamente
+                        const { data: allMessages } = await supabase
+                            .from('client_chat_messages')
+                            .select('role, content, image')
+                            .eq('session_id', sessionId)
+                            .order('created_at');
+                        if (allMessages && allMessages.length > 0) {
+                            const uniqueMessages = [];
+                            const seen = new Set();
+                            for (const msg of allMessages) {
+                                const key = `${msg.role}-${msg.content}`;
+                                if (!seen.has(key)) {
+                                    seen.add(key);
+                                    uniqueMessages.push(msg);
+                                }
+                            }
+                            setMessages(uniqueMessages);
+                            initialMessageCreatedRef.current.add(sessionId);
+                        }
+                        return;
+                    }
+                    
+                    // Verificar se já tentamos criar mensagem inicial para esta sessão nesta execução
+                    if (initialMessageCreatedRef.current.has(sessionId)) {
+                        console.log('⚠️ Tentativa duplicada de criar mensagem inicial bloqueada para sessão:', sessionId);
+                        return;
+                    }
+                    
+                    // Marcar ANTES de criar para evitar race conditions
+                    initialMessageCreatedRef.current.add(sessionId);
+                    
+                    // Criar mensagem inicial apenas se realmente não existir nenhuma
+                    const initialMessage = {
                         role: 'assistant',
                         content: `Olá, ${client.nome_contato}! Eu sou o **ApexIA**, seu assistente de inteligência artificial da **JB APEX**. Selecione um agente abaixo e me diga como posso ser útil hoje.`
                     };
@@ -555,7 +659,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
         }, [fetchInitialData]); 
 
         useEffect(() => {
-            if (client) {
+            if (client && sessionId) {
                 fetchMessagesForSession();
             }
         }, [sessionId, client, fetchMessagesForSession]);
@@ -586,9 +690,198 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             }
         };
 
+        // Funções para manipular imagens no chat
+        const convertImageToBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        const handleImageSelect = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            // Validar tipo de arquivo
+            if (!file.type.startsWith('image/')) {
+                toast({
+                    title: 'Arquivo inválido',
+                    description: 'Por favor, selecione uma imagem.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            // Validar tamanho (máx 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                toast({
+                    title: 'Imagem muito grande',
+                    description: 'Por favor, selecione uma imagem menor que 10MB.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            setAttachedImage(file);
+            const base64 = await convertImageToBase64(file);
+            setAttachedImagePreview(base64);
+            setImageActionMode(null); // Reset action mode
+            
+            // Limpar inputs
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            if (cameraInputRef.current) cameraInputRef.current.value = '';
+        };
+
+        const removeAttachedImage = () => {
+            setAttachedImage(null);
+            setAttachedImagePreview(null);
+            setImageActionMode(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            if (cameraInputRef.current) cameraInputRef.current.value = '';
+        };
+
+        const handleImageAction = async (action) => {
+            if (!attachedImage || !attachedImagePreview || !currentAgent) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, anexe uma imagem primeiro.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            setImageActionMode(action);
+            setIsGenerating(true);
+            setCurrentAIMessage(''); // Reset antes de começar
+
+            try {
+                // Preparar prompt do sistema baseado na ação
+                let systemPrompt = currentAgent.prompt
+                    .replace('{client_name}', client?.empresa || '')
+                    .replace('{contact_name}', client?.nome_contato || '')
+                    .replace('{client_niche}', client?.nicho || '')
+                    .replace('{client_target_audience}', client?.publico_alvo || '')
+                    .replace('{client_tone}', client?.tom_de_voz || '');
+
+                systemPrompt += `\n\n**CONTEXTO DO CLIENTE:**
+- Empresa: ${client?.empresa || 'Não informado'}
+- Nicho: ${client?.nicho || 'Não informado'}
+- Público-alvo: ${client?.publico_alvo || 'Não informado'}
+- Tom de voz: ${client?.tom_de_voz || 'Não informado'}`;
+
+                let userPrompt = '';
+                
+                switch (action) {
+                    case 'analyze':
+                        systemPrompt += `\n\n**SUA TAREFA:** Analise esta imagem detalhadamente e forneça insights estratégicos sobre ela. Seja específico, profissional e útil.`;
+                        userPrompt = input.trim() || 'Analise esta imagem e me dê sua opinião detalhada sobre ela.';
+                        break;
+                    case 'caption':
+                        systemPrompt += `\n\n**SUA TAREFA:** Crie uma legenda/caption profissional e engajadora para esta imagem, pronta para postar em redes sociais. Use o tom de voz do cliente e seja autêntico.`;
+                        userPrompt = input.trim() || 'Crie uma legenda profissional para esta imagem.';
+                        break;
+                    case 'post':
+                        systemPrompt += `\n\n**SUA TAREFA:** Crie uma sugestão completa de post para esta imagem, incluindo legenda, hashtags relevantes e estratégia de engajamento.`;
+                        userPrompt = input.trim() || 'Crie uma sugestão completa de post para esta imagem.';
+                        break;
+                    default:
+                        userPrompt = input.trim() || 'O que você acha dessa imagem?';
+                }
+
+                const apiMessages = [
+                    { role: 'system', content: systemPrompt },
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: userPrompt },
+                            { type: 'image_url', image_url: { url: attachedImagePreview } }
+                        ]
+                    }
+                ];
+
+                console.log('🔵 Iniciando análise de imagem...', { action, hasImage: !!attachedImagePreview });
+
+                // Usar Edge Function do Supabase (mesma lógica do chat normal)
+                const { data, error } = await supabase.functions.invoke('openai-chat', {
+                    body: JSON.stringify({ 
+                        messages: apiMessages, 
+                        model: 'gpt-4o',
+                        stream: true
+                    }),
+                });
+
+                if (error) {
+                    console.error('❌ Erro na Edge Function:', error);
+                    throw error;
+                }
+
+                if (!data?.body) {
+                    console.error('❌ Resposta sem body da Edge Function');
+                    throw new Error('Resposta vazia da Edge Function');
+                }
+
+                console.log('✅ Processando stream de resposta da imagem...');
+
+                // Processar stream (mesma lógica do chat normal)
+                // streamAIResponse já atualiza setCurrentAIMessage durante o streaming
+                const fullResponse = await streamAIResponse(data);
+                
+                console.log('✅ Análise de imagem completa!', { length: fullResponse.length });
+
+                // Adicionar mensagens ao histórico
+                const userMessage = { 
+                    role: 'user', 
+                    content: userPrompt,
+                    image: attachedImagePreview 
+                };
+                const assistantMessage = { role: 'assistant', content: fullResponse };
+                
+                setMessages(prev => [...prev, userMessage, assistantMessage]);
+                await saveMessage(userMessage, sessionId);
+                await saveMessage(assistantMessage, sessionId);
+
+                // Limpar imagem anexada após processar
+                removeAttachedImage();
+                setInput('');
+
+            } catch (error) {
+                console.error('Erro ao processar imagem:', error);
+                toast({
+                    title: 'Erro ao processar imagem',
+                    description: error.message || 'Não foi possível processar a imagem.',
+                    variant: 'destructive'
+                });
+            } finally {
+                setIsGenerating(false);
+                setImageActionMode(null);
+                setCurrentAIMessage('');
+            }
+        };
+
         const handleSendMessage = async (e) => {
             e.preventDefault();
-            if (!input.trim() || isGenerating || !currentAgent || !sessionId) return;
+            if (isGenerating || !currentAgent || !sessionId) return;
+            
+            // Se há imagem anexada mas nenhuma ação foi selecionada, não fazer nada
+            if (attachedImage && !imageActionMode) {
+                toast({
+                    title: 'Selecione uma ação',
+                    description: 'Escolha o que você quer fazer com a imagem anexada.',
+                    variant: 'default'
+                });
+                return;
+            }
+
+            // Se há imagem anexada e ação selecionada, usar fluxo de imagem
+            if (attachedImage && imageActionMode) {
+                await handleImageAction(imageActionMode);
+                return;
+            }
+
+            // Se não há texto e não há imagem, não fazer nada
+            if (!input.trim()) return;
             
             const userMessage = { role: 'user', content: input };
             const userMessageText = input; // Salva o texto antes de limpar
@@ -821,7 +1114,23 @@ ${currentAgent.prompt
             
             systemPrompt += `\n\n**OUTRAS REGRAS:**`;
             systemPrompt += `\n- Se o usuário perguntar sobre algo que NÃO está nas informações disponíveis acima, então você pode sugerir criar uma solicitação. Use o shortcode **[CONFIRMAR_SOLICITACAO]** ao final da sua pergunta. Exemplo: "Para isso, o ideal é falar com nossa equipe. Você gostaria de criar uma solicitação agora? [CONFIRMAR_SOLICITACAO]"`;
-            const conversationHistory = messages.slice(-6).map(m => ({ role: m.role, content: m.content }));
+            
+            // Construir histórico de conversa incluindo imagens quando existirem
+            const conversationHistory = messages.slice(-6).map(m => {
+                // Se a mensagem tem imagem, incluir no formato correto para a API
+                if (m.image) {
+                    return {
+                        role: m.role,
+                        content: [
+                            { type: 'text', text: m.content || '' },
+                            { type: 'image_url', image_url: { url: m.image } }
+                        ]
+                    };
+                }
+                // Mensagem normal sem imagem
+                return { role: m.role, content: m.content };
+            });
+            
             const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
 
             try {
@@ -1289,6 +1598,15 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         } : {})
                                                     }}
                                                 >
+                                                    {msg.image && (
+                                                        <div className="mb-3">
+                                                            <img 
+                                                                src={msg.image} 
+                                                                alt="Anexada" 
+                                                                className="max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700"
+                                                            />
+                                                        </div>
+                                                    )}
                                                     <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">{renderMessageContent(msg.content)}</div>
                                                 </div>
                                             </motion.div>
@@ -1364,8 +1682,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                             paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'
                         }}>
                             <div className="max-w-3xl mx-auto w-full">
-                                {/* Botão de Estilo de Conversa - Sempre visível para fácil acesso */}
-                                <div className="mb-2">
+                                {/* Botões de Acesso Rápido - Sempre visíveis */}
+                                <div className="mb-2 flex items-center gap-2 flex-wrap">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                             <Button
@@ -1485,6 +1803,18 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             })}
                                         </DropdownMenuContent>
                                     </DropdownMenu>
+                                    
+                                    {/* Botão de Stories - discreto ao lado */}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setIsStoryIdeasOpen(true)}
+                                        className="w-full sm:w-auto justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                                        disabled={!currentAgent}
+                                    >
+                                        <Lightbulb className="h-3.5 w-3.5 mr-2 text-yellow-500" />
+                                        <span className="truncate">Stories</span>
+                                    </Button>
                                 </div>
 
                                 {/* Container dos botões - controlado por botão + (estilo ChatGPT) */}
@@ -1495,67 +1825,127 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             animate={{ opacity: 1, height: 'auto' }}
                                             exit={{ opacity: 0, height: 0 }}
                                             transition={{ duration: 0.2 }}
-                                            className="flex flex-col sm:flex-row items-center gap-2 mb-3 overflow-hidden"
+                                            className="mb-3 overflow-hidden"
                                         >
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
-                                                <CurrentAgentIcon className="h-4 w-4 mr-2" />
-                                                <span className="truncate">{currentAgent?.name || "Selecione um Agente"}</span>
-                                                <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
-                                            {agents.map(agent => {const AgentIcon = ICONS[agent.icon] || ICONS.Default; return (<DropdownMenuItem key={agent.id} onClick={() => handleAgentChange(agent)} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"><AgentIcon className="h-4 w-4 mr-2" /><span>{agent.name}</span>{currentAgent?.id === agent.id && <Check className="h-4 w-4 ml-auto" />}</DropdownMenuItem>);})}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
-                                                <FolderKanban className="h-4 w-4 mr-2" />
-                                                <span className="truncate">{selectedProjectIds.size} projeto(s) selecionado(s)</span>
-                                                <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set(projects.map(p => p.id)))} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Selecionar Todos</DropdownMenuItem>
-                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set())} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Limpar Seleção</DropdownMenuItem>
-                                            <DropdownMenuSeparator className="dark:bg-gray-700/50" />
-                                            {projects.map(project => (
-                                                <DropdownMenuCheckboxItem
-                                                    key={project.id}
-                                                    checked={selectedProjectIds.has(project.id)}
-                                                    onCheckedChange={() => handleProjectSelection(project.id)}
-                                                    onSelect={(e) => e.preventDefault()}
-                                                    className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"
-                                                >
-                                                    {project.name}
-                                                </DropdownMenuCheckboxItem>
-                                            ))}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                    <Button
-                                        variant="outline"
-                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm"
-                                        onClick={() => setIsStoryIdeasOpen(true)}
-                                    >
-                                        <Lightbulb className="h-4 w-4 mr-2" />
-                                        <span className="truncate">Ideias de Stories</span>
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm"
-                                        onClick={() => setIsImageAnalyzerOpen(true)}
-                                    >
-                                        <Camera className="h-4 w-4 mr-2" />
-                                        <span className="truncate">Análise de Imagem</span>
-                                    </Button>
+                                            {/* Seção: Configurações do Chat */}
+                                            <div className="mb-3">
+                                                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-1">
+                                                    Configurações
+                                                </p>
+                                                <div className="flex flex-col sm:flex-row gap-2">
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
+                                                                <CurrentAgentIcon className="h-4 w-4 mr-2" />
+                                                                <span className="truncate">{currentAgent?.name || "Selecione um Agente"}</span>
+                                                                <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
+                                                            {agents.map(agent => {const AgentIcon = ICONS[agent.icon] || ICONS.Default; return (<DropdownMenuItem key={agent.id} onClick={() => handleAgentChange(agent)} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"><AgentIcon className="h-4 w-4 mr-2" /><span>{agent.name}</span>{currentAgent?.id === agent.id && <Check className="h-4 w-4 ml-auto" />}</DropdownMenuItem>);})}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="outline" className="w-full sm:w-auto flex-1 justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm">
+                                                                <FolderKanban className="h-4 w-4 mr-2" />
+                                                                <span className="truncate">{selectedProjectIds.size} projeto(s)</span>
+                                                                <ChevronDown className="h-4 w-4 ml-auto opacity-50" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm">
+                                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set(projects.map(p => p.id)))} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Selecionar Todos</DropdownMenuItem>
+                                                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} onClick={() => setSelectedProjectIds(new Set())} className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg">Limpar Seleção</DropdownMenuItem>
+                                                            <DropdownMenuSeparator className="dark:bg-gray-700/50" />
+                                                            {projects.map(project => (
+                                                                <DropdownMenuCheckboxItem
+                                                                    key={project.id}
+                                                                    checked={selectedProjectIds.has(project.id)}
+                                                                    onCheckedChange={() => handleProjectSelection(project.id)}
+                                                                    onSelect={(e) => e.preventDefault()}
+                                                                    className="dark:text-white dark:hover:bg-gray-700/50 rounded-lg"
+                                                                >
+                                                                    {project.name}
+                                                                </DropdownMenuCheckboxItem>
+                                                            ))}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                </div>
+                                            </div>
+
+                                            {/* Seção de Ferramentas removida - Stories agora está sempre visível ao lado de "Como o ApexIA responde" */}
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
                                 
+                                {/* Preview de imagem anexada */}
+                                {attachedImagePreview && (
+                                    <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                                        <div className="flex items-start gap-3">
+                                            <img 
+                                                src={attachedImagePreview} 
+                                                alt="Preview" 
+                                                className="w-20 h-20 object-cover rounded-lg"
+                                            />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium dark:text-white mb-2">
+                                                    Imagem anexada
+                                                </p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                                                    O que você quer fazer com essa imagem?
+                                                </p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant={imageActionMode === 'analyze' ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setImageActionMode('analyze')}
+                                                        disabled={isGenerating}
+                                                        className="text-xs"
+                                                    >
+                                                        <Sparkles className="h-3 w-3 mr-1" />
+                                                        Analisar
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant={imageActionMode === 'caption' ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setImageActionMode('caption')}
+                                                        disabled={isGenerating}
+                                                        className="text-xs"
+                                                    >
+                                                        <FileText className="h-3 w-3 mr-1" />
+                                                        Criar Legenda
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant={imageActionMode === 'post' ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setImageActionMode('post')}
+                                                        disabled={isGenerating}
+                                                        className="text-xs"
+                                                    >
+                                                        <Share className="h-3 w-3 mr-1" />
+                                                        Sugerir Post
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={removeAttachedImage}
+                                                        disabled={isGenerating}
+                                                        className="text-xs"
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
                                 <form onSubmit={handleSendMessage} className="relative">
-                                    <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
+                                    <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() && !attachedImage ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
                                         {/* Botão + para expandir opções (estilo ChatGPT) */}
                                         <Button
                                             type="button"
@@ -1572,22 +1962,58 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             )}
                                         </Button>
                                         
+                                        {/* Botão de anexar imagem - sempre visível */}
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => {
+                                                if (isMobile && !isIOS) {
+                                                    cameraInputRef.current?.click();
+                                                } else {
+                                                    fileInputRef.current?.click();
+                                                }
+                                            }}
+                                            className="absolute left-12 bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800"
+                                            disabled={isGenerating || !currentAgent}
+                                            title="Anexar imagem"
+                                        >
+                                            <Camera className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                                        </Button>
+                                        
+                                        {/* Inputs de arquivo (ocultos) */}
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageSelect}
+                                            className="hidden"
+                                        />
+                                        <input
+                                            ref={cameraInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            capture="environment"
+                                            onChange={handleImageSelect}
+                                            className="hidden"
+                                        />
+                                        
                                         <Textarea 
                                             ref={textareaRef}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
-                                            placeholder={currentAgent ? `Pergunte ao ${currentAgent.name}...` : 'Selecione um agente para começar.'} 
-                                            className="pr-14 pl-12 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto" 
+                                            placeholder={currentAgent ? (attachedImage ? 'Descreva o que você quer fazer com a imagem...' : `Pergunte ao ${currentAgent.name}...`) : 'Selecione um agente para começar.'} 
+                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto"
+                                            style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
                                             disabled={isGenerating || !currentAgent} 
                                             rows={1}
-                                            style={{ height: 'auto', minHeight: '52px', maxHeight: '200px' }}
                                         />
                                         <Button 
                                             type="submit" 
                                             size="icon" 
                                             className="absolute right-2 bottom-2.5 h-9 w-9 rounded-full bg-primary hover:bg-primary/90 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all z-10 flex-shrink-0" 
-                                            disabled={isGenerating || !input.trim() || !currentAgent}
+                                            disabled={isGenerating || (!input.trim() && !(attachedImage && imageActionMode)) || !currentAgent}
                                         >
                                             {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                                         </Button>
