@@ -28,8 +28,9 @@ import React, { useEffect } from 'react';
     import PerformanceReport from '@/components/pages/PerformanceReport';
     import Onboarding from '@/components/pages/Onboarding';
     import MarketingDiagnostic from '@/components/pages/MarketingDiagnostic';
-    import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
-    import PublicClientChat from '@/components/pages/PublicClientChat';
+import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
+import PublicClientChat from '@/components/pages/PublicClientChat';
+import TestImageModels from '@/components/pages/TestImageModels';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
     import ChatLauncher from '@/components/pages/ChatLauncher';
@@ -126,6 +127,7 @@ import React, { useEffect } from 'react';
                 <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
                 <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />
                 <Route path="super-admin/chat-limits" element={<ProtectedRoute allowedRoles={['superadmin']}><ChatLimitsManager /></ProtectedRoute>} />
+                <Route path="test-image-models" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><TestImageModels /></ProtectedRoute>} />
                 <Route path="super-admin/*" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
                 <Route path="meta-integration-help" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><MetaIntegrationHelp /></ProtectedRoute>} />
                 

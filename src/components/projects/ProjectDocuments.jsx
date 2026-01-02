@@ -377,8 +377,8 @@ const ProjectDocuments = ({ client }) => {
       }, 0);
     } else {
       // Sem seleção: muda o tamanho padrão para o próximo texto digitado
-      const newSize = Math.max(12, Math.min(48, fontSize + delta));
-      setFontSize(newSize);
+    const newSize = Math.max(12, Math.min(48, fontSize + delta));
+    setFontSize(newSize);
       editorRef.current.style.fontSize = `${newSize}px`;
     }
     
@@ -428,12 +428,12 @@ const ProjectDocuments = ({ client }) => {
     if (!editorRef.current) return;
     setFontFamily(family);
     
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0 && !selection.isCollapsed) {
-      // Aplica ao texto selecionado
-      const range = selection.getRangeAt(0);
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0 && !selection.isCollapsed) {
+        // Aplica ao texto selecionado
+        const range = selection.getRangeAt(0);
       const contents = range.extractContents();
-      const span = document.createElement('span');
+        const span = document.createElement('span');
       span.style.fontFamily = family;
       span.appendChild(contents);
       range.insertNode(span);
@@ -629,10 +629,10 @@ const ProjectDocuments = ({ client }) => {
                   onCheckedChange={() => handleToggleApexIAAccess(doc.id, doc.apexia_access || false)}
                   className="scale-75"
                 />
-              </div>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}>
-                <Trash2 className="h-4 w-4 text-red-500" />
-              </Button>
+            </div>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}>
+              <Trash2 className="h-4 w-4 text-red-500" />
+            </Button>
             </div>
           </div>
         ))}
@@ -642,25 +642,25 @@ const ProjectDocuments = ({ client }) => {
         {selectedDoc ? (
           <div className="flex flex-col h-full px-12 py-8 min-h-0 overflow-hidden">
             <div className="flex-shrink-0">
-              <div className="flex items-center justify-end mb-4 text-sm text-gray-500">
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-1" /> Salvando...
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-4 w-4 text-green-500 mr-1" /> Salvo
-                  </>
-                )}
-              </div>
-              <Input 
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="text-3xl font-bold border-none shadow-none focus-visible:ring-0 mb-6 px-0"
-                placeholder="Sem título"
-              />
-              
-              {/* Barra de Ferramentas */}
+            <div className="flex items-center justify-end mb-4 text-sm text-gray-500">
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" /> Salvando...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4 text-green-500 mr-1" /> Salvo
+                </>
+              )}
+            </div>
+            <Input 
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="text-3xl font-bold border-none shadow-none focus-visible:ring-0 mb-6 px-0"
+              placeholder="Sem título"
+            />
+            
+            {/* Barra de Ferramentas */}
               <div className="flex items-center gap-2 p-2 border rounded-md mb-4 bg-gray-50 dark:bg-gray-800 flex-wrap">
               {/* Estilo de Texto */}
               <Select value={textStyle} onValueChange={changeTextStyle}>
@@ -701,16 +701,16 @@ const ProjectDocuments = ({ client }) => {
 
               {/* Formatação de Texto */}
               <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => formatText('bold')}
-                  className="h-8 w-8 p-0"
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => formatText('bold')}
+                className="h-8 w-8 p-0"
                   title="Negrito (Ctrl+B)"
-                >
-                  <Bold className="h-4 w-4" />
-                </Button>
+              >
+                <Bold className="h-4 w-4" />
+              </Button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -790,7 +790,7 @@ const ProjectDocuments = ({ client }) => {
                   </Button>
                 </label>
               </div>
-
+              
               <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
               
               {/* Tamanho da Fonte */}
@@ -819,7 +819,7 @@ const ProjectDocuments = ({ client }) => {
               </div>
               
               <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
-
+              
               {/* Link */}
               <div className="flex items-center gap-1">
                 <Button
@@ -880,46 +880,46 @@ const ProjectDocuments = ({ client }) => {
               
               {/* Alinhamento */}
               <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => formatText('justifyLeft')}
-                  className="h-8 w-8 p-0"
-                  title="Alinhar à esquerda"
-                >
-                  <AlignLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => formatText('justifyCenter')}
-                  className="h-8 w-8 p-0"
-                  title="Centralizar"
-                >
-                  <AlignCenter className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => formatText('justifyRight')}
-                  className="h-8 w-8 p-0"
-                  title="Alinhar à direita"
-                >
-                  <AlignRight className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => formatText('justifyFull')}
-                  className="h-8 w-8 p-0"
-                  title="Justificar"
-                >
-                  <AlignJustify className="h-4 w-4" />
-                </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => formatText('justifyLeft')}
+                className="h-8 w-8 p-0"
+                title="Alinhar à esquerda"
+              >
+                <AlignLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => formatText('justifyCenter')}
+                className="h-8 w-8 p-0"
+                title="Centralizar"
+              >
+                <AlignCenter className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => formatText('justifyRight')}
+                className="h-8 w-8 p-0"
+                title="Alinhar à direita"
+              >
+                <AlignRight className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => formatText('justifyFull')}
+                className="h-8 w-8 p-0"
+                title="Justificar"
+              >
+                <AlignJustify className="h-4 w-4" />
+              </Button>
               </div>
 
               <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1" />

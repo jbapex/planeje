@@ -5,16 +5,17 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
-    import { Button } from '@/components/ui/button';
-    import { Textarea } from '@/components/ui/textarea';
-    import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
     import { marked } from 'marked';
     import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
     const ICONS = {
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
@@ -80,6 +81,24 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
         const fileInputRef = useRef(null);
         const cameraInputRef = useRef(null);
         const initialMessageCreatedRef = useRef(new Set()); // Rastreia sessões que já tiveram mensagem inicial criada
+        
+        // Estados para geração de imagem
+        const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+        const [showImageGenerator, setShowImageGenerator] = useState(false);
+        const [imagePrompt, setImagePrompt] = useState('');
+        const [referenceImage, setReferenceImage] = useState(null);
+        const [referenceImagePreview, setReferenceImagePreview] = useState(null);
+        const [selectedImageModel, setSelectedImageModel] = useState('dall-e-3'); // 'dall-e-2', 'dall-e-3'
+        const referenceImageInputRef = useRef(null);
+
+        // Helper para obter o texto do modelo selecionado
+        const getModelLabel = (model) => {
+            const labels = {
+                'dall-e-3': 'DALL-E 3 - Alta qualidade, estilo realista',
+                'dall-e-2': 'DALL-E 2 - Variações de imagem'
+            };
+            return labels[model] || 'Selecione um modelo';
+        };
 
         useEffect(() => {
             // Salva a URL atual no localStorage para o PWA saber para onde voltar
@@ -857,6 +876,182 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 setIsGenerating(false);
                 setImageActionMode(null);
                 setCurrentAIMessage('');
+            }
+        };
+
+        const handleReferenceImageSelect = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            if (!file.type.startsWith('image/')) {
+                toast({
+                    title: 'Arquivo inválido',
+                    description: 'Por favor, selecione uma imagem.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            if (file.size > 10 * 1024 * 1024) {
+                toast({
+                    title: 'Arquivo muito grande',
+                    description: 'A imagem deve ter no máximo 10MB.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            const base64 = await convertImageToBase64(file);
+            setReferenceImage(file);
+            setReferenceImagePreview(base64);
+            if (referenceImageInputRef.current) referenceImageInputRef.current.value = '';
+        };
+
+        const removeReferenceImage = () => {
+            setReferenceImage(null);
+            setReferenceImagePreview(null);
+            if (referenceImageInputRef.current) referenceImageInputRef.current.value = '';
+        };
+
+        const handleGenerateImage = async (prompt) => {
+            // Validar: precisa de prompt OU imagem de referência
+            if ((!prompt || !prompt.trim()) && !referenceImagePreview) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, descreva a imagem que deseja gerar ou anexe uma imagem de referência.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            if (!currentAgent || !sessionId) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, selecione um agente primeiro.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            setIsGeneratingImage(true);
+            setShowImageGenerator(false);
+
+            try {
+                let finalPrompt = prompt?.trim() || '';
+
+                // Se há imagem de referência, usar variações (DALL-E 2 ou Gemini)
+                if (referenceImagePreview) {
+                    toast({
+                        title: 'Gerando variação da imagem...',
+                        description: 'Criando uma nova imagem baseada na sua referência.',
+                    });
+
+                    // Usar Image Variations API
+                    const { data, error } = await supabase.functions.invoke('openai-image-generation', {
+                        body: {
+                            imageBase64: referenceImagePreview,
+                            useVariation: true,
+                            size: '1024x1024',
+                            model: selectedImageModel, // Enviar modelo selecionado
+                        },
+                    });
+
+                    if (error) {
+                        throw new Error(error.message || 'Erro ao gerar variação da imagem');
+                    }
+
+                    if (!data?.success || !data?.imageUrl) {
+                        throw new Error(data?.error || 'Não foi possível gerar a variação da imagem');
+                    }
+
+                    // Criar mensagens para o chat
+                    const userMessage = {
+                        role: 'user',
+                        content: prompt.trim() 
+                            ? `Gere uma variação desta imagem: ${prompt.trim()}`
+                            : 'Gere uma variação desta imagem',
+                        image: referenceImagePreview
+                    };
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: `Aqui está a variação gerada a partir da sua imagem:`,
+                        image: data.imageUrl
+                    };
+
+                    setMessages(prev => [...prev, userMessage, assistantMessage]);
+                    await saveMessage(userMessage, sessionId);
+                    await saveMessage(assistantMessage, sessionId);
+
+                    // Limpar imagem de referência após gerar
+                    removeReferenceImage();
+                    setImagePrompt('');
+
+                    toast({
+                        title: 'Variação gerada!',
+                        description: 'A nova imagem foi criada a partir da sua referência.',
+                    });
+
+                    setIsGeneratingImage(false);
+                    return;
+                }
+
+                // Se não há imagem de referência, usar modelo selecionado com prompt
+                console.log('🖼️ Gerando imagem com modelo:', selectedImageModel, 'Prompt:', finalPrompt.substring(0, 50));
+                const { data, error } = await supabase.functions.invoke('openai-image-generation', {
+                    body: {
+                        prompt: finalPrompt,
+                        size: '1024x1024',
+                        quality: 'standard',
+                        style: 'vivid',
+                        model: selectedImageModel, // Enviar modelo selecionado
+                    },
+                });
+
+                if (error) {
+                    throw new Error(error.message || 'Erro ao gerar imagem');
+                }
+
+                if (!data?.success || !data?.imageUrl) {
+                    throw new Error(data?.error || 'Não foi possível gerar a imagem');
+                }
+
+                // Criar mensagens para o chat
+                const userMessage = {
+                    role: 'user',
+                    content: referenceImagePreview 
+                        ? `Gere uma imagem inspirada nesta referência: ${prompt.trim()}`
+                        : `Gere uma imagem: ${prompt.trim()}`,
+                    image: referenceImagePreview || null
+                };
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: `Aqui está a imagem gerada${referenceImagePreview ? ' inspirada na sua referência' : ''}:`,
+                    image: data.imageUrl
+                };
+
+                setMessages(prev => [...prev, userMessage, assistantMessage]);
+                await saveMessage(userMessage, sessionId);
+                await saveMessage(assistantMessage, sessionId);
+
+                // Limpar imagem de referência após gerar
+                removeReferenceImage();
+                setImagePrompt('');
+
+                toast({
+                    title: 'Imagem gerada!',
+                    description: referenceImagePreview 
+                        ? 'A imagem foi gerada inspirada na sua referência.'
+                        : 'A imagem foi adicionada ao chat.',
+                });
+            } catch (error) {
+                console.error('Erro ao gerar imagem:', error);
+                toast({
+                    title: 'Erro ao gerar imagem',
+                    description: error.message || 'Não foi possível gerar a imagem.',
+                    variant: 'destructive'
+                });
+            } finally {
+                setIsGeneratingImage(false);
             }
         };
 
@@ -1683,22 +1878,22 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         }}>
                             <div className="max-w-3xl mx-auto w-full">
                                 {/* Botões de Acesso Rápido - Sempre visíveis */}
-                                <div className="mb-2 flex items-center gap-2 flex-wrap">
+                                <div className="mb-2 flex items-center gap-1.5 sm:gap-2 flex-nowrap overflow-x-auto">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="w-full sm:w-auto justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs"
+                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
                                             >
                                                 {selectedTemplate ? (
                                                     <>
-                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Consultor Estratégico' && <Briefcase className="h-3.5 w-3.5 mr-2" />}
-                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Suporte Técnico' && <Wrench className="h-3.5 w-3.5 mr-2" />}
-                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Assistente de Vendas' && <TrendingUp className="h-3.5 w-3.5 mr-2" />}
-                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Educador' && <GraduationCap className="h-3.5 w-3.5 mr-2" />}
-                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Casual e Amigável' && <Smile className="h-3.5 w-3.5 mr-2" />}
-                                                        {!['Consultor Estratégico', 'Suporte Técnico', 'Assistente de Vendas', 'Educador', 'Casual e Amigável'].includes(PERSONALITY_TEMPLATES[selectedTemplate]?.name) && <Settings className="h-3.5 w-3.5 mr-2" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Consultor Estratégico' && <Briefcase className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Suporte Técnico' && <Wrench className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Assistente de Vendas' && <TrendingUp className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Educador' && <GraduationCap className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
+                                                        {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Casual e Amigável' && <Smile className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
+                                                        {!['Consultor Estratégico', 'Suporte Técnico', 'Assistente de Vendas', 'Educador', 'Casual e Amigável'].includes(PERSONALITY_TEMPLATES[selectedTemplate]?.name) && <Settings className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />}
                                                         <span className="truncate">
                                                             {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Consultor Estratégico' && 'Consultor'}
                                                             {PERSONALITY_TEMPLATES[selectedTemplate]?.name === 'Suporte Técnico' && 'Suporte'}
@@ -1710,11 +1905,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Settings className="h-3.5 w-3.5 mr-2" />
+                                                        <Settings className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />
                                                         <span className="truncate">Como o ApexIA responde</span>
                                                     </>
                                                 )}
-                                                <ChevronDown className="h-3.5 w-3.5 ml-auto opacity-50" />
+                                                <ChevronDown className="h-3.5 w-3.5 ml-auto opacity-50 flex-shrink-0" />
                                             </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm max-h-[400px] overflow-y-auto">
@@ -1809,11 +2004,32 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
-                                        className="w-full sm:w-auto justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent}
                                     >
-                                        <Lightbulb className="h-3.5 w-3.5 mr-2 text-yellow-500" />
+                                        <Lightbulb className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-yellow-500 flex-shrink-0" />
                                         <span className="truncate">Stories</span>
+                                    </Button>
+                                    
+                                    {/* Botão de Gerar Imagem - discreto ao lado */}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowImageGenerator(true)}
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        disabled={!currentAgent || isGeneratingImage}
+                                    >
+                                        {isGeneratingImage ? (
+                                            <>
+                                                <Loader2 className="h-3.5 w-3.5 mr-1.5 sm:mr-2 animate-spin flex-shrink-0" />
+                                                <span className="truncate">Gerando...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ImageIcon className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-purple-500 flex-shrink-0" />
+                                                <span className="truncate">Gerar Imagem</span>
+                                            </>
+                                        )}
                                     </Button>
                                 </div>
 
@@ -2051,6 +2267,162 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                     onClose={() => setIsImageAnalyzerOpen(false)}
                     currentAgent={currentAgent}
                 />
+                
+                {/* Dialog para Gerar Imagem */}
+                <Dialog open={showImageGenerator} onOpenChange={(open) => {
+                    setShowImageGenerator(open);
+                    if (!open) {
+                        setImagePrompt(''); // Limpa o prompt ao fechar
+                        removeReferenceImage(); // Remove imagem de referência ao fechar
+                    }
+                }}>
+                    <DialogContent className="sm:max-w-[500px]">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <ImageIcon className="h-5 w-5 text-purple-500" />
+                                Gerar Imagem
+                            </DialogTitle>
+                            <DialogDescription>
+                                Descreva a imagem que você deseja gerar ou anexe uma imagem de referência. Seja específico e detalhado para melhores resultados.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            {/* Seletor de Modelo */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    Modelo de IA
+                                </label>
+                                <Select value={selectedImageModel} onValueChange={(value) => {
+                                    console.log('🖼️ Modelo de imagem selecionado:', value);
+                                    setSelectedImageModel(value);
+                                }}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Selecione um modelo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="dall-e-3">DALL-E 3 - Alta qualidade, estilo realista</SelectItem>
+                                        <SelectItem value="dall-e-2">DALL-E 2 - Variações de imagem</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    {selectedImageModel === 'dall-e-2' && 'Ideal para gerar variações de imagens existentes.'}
+                                    {selectedImageModel === 'dall-e-3' && 'Melhor para gerar imagens realistas e detalhadas a partir de texto.'}
+                                </p>
+                            </div>
+
+                            {/* Upload de imagem de referência */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    Imagem de Referência (Opcional)
+                                </label>
+                                {referenceImagePreview ? (
+                                    <div className="relative">
+                                        <img
+                                            src={referenceImagePreview}
+                                            alt="Referência"
+                                            className="w-full max-h-48 object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                                        />
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={removeReferenceImage}
+                                            className="absolute top-2 right-2"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            ref={referenceImageInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleReferenceImageSelect}
+                                            className="hidden"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => referenceImageInputRef.current?.click()}
+                                            className="w-full"
+                                        >
+                                            <Camera className="h-4 w-4 mr-2" />
+                                            Anexar Imagem de Referência
+                                        </Button>
+                                    </div>
+                                )}
+                                <p className="text-xs text-muted-foreground">
+                                    {referenceImagePreview 
+                                        ? 'Uma nova variação será gerada diretamente a partir desta imagem usando DALL-E 2.'
+                                        : 'Anexe uma imagem para gerar uma variação dela. A imagem deve ser quadrada (mesma largura e altura) para melhores resultados.'}
+                                </p>
+                            </div>
+
+                            {/* Campo de prompt */}
+                            <div className="space-y-2">
+                                <label htmlFor="image-prompt" className="text-sm font-medium">
+                                    Descrição da imagem {referenceImagePreview && '(opcional se já anexou referência)'}
+                                </label>
+                                <Textarea
+                                    id="image-prompt"
+                                    value={imagePrompt}
+                                    onChange={(e) => setImagePrompt(e.target.value)}
+                                    placeholder={referenceImagePreview 
+                                        ? "Ex: Mantenha o mesmo estilo mas adicione mais cores vibrantes..."
+                                        : "Ex: Um gato astronauta flutuando no espaço, estilo cartoon colorido, fundo estrelado..."}
+                                    className="min-h-[100px] resize-none"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault();
+                                            if (imagePrompt.trim() || referenceImagePreview) {
+                                                handleGenerateImage(imagePrompt.trim() || '');
+                                            }
+                                        }
+                                    }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    {referenceImagePreview 
+                                        ? 'Instruções opcionais. Se deixar vazio, será gerada uma variação automática da imagem.'
+                                        : 'Dica: Seja específico sobre estilo, cores, composição e elementos da imagem.'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowImageGenerator(false);
+                                    removeReferenceImage();
+                                }}
+                                disabled={isGeneratingImage}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    if (imagePrompt.trim() || referenceImagePreview) {
+                                        handleGenerateImage(imagePrompt.trim() || 'Gere uma imagem inspirada nesta referência');
+                                    }
+                                }}
+                                disabled={isGeneratingImage || (!imagePrompt.trim() && !referenceImagePreview)}
+                                className="bg-purple-600 hover:bg-purple-700"
+                            >
+                                {isGeneratingImage ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Gerando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <ImageIcon className="h-4 w-4 mr-2" />
+                                        Gerar Imagem
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
                 {/* Dialog com instruções para iOS */}
                 <Dialog open={showIOSInstructions} onOpenChange={setShowIOSInstructions}>
                     <DialogContent className="sm:max-w-md">
