@@ -2218,7 +2218,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             ref={textareaRef}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
-                                            placeholder="Pergunte ao ApexIA" 
+                                            placeholder="Pergunte ao ApexIA..." 
                                             className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base"
                                             style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
