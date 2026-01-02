@@ -2218,7 +2218,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             ref={textareaRef}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
-                                            placeholder={currentAgent ? (attachedImage ? 'Descreva o que você quer fazer com a imagem...' : `Pergunte ao ${currentAgent.name}...`) : 'Selecione um agente para começar.'} 
+                                            placeholder="Pergunte ao ApexIA" 
                                             className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base"
                                             style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
@@ -2250,7 +2250,6 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         }
                                     `}</style>
                                 </form>
-                                <p className="text-xs sm:text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
                             </div>
                         </footer>
                     </div>
