@@ -113,25 +113,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                     const currentPath = location.pathname + location.search;
                     const hashPath = `#${currentPath}`;
                     
+                    // Cria um ID único para cada cliente, permitindo múltiplos PWAs instalados
+                    const clientShortName = client?.empresa 
+                        ? client.empresa.substring(0, 12).replace(/\s+/g, '') // Limita a 12 caracteres e remove espaços
+                        : 'ApexIA';
+                    
                     const manifestData = {
                         name: client?.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
-                        short_name: 'ApexIA',
+                        short_name: clientShortName, // Nome curto único por cliente
                         description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client?.empresa || 'você'}.`,
                         start_url: hashPath,
+                        id: hashPath, // ID único baseado na rota do cliente
                         display: 'standalone',
                         background_color: '#111827',
                         theme_color: '#8B5CF6',
                         orientation: 'portrait-primary',
+                        scope: '/', // Escopo global para permitir navegação
                         icons: [
                             {
                                 src: '/icon-192x192.png',
                                 sizes: '192x192',
-                                type: 'image/png'
+                                type: 'image/png',
+                                purpose: 'any maskable'
                             },
                             {
                                 src: '/icon-512x512.png',
                                 sizes: '512x512',
-                                type: 'image/png'
+                                type: 'image/png',
+                                purpose: 'any maskable'
                             }
                         ]
                     };
@@ -192,25 +201,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
             const hashPath = `#${currentPath}`;
             const manifestLink = document.querySelector('link[rel="manifest"]');
             if (manifestLink && client) {
+                // Cria um ID único para cada cliente, permitindo múltiplos PWAs instalados
+                const clientShortName = client?.empresa 
+                    ? client.empresa.substring(0, 12).replace(/\s+/g, '') // Limita a 12 caracteres e remove espaços
+                    : 'ApexIA';
+                
                 const manifestData = {
                     name: client.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
-                    short_name: 'ApexIA',
+                    short_name: clientShortName, // Nome curto único por cliente
                     description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client.empresa || 'você'}.`,
                     start_url: hashPath,
+                    id: hashPath, // ID único baseado na rota do cliente
                     display: 'standalone',
                     background_color: '#111827',
                     theme_color: '#8B5CF6',
                     orientation: 'portrait-primary',
+                    scope: '/', // Escopo global para permitir navegação
                     icons: [
                         {
                             src: '/icon-192x192.png',
                             sizes: '192x192',
-                            type: 'image/png'
+                            type: 'image/png',
+                            purpose: 'any maskable'
                         },
                         {
                             src: '/icon-512x512.png',
                             sizes: '512x512',
-                            type: 'image/png'
+                            type: 'image/png',
+                            purpose: 'any maskable'
                         }
                     ]
                 };
