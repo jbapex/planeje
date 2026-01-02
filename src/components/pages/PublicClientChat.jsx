@@ -109,9 +109,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                 const manifestLink = document.querySelector('link[rel="manifest"]');
                 if (manifestLink && clientId) {
                     // Cria um novo manifest dinâmico baseado na rota atual
-                    // Como estamos usando HashRouter, precisa incluir o hash na URL
+                    // Para HashRouter, o start_url precisa incluir o hash para funcionar corretamente
                     const currentPath = location.pathname + location.search;
-                    const hashPath = `#${currentPath}`;
+                    // start_url com hash para HashRouter - garante que abre direto no chat do cliente
+                    const startUrl = `#${currentPath}`;
+                    // ID único baseado na rota completa com hash para diferenciar PWAs
+                    const uniqueId = startUrl;
                     
                     // Cria um ID único para cada cliente, permitindo múltiplos PWAs instalados
                     const clientShortName = client?.empresa 
@@ -122,8 +125,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                         name: client?.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
                         short_name: clientShortName, // Nome curto único por cliente
                         description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client?.empresa || 'você'}.`,
-                        start_url: hashPath,
-                        id: hashPath, // ID único baseado na rota do cliente
+                        start_url: startUrl, // URL com hash para HashRouter - abre direto no chat do cliente
+                        id: uniqueId, // ID único baseado na rota do cliente com hash
                         display: 'standalone',
                         background_color: '#111827',
                         theme_color: '#8B5CF6',
@@ -196,9 +199,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
             if (!installPrompt) return;
             
             // Garante que o manifest está atualizado antes de instalar
-            // Como estamos usando HashRouter, precisa incluir o hash na URL
+            // Para HashRouter, o start_url precisa incluir o hash para funcionar corretamente
             const currentPath = location.pathname + location.search;
-            const hashPath = `#${currentPath}`;
+            // start_url com hash para HashRouter - garante que abre direto no chat do cliente
+            const startUrl = `#${currentPath}`;
+            // ID único baseado na rota completa com hash para diferenciar PWAs
+            const uniqueId = startUrl;
+            
             const manifestLink = document.querySelector('link[rel="manifest"]');
             if (manifestLink && client) {
                 // Cria um ID único para cada cliente, permitindo múltiplos PWAs instalados
@@ -210,8 +217,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                     name: client.empresa ? `ApexIA - ${client.empresa}` : 'ApexIA - Assistente de IA',
                     short_name: clientShortName, // Nome curto único por cliente
                     description: `ApexIA é o assistente de inteligência artificial da JB APEX para ${client.empresa || 'você'}.`,
-                    start_url: hashPath,
-                    id: hashPath, // ID único baseado na rota do cliente
+                    start_url: startUrl, // URL com hash para HashRouter - abre direto no chat do cliente
+                    id: uniqueId, // ID único baseado na rota do cliente com hash
                     display: 'standalone',
                     background_color: '#111827',
                     theme_color: '#8B5CF6',
