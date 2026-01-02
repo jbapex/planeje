@@ -1654,7 +1654,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
                     <Sparkles className="h-12 w-12 text-primary animate-pulse" />
-                    <p className="mt-4 text-lg">Carregando assistente...</p>
+                    <p className="mt-4 text-sm sm:text-lg">Carregando assistente...</p>
                     {loadingTimeout && (
                         <div className="mt-6 text-center">
                             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
@@ -1694,7 +1694,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
                     <Sparkles className="h-12 w-12 text-primary animate-pulse" />
-                    <p className="mt-4 text-lg">Carregando dados do cliente...</p>
+                    <p className="mt-4 text-sm sm:text-lg">Carregando dados do cliente...</p>
                 </div>
             );
         }
@@ -1704,7 +1704,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const SessionSidebar = () => (
           <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
               <div className="p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
-                  <h2 className="font-semibold text-lg dark:text-white">Conversas</h2>
+                  <h2 className="font-semibold text-base sm:text-lg dark:text-white">Conversas</h2>
                   <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
               </div>
               <div className="p-3 bg-gray-100 dark:bg-gray-900">
@@ -1716,7 +1716,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                   <div className="p-2 space-y-0.5">
                       {sessions.map(s => (
                           <div key={s.id} className={`group flex items-center justify-between rounded-xl p-2.5 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} onClick={() => { if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); if(isSidebarOpen) setIsSidebarOpen(false); }}>
-                              <span className="truncate text-sm font-medium dark:text-gray-200">{s.title}</span>
+                              <span className="truncate text-xs sm:text-sm font-medium dark:text-gray-200">{s.title}</span>
                               <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" onClick={(e) => {e.stopPropagation(); handleDeleteSession(s.id);}}>
                                   <Trash2 className="h-4 w-4 text-red-500" />
                               </Button>
@@ -1753,7 +1753,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                        </div>
                                    )}
                                </div>
-                               <div className="min-w-0"><h1 className="font-semibold text-lg dark:text-white">ApexIA</h1><p className="text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
+                               <div className="min-w-0"><h1 className="font-semibold text-base sm:text-lg dark:text-white">ApexIA</h1><p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
                             </div>
                              {/* Botão de instalação PWA - mostra em mobile e não se já estiver instalado */}
                              {isMobile && !isStandalone && (installPrompt || isIOS) && (
@@ -1802,7 +1802,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                             />
                                                         </div>
                                                     )}
-                                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">{renderMessageContent(msg.content)}</div>
+                                                    <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none leading-relaxed text-xs sm:text-sm">{renderMessageContent(msg.content)}</div>
                                                 </div>
                                             </motion.div>
                                         ))}
@@ -1884,7 +1884,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
                                             >
                                                 {selectedTemplate ? (
                                                     <>
@@ -2004,7 +2004,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent}
                                     >
                                         <Lightbulb className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-yellow-500 flex-shrink-0" />
@@ -2016,7 +2016,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowImageGenerator(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent || isGeneratingImage}
                                     >
                                         {isGeneratingImage ? (
@@ -2219,7 +2219,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
                                             placeholder={currentAgent ? (attachedImage ? 'Descreva o que você quer fazer com a imagem...' : `Pergunte ao ${currentAgent.name}...`) : 'Selecione um agente para começar.'} 
-                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto"
+                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-sm sm:text-base"
                                             style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
                                             disabled={isGenerating || !currentAgent} 
@@ -2250,7 +2250,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         }
                                     `}</style>
                                 </form>
-                                <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
+                                <p className="text-[10px] sm:text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
                             </div>
                         </footer>
                     </div>
