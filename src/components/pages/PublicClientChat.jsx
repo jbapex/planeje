@@ -1802,7 +1802,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                             />
                                                         </div>
                                                     )}
-                                                    <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none leading-relaxed text-xs sm:text-sm">{renderMessageContent(msg.content)}</div>
+                                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base">{renderMessageContent(msg.content)}</div>
                                                 </div>
                                             </motion.div>
                                         ))}
@@ -1884,7 +1884,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
                                             >
                                                 {selectedTemplate ? (
                                                     <>
@@ -2004,7 +2004,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent}
                                     >
                                         <Lightbulb className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-yellow-500 flex-shrink-0" />
@@ -2016,7 +2016,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowImageGenerator(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent || isGeneratingImage}
                                     >
                                         {isGeneratingImage ? (
@@ -2219,7 +2219,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
                                             placeholder={currentAgent ? (attachedImage ? 'Descreva o que você quer fazer com a imagem...' : `Pergunte ao ${currentAgent.name}...`) : 'Selecione um agente para começar.'} 
-                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-sm sm:text-base"
+                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base"
                                             style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
                                             disabled={isGenerating || !currentAgent} 
@@ -2250,7 +2250,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         }
                                     `}</style>
                                 </form>
-                                <p className="text-[10px] sm:text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
+                                <p className="text-xs sm:text-xs text-center text-gray-400 dark:text-gray-500 mt-2 mb-0">ApexIA é um assistente da JB APEX. Ocasionalmente, pode cometer erros.</p>
                             </div>
                         </footer>
                     </div>
