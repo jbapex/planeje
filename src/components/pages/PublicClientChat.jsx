@@ -21,6 +21,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
     };
 
+    const STORY_CATEGORIES = [
+        { id: 'venda', label: 'Venda', description: 'Ideias para conversão e vendas' },
+        { id: 'suspense', label: 'Suspense', description: 'Criar curiosidade e engajamento' },
+        { id: 'bastidores', label: 'Bastidores', description: 'Mostrar processo e equipe' },
+        { id: 'resultados', label: 'Resultados', description: 'Destacar números e conquistas' },
+        { id: 'engajamento', label: 'Engajamento', description: 'Interagir com o público' },
+        { id: 'outros', label: 'Outros', description: 'Ideias criativas variadas' },
+    ];
+
     const PublicClientChat = () => {
         const { clientId, sessionId } = useParams();
         const navigate = useNavigate();
@@ -66,6 +75,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
         const [installPrompt, setInstallPrompt] = useState(null);
         const [isStoryIdeasOpen, setIsStoryIdeasOpen] = useState(false);
         const [isImageAnalyzerOpen, setIsImageAnalyzerOpen] = useState(false);
+        const [showStoryCategoryButtons, setShowStoryCategoryButtons] = useState(false);
+        const [pendingStoryRequest, setPendingStoryRequest] = useState(null);
         const [isFooterButtonsExpanded, setIsFooterButtonsExpanded] = useState(false); // Opções começam escondidas, aparecem ao clicar no +
         const [logoError, setLogoError] = useState(false);
         const [isMobile, setIsMobile] = useState(false);
@@ -1080,6 +1091,296 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             }
         };
 
+        // Função inteligente para detectar se a mensagem é uma solicitação de geração de imagem
+        const detectImageGenerationRequest = async (text) => {
+            const lowerText = text.toLowerCase().trim();
+            
+            // Padrões de palavras-chave para geração de imagem (mais abrangente)
+            const imageKeywords = [
+                'gere uma imagem',
+                'gerar imagem',
+                'crie uma imagem',
+                'criar imagem',
+                'faça uma imagem',
+                'fazer imagem',
+                'crie uma foto',
+                'criar foto',
+                'gere uma foto',
+                'gerar foto',
+                'faça uma foto',
+                'fazer foto',
+                'desenhe',
+                'desenhar',
+                'crie um desenho',
+                'gere um desenho',
+                'mostre uma imagem',
+                'mostrar imagem',
+                'quero uma imagem',
+                'preciso de uma imagem',
+                'me mostre uma imagem',
+                'me gere uma imagem',
+                'me crie uma imagem',
+                'me faça uma imagem',
+                'gera uma imagem',
+                'gera imagem',
+                'cria uma imagem',
+                'cria imagem',
+                'faz uma imagem',
+                'faz imagem',
+                'gerar foto',
+                'gerar',
+                'gera',
+                'cria',
+                'faz',
+                'crie',
+                'faça',
+                'gere',
+                'mostre',
+                'mostrar',
+                'quero',
+                'preciso'
+            ];
+            
+            // Verificar se o texto começa com alguma das palavras-chave
+            const startsWithKeyword = imageKeywords.some(keyword => lowerText.startsWith(keyword));
+            
+            // Verificar se contém padrões como "imagem de", "foto de", "desenho de", "personagem 3d", etc.
+            const containsPattern = /(imagem|foto|desenho|arte|ilustração|personagem|persona|avatar|retrato|figura|visual|gráfico)\s+(de|do|da|com|mostrando|em|3d|3 d)/i.test(text);
+            
+            // Verificar se é apenas "gerar" ou "gera" (contexto já estabelecido na conversa anterior)
+            const isSimpleGenerate = /^(gerar|gera)$/i.test(text.trim());
+            if (isSimpleGenerate) {
+                // Verificar últimas 3 mensagens do usuário para contexto
+                const recentUserMessages = messages
+                    .filter(m => m.role === 'user')
+                    .slice(-3)
+                    .map(m => m.content.toLowerCase());
+                
+                const hasImageContext = recentUserMessages.some(msg => 
+                    /(imagem|foto|desenho|arte|ilustração|personagem|persona|avatar|retrato|figura|visual|gráfico|3d|3 d)/i.test(msg)
+                );
+                
+                return hasImageContext;
+            }
+            
+            // Verificar se é uma palavra simples de ação seguida de descrição (ex: "gerar cavalo", "gerar foto de personagem 3d")
+            const isActionWithDescription = /^(gerar|gera|criar|cria|fazer|faz|desenhar|desenhe|mostrar|mostre)\s+[a-záàâãéêíóôõúç\s\d]{3,}/i.test(text);
+            if (isActionWithDescription) {
+                return true; // Ação explícita seguida de descrição = solicitação clara
+            }
+            
+            // Se tem palavras-chave explícitas ou padrões claros, é solicitação
+            if (startsWithKeyword || containsPattern) {
+                return true;
+            }
+            
+            // Para casos ambíguos (ex: "queria um cavalo de madeira"), usar GPT para detectar intenção
+            // Só verifica se tem palavras relacionadas a imagem mas sem ação explícita
+            const hasImageRelatedWords = /(imagem|foto|desenho|arte|ilustração|personagem|persona|avatar|retrato|figura|visual|gráfico)/i.test(text);
+            const hasActionWords = /^(quero|preciso|queria|gostaria)/i.test(text);
+            
+            // Se não tem palavras relacionadas a imagem, não é solicitação
+            if (!hasImageRelatedWords) {
+                return false;
+            }
+            
+            // Se tem palavras relacionadas mas não tem ação explícita, pode ser apenas conversa
+            // Exemplo: "queria um cavalo de madeira" pode ser conversa, não solicitação de imagem
+            // Usar GPT apenas para casos realmente ambíguos
+            if (hasImageRelatedWords && !hasActionWords && text.length < 25) {
+                // Mensagens curtas sem ação explícita provavelmente não são solicitações
+                // Exemplo: "um tabuleiro", "um cavalo" = apenas menção, não solicitação
+                return false;
+            }
+            
+            // Para casos com ação mas sem palavra-chave explícita de imagem, usar GPT
+            if (hasActionWords && hasImageRelatedWords) {
+                try {
+                    const detectionPrompt = `Analise a seguinte mensagem do usuário e determine se é uma solicitação EXPLÍCITA para gerar/criar uma imagem, foto ou desenho.
+
+Mensagem: "${text}"
+
+Responda APENAS com "SIM" se for uma solicitação clara de geração de imagem, ou "NÃO" se for apenas uma conversa, pergunta ou comentário sobre algo.
+
+Exemplos de SIM:
+- "Gere uma imagem de um carro"
+- "Crie uma foto de um cachorro"
+- "Quero uma imagem de uma praia"
+- "Preciso de uma foto de um produto"
+
+Exemplos de NÃO:
+- "Queria um cavalo de madeira" (apenas conversa sobre desejo, não pede para gerar)
+- "Tenho uma foto aqui" (menciona foto mas não pede para gerar)
+- "Como fazer uma imagem?" (pergunta, não solicitação)
+- "Boa tarde" (saudação)
+- "Um tabuleiro" (apenas menciona objeto)
+
+Resposta:`;
+
+                    const { data, error } = await supabase.functions.invoke('openai-chat', {
+                        body: JSON.stringify({ 
+                            messages: [
+                                { role: 'system', content: 'Você é um assistente que analisa mensagens para detectar intenção de geração de imagem. Responda apenas com SIM ou NÃO.' },
+                                { role: 'user', content: detectionPrompt }
+                            ], 
+                            model: 'gpt-4o-mini' // Modelo mais rápido e barato para detecção
+                        }),
+                    });
+
+                    if (!error && data?.content) {
+                        const response = data.content.trim().toUpperCase();
+                        return response.includes('SIM');
+                    }
+                } catch (error) {
+                    console.error('Erro ao detectar intenção com GPT:', error);
+                    // Em caso de erro, ser conservador (não gerar imagem)
+                    return false;
+                }
+            }
+            
+            // Fallback: se chegou aqui, não é uma solicitação clara
+            return false;
+        };
+
+
+        // Função para detectar se a mensagem é uma solicitação de ideias de Stories
+        const detectStoryRequest = (text) => {
+            const lowerText = text.toLowerCase().trim();
+            const storyKeywords = [
+                'ideia de story', 'ideia de stories', 'ideias de story', 'ideias de stories',
+                'gerar story', 'gerar stories', 'criar story', 'criar stories',
+                'story para', 'stories para', 'ideia para story', 'ideia para stories',
+                'sugestão de story', 'sugestão de stories', 'conteúdo para story', 'conteúdo para stories',
+                'o que postar', 'o que postar hoje', 'story de', 'stories de',
+                'quero uma ideia de story', 'preciso de uma ideia de story', 'me dê uma ideia de story', 'me sugira um story'
+            ];
+            const hasExplicitKeyword = storyKeywords.some(keyword => lowerText.includes(keyword));
+            const hasStoryPattern = /(story|stories|instagram)\s+(de|para|sobre|com)/i.test(text);
+            const hasCategoryWithStory = /(story|stories).*(venda|suspense|bastidores|resultados|engajamento|produto|serviço|promoção)/i.test(text) ||
+                                         /(venda|suspense|bastidores|resultados|engajamento|produto|serviço|promoção).*(story|stories)/i.test(text);
+            return hasExplicitKeyword || hasStoryPattern || hasCategoryWithStory;
+        };
+
+        // Função para gerar ideia de story diretamente no chat
+        const generateStoryInChat = async (userMessageText, selectedCategory = null) => {
+            if (!client || !currentAgent) return;
+            
+            let category = selectedCategory || 'outros';
+            if (!selectedCategory) {
+                const lowerText = userMessageText.toLowerCase();
+                if (lowerText.includes('venda') || lowerText.includes('vender')) category = 'venda';
+                else if (lowerText.includes('suspense') || lowerText.includes('curiosidade')) category = 'suspense';
+                else if (lowerText.includes('bastidores') || lowerText.includes('processo')) category = 'bastidores';
+                else if (lowerText.includes('resultado') || lowerText.includes('número')) category = 'resultados';
+                else if (lowerText.includes('engajamento') || lowerText.includes('interação')) category = 'engajamento';
+            }
+            
+            // Fechar botões de categoria e remover mensagem com botões
+            setShowStoryCategoryButtons(false);
+            setMessages(prev => prev.filter(msg => !msg.showCategoryButtons));
+            const requestText = pendingStoryRequest || userMessageText;
+            setPendingStoryRequest(null);
+            
+            const loadingMessageId = `story-loading-${Date.now()}`;
+            const loadingMessage = {
+                role: 'assistant',
+                content: '',
+                isLoading: true,
+                loadingText: '💡 Gerando ideia de Story para você...',
+                id: loadingMessageId
+            };
+            setMessages(prev => [...prev, loadingMessage]);
+            
+            try {
+                const categoryInfo = STORY_CATEGORIES.find(c => c.id === category) || STORY_CATEGORIES.find(c => c.id === 'outros');
+                
+                const systemPrompt = `Você é um especialista em estratégia de marketing digital da JB APEX, focado em criar ideias criativas e efetivas para Stories do Instagram.
+
+**INFORMAÇÕES DO CLIENTE:**
+- Empresa: ${client.empresa || 'N/A'}
+- Nome do Contato: ${client.nome_contato || 'N/A'}
+- Nicho: ${client.nicho || 'N/A'}
+- Público-Alvo: ${client.publico_alvo || 'N/A'}
+- Tom de Voz: ${client.tom_de_voz || 'N/A'}
+
+**TIPO DE STORY SOLICITADO:** ${categoryInfo.label} - ${categoryInfo.description}
+
+**SUA TAREFA:**
+Crie uma ideia completa para um Story do Instagram. Responda em formato de texto natural e conversacional, incluindo:
+1. O conceito da ideia
+2. Sugestão visual (o que filmar/mostrar)
+3. Texto sugerido para o Story (até 2200 caracteres, natural e humano)
+4. Call to action
+
+Seja específico, autêntico e direto. Evite clichês de marketing.`;
+
+                const { data, error } = await supabase.functions.invoke('openai-chat', {
+                    body: JSON.stringify({ 
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: requestText }
+                        ], 
+                        model: 'gpt-4o'
+                    }),
+                });
+
+                if (error) throw error;
+                if (!data?.body) throw new Error('Resposta vazia da IA');
+
+                const reader = data.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.trim() === '' || !line.startsWith('data: ')) continue;
+                        const jsonStr = line.substring(6).trim();
+                        if (jsonStr === '[DONE]') break;
+                        try {
+                            const parsed = JSON.parse(jsonStr);
+                            const delta = parsed.choices?.[0]?.delta?.content;
+                            if (delta) fullResponse += delta;
+                        } catch (parseError) {
+                            console.error('Erro ao parsear chunk:', parseError);
+                        }
+                    }
+                }
+
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    return [...filtered, {
+                        role: 'assistant',
+                        content: `💡 **Ideia de Story - ${categoryInfo.label}**\n\n${fullResponse}`
+                    }];
+                });
+                
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: `💡 **Ideia de Story - ${categoryInfo.label}**\n\n${fullResponse}`
+                };
+                await saveMessage(assistantMessage, sessionId);
+                
+            } catch (error) {
+                console.error('Erro ao gerar story:', error);
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    return [...filtered, {
+                        role: 'assistant',
+                        content: `❌ Desculpe, não consegui gerar a ideia de Story. ${error.message || 'Tente novamente.'}`
+                    }];
+                });
+                toast({
+                    title: 'Erro ao gerar Story',
+                    description: error.message || 'Não foi possível gerar a ideia. Tente novamente.',
+                    variant: 'destructive'
+                });
+            }
+        };
+
         const handleSendMessage = async (e) => {
             e.preventDefault();
             if (isGenerating || !currentAgent || !sessionId) return;
@@ -1102,6 +1403,187 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
 
             // Se não há texto e não há imagem, não fazer nada
             if (!input.trim()) return;
+            
+            // Detectar se é uma solicitação de Story ANTES de verificar imagem
+            if (detectStoryRequest(input.trim())) {
+                const userMessageText = input.trim();
+                const userMessage = { role: 'user', content: userMessageText };
+                setMessages(prev => [...prev, userMessage]);
+                await saveMessage(userMessage, sessionId);
+                setInput('');
+                if (textareaRef.current) {
+                    textareaRef.current.style.height = '52px';
+                }
+                
+                // Verificar se já menciona categoria específica
+                const lowerText = userMessageText.toLowerCase();
+                let detectedCategory = null;
+                if (lowerText.includes('venda') || lowerText.includes('vender')) detectedCategory = 'venda';
+                else if (lowerText.includes('suspense') || lowerText.includes('curiosidade')) detectedCategory = 'suspense';
+                else if (lowerText.includes('bastidores') || lowerText.includes('processo')) detectedCategory = 'bastidores';
+                else if (lowerText.includes('resultado') || lowerText.includes('número')) detectedCategory = 'resultados';
+                else if (lowerText.includes('engajamento') || lowerText.includes('interação')) detectedCategory = 'engajamento';
+                
+                // Se categoria foi detectada, gerar direto. Senão, mostrar botões
+                if (detectedCategory) {
+                    await generateStoryInChat(userMessageText, detectedCategory);
+                } else {
+                    // Mostrar botões de categoria
+                    setPendingStoryRequest(userMessageText);
+                    setShowStoryCategoryButtons(true);
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: '💡 Escolha o tipo de Story que você quer:',
+                        showCategoryButtons: true
+                    }]);
+                }
+                return;
+            }
+            
+            // Detectar se é uma solicitação de geração de imagem (usando GPT para ser mais inteligente)
+            const isImageRequest = await detectImageGenerationRequest(input.trim());
+            if (isImageRequest) {
+                // Extrair o prompt da mensagem (remover palavras-chave comuns)
+                let imagePrompt = input.trim();
+                
+                // Remover palavras-chave iniciais para obter apenas o prompt
+                const removeKeywords = [
+                    'gere uma imagem',
+                    'gerar imagem',
+                    'crie uma imagem',
+                    'criar imagem',
+                    'faça uma imagem',
+                    'fazer imagem',
+                    'crie uma foto',
+                    'criar foto',
+                    'gere uma foto',
+                    'gerar foto',
+                    'faça uma foto',
+                    'fazer foto',
+                    'desenhe',
+                    'desenhar',
+                    'crie um desenho',
+                    'gere um desenho',
+                    'mostre uma imagem',
+                    'mostrar imagem',
+                    'quero uma imagem',
+                    'preciso de uma imagem',
+                    'me mostre uma imagem',
+                    'me gere uma imagem',
+                    'me crie uma imagem',
+                    'me faça uma imagem',
+                    'gera uma imagem',
+                    'gera imagem',
+                    'cria uma imagem',
+                    'cria imagem',
+                    'faz uma imagem',
+                    'faz imagem'
+                ];
+                
+                for (const keyword of removeKeywords) {
+                    if (imagePrompt.toLowerCase().startsWith(keyword)) {
+                        imagePrompt = imagePrompt.substring(keyword.length).trim();
+                        // Remover pontuação inicial se houver
+                        imagePrompt = imagePrompt.replace(/^[:\-,\s]+/, '').trim();
+                        break;
+                    }
+                }
+                
+                // Se após remover as palavras-chave não sobrou nada, usar a mensagem original
+                if (!imagePrompt) {
+                    imagePrompt = input.trim();
+                }
+                
+                // Adicionar mensagem do usuário ao chat
+                const userMessage = { role: 'user', content: input.trim() };
+                setMessages(prev => [...prev, userMessage]);
+                await saveMessage(userMessage, sessionId);
+                setInput('');
+                
+                // Reset altura do textarea
+                if (textareaRef.current) {
+                    textareaRef.current.style.height = '52px';
+                }
+                
+                // Adicionar mensagem de loading animada enquanto gera a imagem
+                const loadingMessageId = `loading-${Date.now()}`;
+                const loadingMessage = {
+                    role: 'assistant',
+                    content: '',
+                    isLoading: true,
+                    loadingText: '🎨 Gerando sua imagem...',
+                    id: loadingMessageId
+                };
+                setMessages(prev => [...prev, loadingMessage]);
+                
+                // Gerar imagem automaticamente usando o modelo padrão (DALL-E 3)
+                setIsGeneratingImage(true);
+                try {
+                    const { data, error } = await supabase.functions.invoke('openai-image-generation', {
+                        body: {
+                            prompt: imagePrompt,
+                            size: '1024x1024',
+                            quality: 'standard',
+                            style: 'vivid',
+                            model: 'dall-e-3',
+                        },
+                    });
+
+                    if (error) {
+                        throw new Error(error.message || 'Erro ao gerar imagem');
+                    }
+
+                    if (!data?.success || !data?.imageUrl) {
+                        throw new Error(data?.error || 'Não foi possível gerar a imagem');
+                    }
+
+                    // Remover mensagem de loading e adicionar mensagem com a imagem gerada
+                    setMessages(prev => {
+                        const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                        return [...filtered, {
+                            role: 'assistant',
+                            content: `✨ Aqui está a imagem gerada:`,
+                            image: data.imageUrl
+                        }];
+                    });
+                    
+                    // Salvar mensagem final no banco
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: `✨ Aqui está a imagem gerada:`,
+                        image: data.imageUrl
+                    };
+                    await saveMessage(assistantMessage, sessionId);
+                } catch (error) {
+                    console.error('Erro ao gerar imagem:', error);
+                    
+                    // Remover mensagem de loading e adicionar mensagem de erro
+                    setMessages(prev => {
+                        const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                        return [...filtered, {
+                            role: 'assistant',
+                            content: `❌ Desculpe, não consegui gerar a imagem. ${error.message || 'Tente novamente ou use o botão "Gerar Imagem" para mais opções.'}`
+                        }];
+                    });
+                    
+                    toast({
+                        title: 'Erro ao gerar imagem',
+                        description: error.message || 'Não foi possível gerar a imagem. Tente novamente.',
+                        variant: 'destructive'
+                    });
+                    
+                    // Salvar mensagem de erro no banco
+                    const errorMessage = {
+                        role: 'assistant',
+                        content: `❌ Desculpe, não consegui gerar a imagem. ${error.message || 'Tente novamente ou use o botão "Gerar Imagem" para mais opções.'}`
+                    };
+                    await saveMessage(errorMessage, sessionId);
+                } finally {
+                    setIsGeneratingImage(false);
+                }
+                
+                return;
+            }
             
             const userMessage = { role: 'user', content: input };
             const userMessageText = input; // Salva o texto antes de limpar
@@ -1337,18 +1819,23 @@ ${currentAgent.prompt
             
             // Construir histórico de conversa incluindo imagens quando existirem
             const conversationHistory = messages.slice(-6).map(m => {
-                // Se a mensagem tem imagem, incluir no formato correto para a API
-                if (m.image) {
+                // Se a mensagem tem imagem e é do usuário, incluir no formato correto para a API
+                // IMPORTANTE: OpenAI só aceita imagens em mensagens do usuário, não do assistente
+                if (m.image && m.role === 'user') {
                     return {
-                        role: m.role,
+                        role: 'user',
                         content: [
                             { type: 'text', text: m.content || '' },
                             { type: 'image_url', image_url: { url: m.image } }
                         ]
                     };
                 }
+                // Mensagem do assistente: sempre remover imagem (API OpenAI não aceita imagens em mensagens assistant)
+                if (m.role === 'assistant') {
+                    return { role: 'assistant', content: m.content || '' };
+                }
                 // Mensagem normal sem imagem
-                return { role: m.role, content: m.content };
+                return { role: m.role, content: m.content || '' };
             });
             
             const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
@@ -1818,16 +2305,52 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         } : {})
                                                     }}
                                                 >
-                                                    {msg.image && (
-                                                        <div className="mb-3">
-                                                            <img 
-                                                                src={msg.image} 
-                                                                alt="Anexada" 
-                                                                className="max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700"
-                                                            />
+                                                    {msg.isLoading ? (
+                                                        <div className="flex items-center gap-3 py-2">
+                                                            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                                    {msg.loadingText || 'Gerando...'}
+                                                                </span>
+                                                                <div className="flex gap-1">
+                                                                    <div className="h-1.5 w-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                                                    <div className="h-1.5 w-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                                                    <div className="h-1.5 w-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                                                </div>
+                                                            </div>
                                                         </div>
+                                                    ) : (
+                                                        <>
+                                                            {msg.image && (
+                                                                <div className="mb-3">
+                                                                    <img 
+                                                                        src={msg.image} 
+                                                                        alt="Anexada" 
+                                                                        className="max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700"
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base">{renderMessageContent(msg.content)}</div>
+                                                            {msg.showCategoryButtons && (
+                                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                                    {STORY_CATEGORIES.map((cat) => (
+                                                                        <Button
+                                                                            key={cat.id}
+                                                                            onClick={async () => {
+                                                                                if (pendingStoryRequest) {
+                                                                                    await generateStoryInChat(pendingStoryRequest, cat.id);
+                                                                                }
+                                                                            }}
+                                                                            variant="outline"
+                                                                            className="rounded-full text-xs sm:text-sm border-primary/30 hover:bg-primary/10 hover:border-primary/50 dark:border-primary/40 dark:hover:bg-primary/20"
+                                                                        >
+                                                                            {cat.label}
+                                                                        </Button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
-                                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base">{renderMessageContent(msg.content)}</div>
                                                 </div>
                                             </motion.div>
                                         ))}

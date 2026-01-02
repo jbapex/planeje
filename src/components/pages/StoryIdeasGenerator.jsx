@@ -140,7 +140,7 @@ Crie uma ideia completa para um Story do Instagram no formato JSON estruturado a
   "concept": "Descrição detalhada do conceito da ideia em 2-3 parágrafos separados por quebras de linha duplas (\\n\\n)",
   "visual_suggestion": "Descrição clara do que filmar/mostrar, cores, elementos visuais, layout",
   "caption": "Texto completo sugerido para o Story. IMPORTANTE: Use quebras de linha duplas (\\n\\n) para separar parágrafos. O texto deve parecer natural e humano, escrito por uma pessoa real. NÃO use emojis em excesso - use no máximo 1-2 emojis por parágrafo se realmente necessário, mas prefira texto sem emojis. O texto deve fluir naturalmente como se fosse escrito por um humano real, não por IA. Use até 2200 caracteres.",
-  "cta": "Call to action específico e direto (ex: 'Toque para saber mais', 'Deslize para ver promoção')"
+  "cta": "Call to action específico e direto (ex: 'Postar agora', 'Toque para saber mais', 'Deslize para ver promoção')"
 }
 
 **DIRETRIZES CRÍTICAS:**
