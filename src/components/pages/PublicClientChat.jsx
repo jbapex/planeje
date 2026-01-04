@@ -16,6 +16,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
     import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+
+    // Helper para logs apenas em desenvolvimento
+    const isDev = import.meta.env.DEV;
+    const debugLog = (...args) => {
+        if (isDev) console.log(...args);
+    };
+    const debugError = (...args) => {
+        if (isDev) console.error(...args);
+    };
+    const debugWarn = (...args) => {
+        if (isDev) console.warn(...args);
+    };
 
     const ICONS = {
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
@@ -99,8 +112,497 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
         const [imagePrompt, setImagePrompt] = useState('');
         const [referenceImage, setReferenceImage] = useState(null);
         const [referenceImagePreview, setReferenceImagePreview] = useState(null);
-        const [selectedImageModel, setSelectedImageModel] = useState('dall-e-3'); // 'dall-e-2', 'dall-e-3'
+        const [selectedImageModel, setSelectedImageModel] = useState('dall-e-3');
+        
+        // Estados para Runware
+        const [showRunwareGenerator, setShowRunwareGenerator] = useState(false);
+        const [runwarePrompt, setRunwarePrompt] = useState('');
+        const [runwareReferenceImage, setRunwareReferenceImage] = useState(null);
+        const [runwareReferenceImagePreview, setRunwareReferenceImagePreview] = useState(null);
+        const [selectedRunwareModel, setSelectedRunwareModel] = useState('rundiffusion:130@100'); // RunDiffusion padrão
+        const [runwareTaskType, setRunwareTaskType] = useState('text-to-image'); // 'text-to-image' ou 'image-to-image'
         const referenceImageInputRef = useRef(null);
+        const runwareReferenceImageInputRef = useRef(null);
+        
+        // Estados para Arte para Redes Sociais
+        const [showSocialMediaArt, setShowSocialMediaArt] = useState(false);
+        const [socialArtPrompt, setSocialArtPrompt] = useState('');
+        const [socialArtText, setSocialArtText] = useState(''); // Texto que vai aparecer na arte
+        const [socialArtType, setSocialArtType] = useState('instagram-post'); // Tipo de post
+        const [selectedSocialModel, setSelectedSocialModel] = useState('rundiffusion:130@100'); // Pode ser Runware ou DALL-E 3
+        const [selectedArtTemplate, setSelectedArtTemplate] = useState('personalizado'); // Template selecionado
+        const [sessionToDelete, setSessionToDelete] = useState(null); // ID da sessão a ser excluída
+        const [isDeletingSession, setIsDeletingSession] = useState(false); // Estado de carregamento da exclusão
+
+        // Modelos disponíveis do Runware
+        // Modelos do Runware - IDs no formato correto (provider:ID@version)
+        const RUNWARE_MODELS = [
+            { id: 'rundiffusion:130@100', label: 'RunDiffusion', description: 'Modelo padrão do Runware' },
+            { id: 'runware:97@3', label: 'Runware Model 97 v3', description: 'Versão 3' },
+            { id: 'runware:97@2', label: 'Runware Model 97 v2', description: 'Versão 2' },
+        ];
+        
+        // Templates de tamanhos para redes sociais (ajustados para múltiplos de 64 conforme API Runware)
+        const SOCIAL_MEDIA_SIZES = {
+            'instagram-post': { width: 1088, height: 1088, label: 'Instagram Post', description: 'Post quadrado (1:1)' }, // 1088 = 17*64
+            'instagram-story': { width: 1088, height: 1920, label: 'Instagram Story', description: 'Story vertical (9:16)' }, // 1088 = 17*64, 1920 = 30*64
+            'facebook-post': { width: 1216, height: 640, label: 'Facebook Post', description: 'Post horizontal (1.91:1)' }, // 1216 = 19*64, 640 = 10*64
+            'linkedin-post': { width: 1216, height: 640, label: 'LinkedIn Post', description: 'Post horizontal' }, // 1216 = 19*64, 640 = 10*64
+            'twitter-post': { width: 1216, height: 704, label: 'Twitter/X Post', description: 'Post horizontal (16:9)' }, // 1216 = 19*64, 704 = 11*64
+            'pinterest-pin': { width: 1024, height: 1536, label: 'Pinterest Pin', description: 'Pin vertical (2:3)' }, // 1024 = 16*64, 1536 = 24*64
+        };
+        
+        // Templates de arte pré-configurados
+        const ART_TEMPLATES = {
+            'horario-atendimento': {
+                id: 'horario-atendimento',
+                label: 'Horário de Atendimento',
+                icon: '🕐',
+                prompt: 'design profissional de horário de atendimento, fundo moderno com gradiente suave, elementos decorativos discretos, espaço centralizado para informações de horário, tipografia clara e legível, cores profissionais',
+                defaultText: 'Horário de Atendimento',
+                description: 'Template para exibir horários de funcionamento'
+            },
+            'aviso': {
+                id: 'aviso',
+                label: 'Aviso',
+                icon: '⚠️',
+                prompt: 'design de aviso importante, fundo com destaque visual, elementos de atenção, composição equilibrada, cores que chamam atenção mas mantêm profissionalismo, espaço para texto destacado',
+                defaultText: 'Aviso',
+                description: 'Template para comunicados e avisos importantes'
+            },
+            'promocao': {
+                id: 'promocao',
+                label: 'Promoção',
+                icon: '🎉',
+                prompt: 'design de promoção atrativo, elementos visuais vibrantes, destaque para ofertas e descontos, composição dinâmica, cores chamativas mas elegantes, estilo moderno e comercial',
+                defaultText: 'Promoção',
+                description: 'Template para promoções e ofertas especiais'
+            },
+            'evento': {
+                id: 'evento',
+                label: 'Evento',
+                icon: '📅',
+                prompt: 'design de evento, elementos festivos discretos, espaço para informações de data e local, composição organizada, cores que transmitem energia e entusiasmo, estilo profissional',
+                defaultText: 'Evento',
+                description: 'Template para divulgação de eventos'
+            },
+            'dica': {
+                id: 'dica',
+                label: 'Dica',
+                icon: '💡',
+                prompt: 'design de dica útil, elementos visuais leves e educativos, composição limpa e organizada, cores suaves e acolhedoras, espaço para texto informativo, estilo amigável',
+                defaultText: 'Dica',
+                description: 'Template para compartilhar dicas e informações úteis'
+            },
+            'depoimento': {
+                id: 'depoimento',
+                label: 'Depoimento',
+                icon: '💬',
+                prompt: 'design de depoimento, elementos que transmitem confiança, composição elegante, cores profissionais, espaço para citação destacada, estilo sofisticado e confiável',
+                defaultText: 'Depoimento',
+                description: 'Template para exibir depoimentos de clientes'
+            },
+            'lancamento': {
+                id: 'lancamento',
+                label: 'Lançamento',
+                icon: '🚀',
+                prompt: 'design de lançamento, elementos visuais impactantes, composição dinâmica, cores vibrantes e modernas, destaque para novidade, estilo inovador e chamativo',
+                defaultText: 'Novo Lançamento',
+                description: 'Template para anunciar novos produtos ou serviços'
+            },
+            'personalizado': {
+                id: 'personalizado',
+                label: 'Personalizado',
+                icon: '🎨',
+                prompt: '',
+                defaultText: '',
+                description: 'Crie sua própria arte do zero'
+            }
+        };
+
+        // Funções para Runware
+        const handleRunwareImageSelect = (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            if (!file.type.startsWith('image/')) {
+                toast({
+                    title: 'Arquivo inválido',
+                    description: 'Por favor, selecione uma imagem.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target?.result;
+                setRunwareReferenceImage(file);
+                setRunwareReferenceImagePreview(base64);
+                setRunwareTaskType('image-to-image');
+            };
+            reader.readAsDataURL(file);
+        };
+
+        const removeRunwareReferenceImage = () => {
+            setRunwareReferenceImage(null);
+            setRunwareReferenceImagePreview(null);
+            setRunwareTaskType('text-to-image');
+            if (runwareReferenceImageInputRef.current) {
+                runwareReferenceImageInputRef.current.value = '';
+            }
+        };
+
+        const handleGenerateRunwareImage = async (prompt) => {
+            // Validar: precisa de prompt OU imagem de referência
+            if ((!prompt || !prompt.trim()) && !runwareReferenceImagePreview) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, descreva a imagem que deseja gerar ou anexe uma imagem de referência.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            if (!currentAgent || !sessionId) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, selecione um agente primeiro.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            setIsGeneratingImage(true);
+            setShowRunwareGenerator(false);
+
+            try {
+                let finalPrompt = prompt?.trim() || '';
+                if (!finalPrompt && runwareReferenceImagePreview) {
+                    finalPrompt = 'Transform this image';
+                }
+
+                // Adicionar mensagem de loading
+                const loadingMessageId = `runware-loading-${Date.now()}`;
+                const loadingMessage = {
+                    role: 'assistant',
+                    content: '',
+                    isLoading: true,
+                    loadingText: '🎨 Gerando imagem com Runware...',
+                    id: loadingMessageId
+                };
+                setMessages(prev => [...prev, loadingMessage]);
+
+                // Preparar payload conforme documentação oficial do Runware
+                const payload = {
+                    prompt: finalPrompt,
+                    model: selectedRunwareModel,
+                    taskType: 'imageInference', // Sempre imageInference conforme documentação
+                    width: 1024,
+                    height: 1024,
+                    steps: 30, // Nome correto conforme documentação
+                    CFGScale: 7.5, // Nome correto conforme documentação
+                };
+
+                if (runwareReferenceImagePreview) {
+                    payload.imageBase64 = runwareReferenceImagePreview;
+                    payload.strength = 0.7;
+                }
+
+                debugLog('🎨 Gerando imagem com Runware:', { model: selectedRunwareModel, taskType: runwareTaskType, payload });
+
+                // Adicionar timeout de 60 segundos
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Timeout: A geração de imagem demorou mais de 60 segundos. Tente novamente.')), 60000);
+                });
+
+                const invokePromise = supabase.functions.invoke('runware-image-generation', {
+                    body: payload,
+                });
+
+                const { data, error } = await Promise.race([invokePromise, timeoutPromise]).catch((err) => {
+                    if (err.message?.includes('Timeout')) {
+                        throw err;
+                    }
+                    return { data: null, error: err };
+                });
+
+                debugLog('📥 Resposta do Runware:', { data, error });
+
+                if (error) {
+                    debugError('❌ Erro na Edge Function Runware:', error);
+                    throw new Error(error.message || 'Erro ao gerar imagem via Runware');
+                }
+
+                if (!data) {
+                    throw new Error('Resposta vazia da Edge Function Runware');
+                }
+
+                if (!data.success || !data.imageUrl) {
+                    debugError('❌ Resposta inválida do Runware:', data);
+                    throw new Error(data?.error || 'Não foi possível gerar a imagem via Runware');
+                }
+
+                // Remover mensagem de loading e adicionar resultado
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    const userMessage = {
+                        role: 'user',
+                        content: finalPrompt,
+                        image: runwareReferenceImagePreview || undefined
+                    };
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: `✨ Aqui está a imagem gerada com Runware (${RUNWARE_MODELS.find(m => m.id === selectedRunwareModel)?.label || selectedRunwareModel}):`,
+                        image: data.imageUrl
+                    };
+                    return [...filtered, userMessage, assistantMessage];
+                });
+
+                // Salvar mensagens no banco
+                const userMessage = {
+                    role: 'user',
+                    content: finalPrompt,
+                    image: runwareReferenceImagePreview || undefined
+                };
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: `✨ Aqui está a imagem gerada com Runware (${RUNWARE_MODELS.find(m => m.id === selectedRunwareModel)?.label || selectedRunwareModel}):`,
+                    image: data.imageUrl
+                };
+                await saveMessage(userMessage, sessionId);
+                await saveMessage(assistantMessage, sessionId);
+
+                // Limpar estados
+                removeRunwareReferenceImage();
+                setRunwarePrompt('');
+
+                toast({
+                    title: 'Imagem gerada!',
+                    description: `Imagem criada com Runware (${RUNWARE_MODELS.find(m => m.id === selectedRunwareModel)?.label || selectedRunwareModel})`,
+                });
+
+            } catch (error) {
+                debugError('Erro ao gerar imagem com Runware:', error);
+                
+                // Remover mensagem de loading e adicionar erro
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    return [...filtered, {
+                        role: 'assistant',
+                        content: `❌ Desculpe, não consegui gerar a imagem via Runware. ${error.message || 'Tente novamente.'}`
+                    }];
+                });
+                
+                toast({
+                    title: 'Erro ao gerar imagem',
+                    description: error.message || 'Não foi possível gerar a imagem. Tente novamente.',
+                    variant: 'destructive'
+                });
+            } finally {
+                setIsGeneratingImage(false);
+            }
+        };
+
+        // Função para gerar arte de redes sociais
+        const handleGenerateSocialMediaArt = async () => {
+            if (!socialArtPrompt?.trim()) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, descreva a arte que deseja criar.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            if (!currentAgent || !sessionId) {
+                toast({
+                    title: 'Erro',
+                    description: 'Por favor, selecione um agente primeiro.',
+                    variant: 'destructive'
+                });
+                return;
+            }
+
+            setIsGeneratingImage(true);
+            setShowSocialMediaArt(false);
+
+            // Declarar loadingMessageId no escopo da função para estar disponível no catch
+            const loadingMessageId = `social-art-loading-${Date.now()}`;
+
+            try {
+                const sizeConfig = SOCIAL_MEDIA_SIZES[socialArtType];
+                
+                // Construir prompt otimizado para redes sociais
+                let finalPrompt = socialArtPrompt.trim();
+                
+                // Adicionar instruções sobre o texto se fornecido
+                if (socialArtText?.trim()) {
+                    finalPrompt += `, com texto escrito "${socialArtText.trim()}" de forma legível e destacada`;
+                }
+                
+                // Adicionar contexto de design para redes sociais
+                finalPrompt += `, design profissional para ${sizeConfig.label.toLowerCase()}, cores vibrantes, composição equilibrada, estilo moderno e atrativo para redes sociais`;
+
+                // Adicionar mensagem de loading
+                const loadingMessage = {
+                    role: 'assistant',
+                    content: '',
+                    isLoading: true,
+                    loadingText: `🎨 Criando arte para ${sizeConfig.label}...`,
+                    id: loadingMessageId
+                };
+                setMessages(prev => [...prev, loadingMessage]);
+
+                // Verificar se é DALL-E 3 ou Runware
+                const isDalle3 = selectedSocialModel === 'dall-e-3';
+                
+                let data, error;
+                let dalleSize = '1024x1024'; // Declarar fora do if para estar disponível depois
+                
+                if (isDalle3) {
+                    // Mapear tamanhos para DALL-E 3 (suporta: 1024x1024, 1792x1024, 1024x1792)
+                    if (sizeConfig.width > sizeConfig.height) {
+                        dalleSize = '1792x1024'; // Horizontal
+                    } else if (sizeConfig.height > sizeConfig.width) {
+                        dalleSize = '1024x1792'; // Vertical
+                    }
+                    
+                    debugLog('🎨 Gerando arte com DALL-E 3:', { 
+                        type: socialArtType, 
+                        size: dalleSize,
+                        prompt: finalPrompt
+                    });
+
+                    const { data: dalleData, error: dalleError } = await supabase.functions.invoke('openai-image-generation', {
+                        body: {
+                            prompt: finalPrompt,
+                            size: dalleSize,
+                            quality: 'standard',
+                            style: 'vivid',
+                            model: 'dall-e-3',
+                        },
+                    });
+
+                    data = dalleData;
+                    error = dalleError;
+                } else {
+                    // Usar Runware
+                    const payload = {
+                        prompt: finalPrompt,
+                        model: selectedSocialModel,
+                        taskType: 'imageInference',
+                        width: sizeConfig.width,
+                        height: sizeConfig.height,
+                        steps: 30,
+                        CFGScale: 7.5,
+                    };
+
+                    debugLog('🎨 Gerando arte com Runware:', { 
+                        type: socialArtType, 
+                        size: `${sizeConfig.width}x${sizeConfig.height}`,
+                        model: selectedSocialModel,
+                        prompt: finalPrompt
+                    });
+
+                    // Timeout de 60 segundos
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('Timeout: A geração de imagem demorou mais de 60 segundos. Tente novamente.')), 60000);
+                    });
+
+                    const invokePromise = supabase.functions.invoke('runware-image-generation', {
+                        body: payload,
+                    });
+
+                    const result = await Promise.race([invokePromise, timeoutPromise]).catch((err) => {
+                        if (err.message?.includes('Timeout')) {
+                            throw err;
+                        }
+                        return { data: null, error: err };
+                    });
+
+                    data = result.data;
+                    error = result.error;
+                }
+
+                debugLog('📥 Resposta da geração (arte social):', { data, error });
+
+                if (error) {
+                    debugError(`❌ Erro na Edge Function ${isDalle3 ? 'OpenAI' : 'Runware'}:`, error);
+                    throw new Error(error.message || `Erro ao gerar arte via ${isDalle3 ? 'DALL-E 3' : 'Runware'}`);
+                }
+
+                if (!data) {
+                    throw new Error(`Resposta vazia da Edge Function ${isDalle3 ? 'OpenAI' : 'Runware'}`);
+                }
+
+                if (!data.success || !data.imageUrl) {
+                    debugError(`❌ Resposta inválida da ${isDalle3 ? 'OpenAI' : 'Runware'}:`, data);
+                    throw new Error(data?.error || 'Não foi possível gerar a arte');
+                }
+
+                // Remover mensagem de loading e adicionar resultado
+                const modelLabel = isDalle3 
+                    ? 'DALL-E 3' 
+                    : (RUNWARE_MODELS.find(m => m.id === selectedSocialModel)?.label || selectedSocialModel);
+                
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    const userMessage = {
+                        role: 'user',
+                        content: `Criar arte para ${sizeConfig.label}: ${socialArtPrompt}${socialArtText ? ` com texto "${socialArtText}"` : ''}`
+                    };
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: `✨ Arte criada para ${sizeConfig.label} (${isDalle3 ? dalleSize : `${sizeConfig.width}x${sizeConfig.height}px`}) com ${modelLabel}:`,
+                        image: data.imageUrl
+                    };
+                    return [...filtered, userMessage, assistantMessage];
+                });
+
+                // Salvar mensagens no banco
+                const userMessage = {
+                    role: 'user',
+                    content: `Criar arte para ${sizeConfig.label}: ${socialArtPrompt}${socialArtText ? ` com texto "${socialArtText}"` : ''}`
+                };
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: `✨ Arte criada para ${sizeConfig.label} (${isDalle3 ? dalleSize : `${sizeConfig.width}x${sizeConfig.height}px`}) com ${modelLabel}:`,
+                    image: data.imageUrl
+                };
+                await saveMessage(userMessage, sessionId);
+                await saveMessage(assistantMessage, sessionId);
+
+                // Limpar estados
+                setSocialArtPrompt('');
+                setSocialArtText('');
+
+                toast({
+                    title: 'Arte criada!',
+                    description: `Arte para ${sizeConfig.label} gerada com ${modelLabel}!`,
+                });
+
+            } catch (error) {
+                debugError('Erro ao gerar arte para redes sociais:', error);
+                
+                // Remover mensagem de loading e adicionar erro
+                setMessages(prev => {
+                    const filtered = prev.filter(msg => msg.id !== loadingMessageId);
+                    return [...filtered, {
+                        role: 'assistant',
+                        content: `❌ Desculpe, não consegui gerar a arte. ${error.message || 'Tente novamente.'}`
+                    }];
+                });
+                
+                toast({
+                    title: 'Erro ao gerar arte',
+                    description: error.message || 'Não foi possível gerar a arte. Tente novamente.',
+                    variant: 'destructive'
+                });
+            } finally {
+                setIsGeneratingImage(false);
+            }
+        };
 
         // Helper para obter o texto do modelo selecionado
         const getModelLabel = (model) => {
@@ -279,7 +781,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                     .maybeSingle();
                 
                 if (error) {
-                    console.warn('Erro ao carregar configuração de personalidade:', error);
+                    debugWarn('Erro ao carregar configuração de personalidade:', error);
                     return null;
                 }
                 
@@ -287,14 +789,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
                     try {
                         return JSON.parse(data.value);
                     } catch (parseError) {
-                        console.warn('Erro ao fazer parse da configuração de personalidade:', parseError);
+                        debugWarn('Erro ao fazer parse da configuração de personalidade:', parseError);
                         return null;
                     }
                 }
                 
                 return null;
             } catch (err) {
-                console.warn('Erro ao carregar configuração de personalidade:', err);
+                debugWarn('Erro ao carregar configuração de personalidade:', err);
                 return null;
             }
         }, []);
@@ -415,34 +917,67 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 });
 
                 if (error || !data) {
-                    console.error('Erro ao gerar título:', error);
+                    debugError('Erro ao gerar título:', error);
                     // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
                     return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
                 }
 
                 let title = '';
-                if (data.text) {
+                
+                // Processar resposta da Edge Function (mesmo padrão usado em handleSendMessage)
+                if (data.text && typeof data.text === 'string') {
+                    // Resposta direta como texto
                     title = data.text.trim();
                 } else if (data.body) {
-                    // Se vier como streaming, pega o primeiro chunk
+                    // Se vier como streaming, processa o stream completo
                     const reader = data.body.getReader();
                     const decoder = new TextDecoder();
-                    const { value } = await reader.read();
-                    if (value) {
-                        const chunk = decoder.decode(value);
-                        title = chunk.trim();
+                    let fullText = '';
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n');
+                        for (const line of lines) {
+                            if (line.trim() === '' || !line.startsWith('data: ')) continue;
+                            const jsonStr = line.substring(6); // Remove 'data: '
+                            if (jsonStr === '[DONE]') continue;
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                if (parsed.choices?.[0]?.delta?.content) {
+                                    fullText += parsed.choices[0].delta.content;
+                                } else if (parsed.choices?.[0]?.message?.content) {
+                                    fullText += parsed.choices[0].message.content;
+                                }
+                            } catch (e) {
+                                // Ignora linhas inválidas
+                            }
+                        }
                     }
+                    title = fullText.trim();
+                } else {
+                    // Tentar extrair texto de outras estruturas possíveis
+                    debugError('Formato de resposta inesperado ao gerar título:', data);
+                    // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
+                    return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
                 }
 
                 // Remove aspas se houver e limita a 50 caracteres
-                title = title.replace(/^["']|["']$/g, '').trim();
-                if (title.length > 50) {
-                    title = title.substring(0, 47) + '...';
+                if (title && typeof title === 'string') {
+                    title = title.replace(/^["']|["']$/g, '').trim();
+                    // Remove qualquer prefixo como "Título:" ou "Título da conversa:"
+                    title = title.replace(/^(título|title|título da conversa|title of conversation):\s*/i, '').trim();
+                    if (title.length > 50) {
+                        title = title.substring(0, 47) + '...';
+                    }
+                } else {
+                    title = '';
                 }
 
                 return title || (userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage);
             } catch (err) {
-                console.error('Erro ao gerar título com IA:', err);
+                debugError('Erro ao gerar título com IA:', err);
                 // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
                 return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
             }
@@ -500,7 +1035,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 
                 // Timeout de segurança: força o loading como false após 15 segundos
                 const timeoutId = setTimeout(() => {
-                    console.warn('Timeout no carregamento inicial - forçando loading como false');
+                    debugWarn('Timeout no carregamento inicial - forçando loading como false');
                     setLoadingTimeout(true);
                     setLoading(false);
                 }, 15000);
@@ -536,7 +1071,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 setCurrentAgent(defaultAgent);
                 
                 if (projectsRes.error) {
-                    console.error("Erro ao buscar projetos:", projectsRes.error);
+                    debugError("Erro ao buscar projetos:", projectsRes.error);
                 } else {
                     setProjects(projectsRes.data);
                     setSelectedProjectIds(new Set(projectsRes.data.map(p => p.id)));
@@ -552,7 +1087,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 }
 
             } catch (err) {
-                console.error('Erro ao carregar dados iniciais:', err);
+                debugError('Erro ao carregar dados iniciais:', err);
                 setError(err);
             } finally {
                 setLoading(false);
@@ -576,10 +1111,10 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 
                 const { error } = await supabase.from('client_chat_messages').insert(messageData);
                 if (error) {
-                    console.error('Erro ao salvar mensagem:', error);
+                    debugError('Erro ao salvar mensagem:', error);
                 }
             } catch (err) {
-                console.error('Erro inesperado ao salvar mensagem:', err);
+                debugError('Erro inesperado ao salvar mensagem:', err);
             }
         }, []);
 
@@ -589,7 +1124,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
             
             // Timeout de segurança para mensagens
             const timeoutId = setTimeout(() => {
-                console.warn('Timeout ao buscar mensagens - forçando loading como false');
+                    debugWarn('Timeout ao buscar mensagens - forçando loading como false');
                 setLoading(false);
             }, 10000);
             
@@ -603,7 +1138,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 clearTimeout(timeoutId);
                 
                 if (error) {
-                    console.error('Erro ao buscar mensagens:', error);
+                    debugError('Erro ao buscar mensagens:', error);
                     toast({ title: "Erro ao buscar mensagens", description: error.message, variant: "destructive" });
                     setMessages([]);
                 } else if (data && data.length > 0) {
@@ -631,7 +1166,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                         .order('created_at');
                     
                     if (doubleCheckError) {
-                        console.error('Erro ao verificar mensagens existentes:', doubleCheckError);
+                        debugError('Erro ao verificar mensagens existentes:', doubleCheckError);
                         setMessages([]);
                         return;
                     }
@@ -685,7 +1220,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                     
                     // Verificar se já tentamos criar mensagem inicial para esta sessão nesta execução
                     if (initialMessageCreatedRef.current.has(sessionId)) {
-                        console.log('⚠️ Tentativa duplicada de criar mensagem inicial bloqueada para sessão:', sessionId);
+                        debugLog('⚠️ Tentativa duplicada de criar mensagem inicial bloqueada para sessão:', sessionId);
                         return;
                     }
                     
@@ -701,7 +1236,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                     await saveMessage(initialMessage, sessionId);
                 }
             } catch (err) {
-                console.error('Erro inesperado ao buscar mensagens:', err);
+                debugError('Erro inesperado ao buscar mensagens:', err);
                 clearTimeout(timeoutId);
                 setMessages([]);
             } finally {
@@ -727,21 +1262,55 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
         }, [messages, currentAIMessage]);
         
         const handleDeleteSession = async (idToDelete) => {
-            const remainingSessions = sessions.filter(s => s.id !== idToDelete);
-            setSessions(remainingSessions);
+            if (!idToDelete) return;
             
-            if (sessionId === idToDelete) {
-                if (remainingSessions.length > 0) {
-                    navigate(`/chat/${clientId}/${remainingSessions[0].id}`);
-                } else {
-                    await handleNewSession(client, [], true);
+            setIsDeletingSession(true);
+            
+            try {
+                // Primeiro, excluir do banco de dados
+                const { error } = await supabase.from('client_chat_sessions').delete().eq('id', idToDelete);
+                
+                if (error) {
+                    debugError('Erro ao excluir conversa:', error);
+                    toast({ 
+                        title: 'Erro ao excluir conversa', 
+                        description: error.message || 'Não foi possível excluir a conversa. Tente novamente.', 
+                        variant: 'destructive' 
+                    });
+                    // Recarrega os dados para garantir consistência
+                    await fetchInitialData();
+                    return;
                 }
-            }
 
-            const { error } = await supabase.from('client_chat_sessions').delete().eq('id', idToDelete);
-            if (error) {
-                toast({ title: 'Erro ao excluir conversa', description: error.message, variant: 'destructive' });
-                fetchInitialData(); 
+                // Se a exclusão foi bem-sucedida, atualiza o estado local
+                const remainingSessions = sessions.filter(s => s.id !== idToDelete);
+                setSessions(remainingSessions);
+                
+                // Se estava na conversa que foi excluída, navega para outra
+                if (sessionId === idToDelete) {
+                    if (remainingSessions.length > 0) {
+                        navigate(`/chat/${clientId}/${remainingSessions[0].id}`);
+                    } else {
+                        await handleNewSession(client, [], true);
+                    }
+                }
+
+                toast({ 
+                    title: 'Conversa excluída', 
+                    description: 'A conversa foi excluída com sucesso.',
+                });
+            } catch (err) {
+                debugError('Erro ao excluir conversa:', err);
+                toast({ 
+                    title: 'Erro ao excluir conversa', 
+                    description: err.message || 'Ocorreu um erro inesperado. Tente novamente.', 
+                    variant: 'destructive' 
+                });
+                // Recarrega os dados para garantir consistência
+                await fetchInitialData();
+            } finally {
+                setIsDeletingSession(false);
+                setSessionToDelete(null);
             }
         };
 
@@ -856,7 +1425,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                     }
                 ];
 
-                console.log('🔵 Iniciando análise de imagem...', { action, hasImage: !!attachedImagePreview });
+                debugLog('🔵 Iniciando análise de imagem...', { action, hasImage: !!attachedImagePreview });
 
                 // Usar Edge Function do Supabase (mesma lógica do chat normal)
                 const { data, error } = await supabase.functions.invoke('openai-chat', {
@@ -868,22 +1437,22 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 });
 
                 if (error) {
-                    console.error('❌ Erro na Edge Function:', error);
+                    debugError('❌ Erro na Edge Function:', error);
                     throw error;
                 }
 
                 if (!data?.body) {
-                    console.error('❌ Resposta sem body da Edge Function');
+                    debugError('❌ Resposta sem body da Edge Function');
                     throw new Error('Resposta vazia da Edge Function');
                 }
 
-                console.log('✅ Processando stream de resposta da imagem...');
+                debugLog('✅ Processando stream de resposta da imagem...');
 
                 // Processar stream (mesma lógica do chat normal)
                 // streamAIResponse já atualiza setCurrentAIMessage durante o streaming
                 const fullResponse = await streamAIResponse(data);
                 
-                console.log('✅ Análise de imagem completa!', { length: fullResponse.length });
+                debugLog('✅ Análise de imagem completa!', { length: fullResponse.length });
 
                 // Adicionar mensagens ao histórico
                 const userMessage = { 
@@ -902,7 +1471,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 setInput('');
 
             } catch (error) {
-                console.error('Erro ao processar imagem:', error);
+                debugError('Erro ao processar imagem:', error);
                 toast({
                     title: 'Erro ao processar imagem',
                     description: error.message || 'Não foi possível processar a imagem.',
@@ -1032,7 +1601,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 }
 
                 // Se não há imagem de referência, usar modelo selecionado com prompt
-                console.log('🖼️ Gerando imagem com modelo:', selectedImageModel, 'Prompt:', finalPrompt.substring(0, 50));
+                debugLog('🖼️ Gerando imagem com modelo:', selectedImageModel, 'Prompt:', finalPrompt.substring(0, 50));
                 const { data, error } = await supabase.functions.invoke('openai-image-generation', {
                     body: {
                         prompt: finalPrompt,
@@ -1080,7 +1649,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                         : 'A imagem foi adicionada ao chat.',
                 });
             } catch (error) {
-                console.error('Erro ao gerar imagem:', error);
+                debugError('Erro ao gerar imagem:', error);
                 toast({
                     title: 'Erro ao gerar imagem',
                     description: error.message || 'Não foi possível gerar a imagem.',
@@ -1232,7 +1801,7 @@ Resposta:`;
                         return response.includes('SIM');
                     }
                 } catch (error) {
-                    console.error('Erro ao detectar intenção com GPT:', error);
+                    debugError('Erro ao detectar intenção com GPT:', error);
                     // Em caso de erro, ser conservador (não gerar imagem)
                     return false;
                 }
@@ -1345,7 +1914,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.`;
                             const delta = parsed.choices?.[0]?.delta?.content;
                             if (delta) fullResponse += delta;
                         } catch (parseError) {
-                            console.error('Erro ao parsear chunk:', parseError);
+                            debugError('Erro ao parsear chunk:', parseError);
                         }
                     }
                 }
@@ -1365,7 +1934,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.`;
                 await saveMessage(assistantMessage, sessionId);
                 
             } catch (error) {
-                console.error('Erro ao gerar story:', error);
+                debugError('Erro ao gerar story:', error);
                 setMessages(prev => {
                     const filtered = prev.filter(msg => msg.id !== loadingMessageId);
                     return [...filtered, {
@@ -1516,16 +2085,18 @@ Seja específico, autêntico e direto. Evite clichês de marketing.`;
                 };
                 setMessages(prev => [...prev, loadingMessage]);
                 
-                // Gerar imagem automaticamente usando o modelo padrão (DALL-E 3)
+                // Gerar imagem automaticamente usando Runware (DALL-E 3 temporariamente desabilitado)
                 setIsGeneratingImage(true);
                 try {
-                    const { data, error } = await supabase.functions.invoke('openai-image-generation', {
+                    const { data, error } = await supabase.functions.invoke('runware-image-generation', {
                         body: {
                             prompt: imagePrompt,
-                            size: '1024x1024',
-                            quality: 'standard',
-                            style: 'vivid',
-                            model: 'dall-e-3',
+                            model: 'rundiffusion:130@100', // RunDiffusion padrão
+                            taskType: 'imageInference',
+                            width: 1024,
+                            height: 1024,
+                            steps: 30,
+                            CFGScale: 7.5,
                         },
                     });
 
@@ -1555,7 +2126,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.`;
                     };
                     await saveMessage(assistantMessage, sessionId);
                 } catch (error) {
-                    console.error('Erro ao gerar imagem:', error);
+                    debugError('Erro ao gerar imagem:', error);
                     
                     // Remover mensagem de loading e adicionar mensagem de erro
                     setMessages(prev => {
@@ -1705,7 +2276,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.`;
                         });
                     }
                 } catch (error) {
-                    console.error('Erro ao buscar documentos do cliente:', error);
+                    debugError('Erro ao buscar documentos do cliente:', error);
                     // Não adiciona nada se houver erro, continua normalmente
                 }
             }
@@ -1841,7 +2412,7 @@ ${currentAgent.prompt
             const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
 
             try {
-                console.log('🔵 Iniciando chamada para Edge Function openai-chat...', {
+                debugLog('🔵 Iniciando chamada para Edge Function openai-chat...', {
                     messagesCount: apiMessages.length,
                     model: selectedModel
                 });
@@ -1850,12 +2421,12 @@ ${currentAgent.prompt
                     body: JSON.stringify({ messages: apiMessages, model: selectedModel }),
                 });
 
-                console.log('🔵 Resposta da Edge Function:', { data: !!data, error: !!error, hasBody: !!data?.body });
+                debugLog('🔵 Resposta da Edge Function:', { data: !!data, error: !!error, hasBody: !!data?.body });
 
                 // Verifica se houve erro na chamada
                 if (error) {
                     // Log completo do erro para debug
-                    console.error('Edge Function error completo:', {
+                    debugError('Edge Function error completo:', {
                         error,
                         message: error.message,
                         name: error.name,
@@ -1886,7 +2457,7 @@ ${currentAgent.prompt
                     else if (typeof error.context === 'string') errorDetails = error.context;
                     
                     // Log do status code encontrado
-                    console.log('Status code extraído:', statusCode, 'Error details:', errorDetails);
+                    debugLog('Status code extraído:', statusCode, 'Error details:', errorDetails);
                     
                     // Erros específicos por status code
                     if (statusCode === 404 || error.message?.includes('Function not found') || error.message?.includes('404')) {
@@ -1934,11 +2505,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 
                 // Verifica se há dados válidos
                 if (!data) {
-                    console.error('❌ Edge Function retornou data vazio/null');
+                    debugError('❌ Edge Function retornou data vazio/null');
                     throw new Error("A função de chat não retornou dados válidos. Verifique se a Edge Function está deployada e funcionando.");
                 }
                 
-                console.log('✅ Dados recebidos:', {
+                debugLog('✅ Dados recebidos:', {
                     hasBody: !!data.body,
                     hasText: !!data.text,
                     dataKeys: Object.keys(data)
@@ -1949,20 +2520,20 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 if (!data.body) {
                     // Se não tem body mas tem text, usa text
                     if (data.text) {
-                        console.log('✅ Usando resposta de texto direto (sem streaming)');
+                        debugLog('✅ Usando resposta de texto direto (sem streaming)');
                         aiResponseText = data.text;
                         const assistantMessage = { role: 'assistant', content: aiResponseText };
                         setMessages(prev => [...prev, assistantMessage]);
                         await saveMessage(assistantMessage, sessionId);
                     } else {
-                        console.error('❌ Resposta sem body nem text:', data);
+                        debugError('❌ Resposta sem body nem text:', data);
                         throw new Error("Resposta inválida da função de chat: não há corpo para streaming nem texto. A Edge Function pode não estar retornando o formato correto.");
                     }
                 } else {
                     // Processa o streaming
-                    console.log('✅ Processando stream de resposta...');
+                    debugLog('✅ Processando stream de resposta...');
                     aiResponseText = await streamAIResponse(data);
-                    console.log('✅ Stream completo! Tamanho:', aiResponseText.length, 'caracteres');
+                    debugLog('✅ Stream completo! Tamanho:', aiResponseText.length, 'caracteres');
                     const assistantMessage = { role: 'assistant', content: aiResponseText };
                     setMessages(prev => [...prev, assistantMessage]);
                     await saveMessage(assistantMessage, sessionId);
@@ -1972,23 +2543,54 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 if (isFirstUserMessage && aiResponseText) {
                     try {
                         const personalizedTitle = await generateConversationTitle(userMessageText, aiResponseText);
+                        
+                        // Validar que o título é uma string válida antes de salvar
+                        if (!personalizedTitle || typeof personalizedTitle !== 'string') {
+                            debugError('Título inválido gerado:', personalizedTitle);
+                            // Usa fallback seguro
+                            const fallbackTitle = userMessageText.length > 40 ? userMessageText.substring(0, 40) + '...' : userMessageText;
+                            const { error: updateError } = await supabase
+                                .from('client_chat_sessions')
+                                .update({ title: fallbackTitle })
+                                .eq('id', sessionId);
+                            
+                            if (!updateError) {
+                                setSessions(prev => prev.map(s => 
+                                    s.id === sessionId ? {...s, title: fallbackTitle} : s
+                                ));
+                            }
+                            return;
+                        }
+                        
+                        // Limpar título de qualquer caractere inválido ou dados brutos
+                        let cleanTitle = personalizedTitle.trim();
+                        // Remove qualquer JSON ou dados brutos que possam ter vindo
+                        if (cleanTitle.startsWith('data:') || cleanTitle.startsWith('{') || cleanTitle.includes('chatcmpl-')) {
+                            debugError('Título contém dados brutos, usando fallback');
+                            cleanTitle = userMessageText.length > 40 ? userMessageText.substring(0, 40) + '...' : userMessageText;
+                        }
+                        
+                        debugLog('💾 Salvando título da conversa:', cleanTitle);
+                        
                         const { error: updateError } = await supabase
                             .from('client_chat_sessions')
-                            .update({ title: personalizedTitle })
+                            .update({ title: cleanTitle })
                             .eq('id', sessionId);
                         
                         if (!updateError) {
                             setSessions(prev => prev.map(s => 
-                                s.id === sessionId ? {...s, title: personalizedTitle} : s
+                                s.id === sessionId ? {...s, title: cleanTitle} : s
                             ));
+                        } else {
+                            debugError('Erro ao atualizar título no banco:', updateError);
                         }
                     } catch (titleError) {
-                        console.error('Erro ao atualizar título:', titleError);
+                        debugError('Erro ao atualizar título:', titleError);
                         // Não mostra erro para o usuário, apenas loga
                     }
                 }
             } catch (err) {
-                console.error("Erro completo ao invocar função de chat:", err);
+                debugError("Erro completo ao invocar função de chat:", err);
                 
                 let errorMessageText = err.message || "Erro desconhecido ao comunicar com a IA.";
                 
@@ -2033,7 +2635,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             
             // Verifica se response.body é um ReadableStream
             if (!(response.body instanceof ReadableStream)) {
-                console.error('Response body não é um ReadableStream:', response.body);
+                debugError('Response body não é um ReadableStream:', response.body);
                 throw new Error("O formato da resposta não é compatível com streaming.");
             }
             
@@ -2066,14 +2668,14 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                     setCurrentAIMessage(prev => prev + delta);
                                 }
                             } catch (parseError) {
-                                console.error('Error parsing stream chunk:', parseError, 'Chunk:', jsonStr);
+                                debugError('Error parsing stream chunk:', parseError, 'Chunk:', jsonStr);
                                 // Continua processando outras linhas
                             }
                         }
                     }
                 }
             } catch (streamError) {
-                console.error('Erro durante o streaming:', streamError);
+                debugError('Erro durante o streaming:', streamError);
                 // Se já coletou alguma resposta parcial, retorna ela
                 if (fullResponse.length > 0) {
                     return fullResponse;
@@ -2156,7 +2758,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             try {
                 return marked.parse(currentAIMessage || '');
             } catch (parseError) {
-                console.error('Erro ao fazer parse do markdown:', parseError);
+                debugError('Erro ao fazer parse do markdown:', parseError);
                 return currentAIMessage || '';
             }
         }, [currentAIMessage]);
@@ -2214,7 +2816,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const CurrentAgentIcon = currentAgent ? (ICONS[currentAgent.icon] || ICONS.Default) : Sparkles;
 
         const SessionSidebar = () => (
-          <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+          <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ minWidth: '256px', maxWidth: '256px' }}>
               <div className="p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
                   <h2 className="font-semibold text-base sm:text-lg dark:text-white">Conversas</h2>
                   <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
@@ -2225,12 +2827,39 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 </Button>
               </div>
               <ScrollArea className="flex-1 bg-gray-100 dark:bg-gray-900">
-                  <div className="p-2 space-y-0.5">
+                  <div className="p-2 space-y-1">
                       {sessions.map(s => (
-                          <div key={s.id} className={`group flex items-center justify-between rounded-xl p-2.5 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} onClick={() => { if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); if(isSidebarOpen) setIsSidebarOpen(false); }}>
-                              <span className="truncate text-xs sm:text-sm font-medium dark:text-gray-200">{s.title}</span>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20" onClick={(e) => {e.stopPropagation(); handleDeleteSession(s.id);}}>
-                                  <Trash2 className="h-4 w-4 text-red-500" />
+                          <div 
+                              key={s.id} 
+                              className={`group flex items-center rounded-lg p-2 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} 
+                              onClick={() => { 
+                                  if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); 
+                                  if(isSidebarOpen) setIsSidebarOpen(false);
+                              }}
+                          >
+                              <span 
+                                  className="text-xs font-medium dark:text-gray-200 flex-1 min-w-0 pr-2 overflow-hidden text-ellipsis whitespace-nowrap block" 
+                                  title={s.title}
+                              >
+                                  {s.title}
+                              </span>
+                              <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-7 w-7 flex-shrink-0 opacity-90 group-hover:opacity-100 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-all hover:scale-105 active:scale-95" 
+                                  onClick={(e) => {
+                                      e.stopPropagation(); 
+                                      e.preventDefault();
+                                      setSessionToDelete(s.id);
+                                  }}
+                                  disabled={isDeletingSession}
+                                  title="Excluir conversa"
+                              >
+                                  {isDeletingSession && sessionToDelete === s.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 text-red-500 animate-spin" />
+                                  ) : (
+                                      <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                                  )}
                               </Button>
                           </div>
                       ))}
@@ -2245,6 +2874,37 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         return (
             <>
                 <Helmet><title>ApexIA - Assistente para {client?.empresa || 'Cliente'}</title></Helmet>
+                
+                {/* Dialog de confirmação para excluir conversa */}
+                <AlertDialog open={!!sessionToDelete} onOpenChange={(open) => {
+                    if (!open) setSessionToDelete(null);
+                }}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Esta ação não pode ser desfeita. A conversa e todas as suas mensagens serão permanentemente excluídas.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel disabled={isDeletingSession}>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={() => handleDeleteSession(sessionToDelete)}
+                                disabled={isDeletingSession}
+                                className="bg-red-600 hover:bg-red-700"
+                            >
+                                {isDeletingSession ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Excluindo...
+                                    </>
+                                ) : (
+                                    'Excluir'
+                                )}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
                 <div className="flex h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900 overflow-hidden" style={{ height: '100dvh', maxHeight: '100dvh' }}>
                     <SessionSidebar />
                     <div className="flex flex-col flex-1 min-w-0" style={{ height: '100%', maxHeight: '100%' }}>
@@ -2267,24 +2927,6 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                </div>
                                <div className="min-w-0"><h1 className="font-semibold text-base sm:text-lg dark:text-white">ApexIA</h1><p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">para {client?.empresa || 'Cliente'}</p></div>
                             </div>
-                             {/* Botão de instalação PWA - mostra em mobile e não se já estiver instalado */}
-                             {isMobile && !isStandalone && (installPrompt || isIOS) && (
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    onClick={() => {
-                                        if (isIOS) {
-                                            setShowIOSInstructions(true);
-                                        } else if (installPrompt) {
-                                            handleInstallClick();
-                                        }
-                                    }} 
-                                    className="flex items-center gap-2 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    {isIOS ? 'Adicionar à Tela Inicial' : 'Instalar App'}
-                                </Button>
-                            )}
                         </header>
                         <main className="flex-1 overflow-hidden bg-transparent">
                             <ScrollArea className="h-full px-4 py-6" ref={scrollAreaRef}>
@@ -2559,8 +3201,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         <span className="truncate">Stories</span>
                                     </Button>
                                     
-                                    {/* Botão de Gerar Imagem - discreto ao lado */}
-                                    <Button
+                                    {/* Botão de Gerar Imagem - temporariamente oculto (usar "Gerar Run" para Runware) */}
+                                    {/* <Button
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowImageGenerator(true)}
@@ -2578,7 +3220,31 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                 <span className="truncate">Gerar Imagem</span>
                                             </>
                                         )}
+                                    </Button> */}
+                                    
+                                    {/* Botão de Gerar Run (Runware) - discreto ao lado */}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowRunwareGenerator(true)}
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        disabled={!currentAgent || isGeneratingImage}
+                                    >
+                                        <Sparkles className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-blue-500 flex-shrink-0" />
+                                        <span className="truncate">Gerar Run</span>
                                     </Button>
+                                    
+                                    {/* Botão de Arte para Redes Sociais - temporariamente oculto */}
+                                    {/* <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowSocialMediaArt(true)}
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        disabled={!currentAgent || isGeneratingImage}
+                                    >
+                                        <ImageIcon className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-purple-500 flex-shrink-0" />
+                                        <span className="truncate">Arte para Redes</span>
+                                    </Button> */}
                                 </div>
 
                                 {/* Container dos botões - controlado por botão + (estilo ChatGPT) */}
@@ -2840,20 +3506,23 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                     Modelo de IA
                                 </label>
                                 <Select value={selectedImageModel} onValueChange={(value) => {
-                                    console.log('🖼️ Modelo de imagem selecionado:', value);
+                                    debugLog('🖼️ Modelo de imagem selecionado:', value);
                                     setSelectedImageModel(value);
                                 }}>
                                     <SelectTrigger className="w-full">
                                         <SelectValue placeholder="Selecione um modelo" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="dall-e-3">DALL-E 3 - Alta qualidade, estilo realista</SelectItem>
-                                        <SelectItem value="dall-e-2">DALL-E 2 - Variações de imagem</SelectItem>
+                                        {/* DALL-E temporariamente oculto - descomentar para ativar */}
+                                        {/* <SelectItem value="dall-e-3">DALL-E 3 - Alta qualidade, estilo realista</SelectItem>
+                                        <SelectItem value="dall-e-2">DALL-E 2 - Variações de imagem</SelectItem> */}
+                                        {/* Use o botão "Gerar Run" para gerar imagens com Runware */}
                                     </SelectContent>
                                 </Select>
                                 <p className="text-xs text-muted-foreground">
-                                    {selectedImageModel === 'dall-e-2' && 'Ideal para gerar variações de imagens existentes.'}
-                                    {selectedImageModel === 'dall-e-3' && 'Melhor para gerar imagens realistas e detalhadas a partir de texto.'}
+                                    {/* {selectedImageModel === 'dall-e-2' && 'Ideal para gerar variações de imagens existentes.'}
+                                    {selectedImageModel === 'dall-e-3' && 'Melhor para gerar imagens realistas e detalhadas a partir de texto.'} */}
+                                    Use o botão "Gerar Run" para gerar imagens com Runware.
                                 </p>
                             </div>
 
@@ -2970,6 +3639,366 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         </div>
                     </DialogContent>
                 </Dialog>
+                
+                {/* Dialog para Gerar Run (Runware) */}
+                <Dialog open={showRunwareGenerator} onOpenChange={(open) => {
+                    setShowRunwareGenerator(open);
+                    if (!open) {
+                        setRunwarePrompt('');
+                        removeRunwareReferenceImage();
+                    }
+                }}>
+                    <DialogContent className="sm:max-w-[600px]">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <Sparkles className="h-5 w-5 text-blue-500" />
+                                Gerar Imagem com Runware
+                            </DialogTitle>
+                            <DialogDescription>
+                                Use o Runware para gerar imagens de alta qualidade com múltiplos modelos disponíveis.
+                            </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="space-y-4">
+                            {/* Tipo de tarefa */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Tipo de Geração</label>
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        variant={runwareTaskType === 'text-to-image' ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => {
+                                            setRunwareTaskType('text-to-image');
+                                            removeRunwareReferenceImage();
+                                        }}
+                                        className="flex-1"
+                                    >
+                                        Text-to-Image
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant={runwareTaskType === 'image-to-image' ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => setRunwareTaskType('image-to-image')}
+                                        className="flex-1"
+                                    >
+                                        Image-to-Image
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* Prompt */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">
+                                    Descrição da Imagem {runwareTaskType === 'image-to-image' && '(opcional)'}
+                                </label>
+                                <Textarea
+                                    placeholder={runwareTaskType === 'image-to-image' 
+                                        ? "Descreva como você quer transformar a imagem (opcional)..." 
+                                        : "Descreva a imagem que você quer gerar..."}
+                                    value={runwarePrompt}
+                                    onChange={(e) => setRunwarePrompt(e.target.value)}
+                                    className="min-h-[100px]"
+                                    disabled={isGeneratingImage}
+                                />
+                            </div>
+
+                            {/* Imagem de referência (para image-to-image) */}
+                            {runwareTaskType === 'image-to-image' && (
+                                <div>
+                                    <label className="text-sm font-medium mb-2 block">Imagem de Referência</label>
+                                    {runwareReferenceImagePreview ? (
+                                        <div className="relative">
+                                            <img 
+                                                src={runwareReferenceImagePreview} 
+                                                alt="Referência" 
+                                                className="w-full max-h-[300px] object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={removeRunwareReferenceImage}
+                                                className="absolute top-2 right-2"
+                                                disabled={isGeneratingImage}
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center">
+                                            <input
+                                                ref={runwareReferenceImageInputRef}
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleRunwareImageSelect}
+                                                className="hidden"
+                                                disabled={isGeneratingImage}
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => runwareReferenceImageInputRef.current?.click()}
+                                                disabled={isGeneratingImage}
+                                            >
+                                                <Camera className="h-4 w-4 mr-2" />
+                                                Selecionar Imagem
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Modelo */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Modelo</label>
+                                <Select value={selectedRunwareModel} onValueChange={setSelectedRunwareModel} disabled={isGeneratingImage}>
+                                    <SelectTrigger>
+                                        <SelectValue>
+                                            {RUNWARE_MODELS.find(m => m.id === selectedRunwareModel)?.label || selectedRunwareModel}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {RUNWARE_MODELS.map((model) => (
+                                            <SelectItem key={model.id} value={model.id}>
+                                                <div>
+                                                    <div className="font-medium">{model.label}</div>
+                                                    <div className="text-xs text-gray-500">{model.description}</div>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowRunwareGenerator(false);
+                                    removeRunwareReferenceImage();
+                                }}
+                                disabled={isGeneratingImage}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    if (runwarePrompt.trim() || runwareReferenceImagePreview) {
+                                        handleGenerateRunwareImage(runwarePrompt.trim() || 'Gere uma imagem inspirada nesta referência');
+                                    }
+                                }}
+                                disabled={isGeneratingImage || (!runwarePrompt.trim() && !runwareReferenceImagePreview)}
+                                className="bg-blue-600 hover:bg-blue-700"
+                            >
+                                {isGeneratingImage ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Gerando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles className="h-4 w-4 mr-2" />
+                                        Gerar com Runware
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+                
+                {/* Dialog para Arte para Redes Sociais */}
+                <Dialog open={showSocialMediaArt} onOpenChange={(open) => {
+                    setShowSocialMediaArt(open);
+                    if (!open) {
+                        setSocialArtPrompt('');
+                        setSocialArtText('');
+                        setSelectedArtTemplate('personalizado');
+                    }
+                }}>
+                    <DialogContent className="sm:max-w-[600px]">
+                        <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                                <ImageIcon className="h-5 w-5 text-purple-500" />
+                                Criar Arte para Redes Sociais
+                            </DialogTitle>
+                            <DialogDescription>
+                                Escolha um template ou crie sua própria arte personalizada para redes sociais.
+                            </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="space-y-4">
+                            {/* Seletor de Template */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Template</label>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    {Object.values(ART_TEMPLATES).map((template) => (
+                                        <button
+                                            key={template.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedArtTemplate(template.id);
+                                                if (template.id !== 'personalizado') {
+                                                    setSocialArtPrompt(template.prompt);
+                                                    setSocialArtText(template.defaultText);
+                                                } else {
+                                                    setSocialArtPrompt('');
+                                                    setSocialArtText('');
+                                                }
+                                            }}
+                                            disabled={isGeneratingImage}
+                                            className={`p-3 rounded-lg border-2 transition-all text-left ${
+                                                selectedArtTemplate === template.id
+                                                    ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20'
+                                                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                                            } ${isGeneratingImage ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                        >
+                                            <div className="text-2xl mb-1">{template.icon}</div>
+                                            <div className="text-xs font-medium">{template.label}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                                {selectedArtTemplate !== 'personalizado' && (
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        {ART_TEMPLATES[selectedArtTemplate]?.description}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Tipo de Rede Social */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Tipo de Post</label>
+                                <Select value={socialArtType} onValueChange={setSocialArtType} disabled={isGeneratingImage}>
+                                    <SelectTrigger>
+                                        <SelectValue>
+                                            {SOCIAL_MEDIA_SIZES[socialArtType]?.label || socialArtType}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.entries(SOCIAL_MEDIA_SIZES).map(([key, config]) => (
+                                            <SelectItem key={key} value={key}>
+                                                <div>
+                                                    <div className="font-medium">{config.label}</div>
+                                                    <div className="text-xs text-gray-500">
+                                                        {config.description} • {config.width}x{config.height}px
+                                                    </div>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Descrição da Arte */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">
+                                    Descrição da Arte <span className="text-red-500">*</span>
+                                </label>
+                                <Textarea
+                                    placeholder={selectedArtTemplate === 'personalizado' 
+                                        ? "Ex: Design moderno com gradiente azul e roxo, elementos geométricos, estilo minimalista..."
+                                        : "Você pode personalizar o prompt do template..."}
+                                    value={socialArtPrompt}
+                                    onChange={(e) => setSocialArtPrompt(e.target.value)}
+                                    className="min-h-[100px]"
+                                    disabled={isGeneratingImage}
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    {selectedArtTemplate === 'personalizado' 
+                                        ? 'Seja específico sobre cores, estilo, elementos visuais e composição.'
+                                        : 'Você pode editar o prompt do template para personalizar ainda mais.'}
+                                </p>
+                            </div>
+
+                            {/* Texto para aparecer na arte */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">
+                                    Texto na Arte <span className="text-gray-400 text-xs">(opcional)</span>
+                                </label>
+                                <Textarea
+                                    placeholder="Ex: Nome da Empresa, Frase de impacto, Call to Action..."
+                                    value={socialArtText}
+                                    onChange={(e) => setSocialArtText(e.target.value)}
+                                    className="min-h-[60px]"
+                                    disabled={isGeneratingImage}
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    O texto será incluído na arte. <strong>Nota:</strong> Modelos de IA podem ter dificuldade em renderizar texto perfeitamente legível.
+                                </p>
+                            </div>
+
+                            {/* Modelo */}
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Modelo de IA</label>
+                                <Select value={selectedSocialModel} onValueChange={setSelectedSocialModel} disabled={isGeneratingImage}>
+                                    <SelectTrigger>
+                                        <SelectValue>
+                                            {selectedSocialModel === 'dall-e-3' 
+                                                ? 'DALL-E 3' 
+                                                : RUNWARE_MODELS.find(m => m.id === selectedSocialModel)?.label || selectedSocialModel}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {/* DALL-E 3 temporariamente oculto - descomentar para ativar */}
+                                        {/* <SelectItem value="dall-e-3">
+                                            <div>
+                                                <div className="font-medium">DALL-E 3</div>
+                                                <div className="text-xs text-gray-500">Alta qualidade, estilo realista (OpenAI)</div>
+                                            </div>
+                                        </SelectItem> */}
+                                        {RUNWARE_MODELS.map((model) => (
+                                            <SelectItem key={model.id} value={model.id}>
+                                                <div>
+                                                    <div className="font-medium">{model.label}</div>
+                                                    <div className="text-xs text-gray-500">{model.description}</div>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {selectedSocialModel === 'dall-e-3' && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        DALL-E 3 usa tamanhos padrão (1024x1024, 1792x1024, 1024x1792) que serão ajustados automaticamente conforme o tipo de post.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowSocialMediaArt(false);
+                                    setSocialArtPrompt('');
+                                    setSocialArtText('');
+                                }}
+                                disabled={isGeneratingImage}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                onClick={handleGenerateSocialMediaArt}
+                                disabled={isGeneratingImage || !socialArtPrompt.trim()}
+                                className="bg-purple-600 hover:bg-purple-700"
+                            >
+                                {isGeneratingImage ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Criando Arte...
+                                    </>
+                                ) : (
+                                    <>
+                                        <ImageIcon className="h-4 w-4 mr-2" />
+                                        Criar Arte
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
                 {/* Dialog com instruções para iOS */}
                 <Dialog open={showIOSInstructions} onOpenChange={setShowIOSInstructions}>
                     <DialogContent className="sm:max-w-md">

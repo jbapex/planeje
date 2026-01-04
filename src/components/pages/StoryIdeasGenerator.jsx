@@ -10,6 +10,15 @@ import { marked } from 'marked';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
+// Helper para logs apenas em desenvolvimento
+const isDev = import.meta.env.DEV;
+const debugLog = (...args) => {
+    if (isDev) console.log(...args);
+};
+const debugError = (...args) => {
+    if (isDev) console.error(...args);
+};
+
 const STORY_CATEGORIES = [
     { id: 'venda', icon: TrendingUp, label: 'Venda', description: 'Ideias para conversão e vendas' },
     { id: 'suspense', icon: Film, label: 'Suspense', description: 'Criar curiosidade e engajamento' },
@@ -99,7 +108,7 @@ const StoryIdeasGenerator = ({ client, isOpen, onClose, currentAgent }) => {
             );
             setSavedIdeas(filtered.slice(0, 7));
         } catch (error) {
-            console.error('Erro ao buscar ideias salvas:', error);
+            debugError('Erro ao buscar ideias salvas:', error);
         } finally {
             setIsLoadingSaved(false);
         }
@@ -180,7 +189,7 @@ ${toneOfVoice !== 'indiferente' ? `- Tom de voz: ${toneOfVoice === 'casual' ? 'U
                 { role: 'user', content: `Gere uma ideia de Story do tipo ${category.label} para hoje.` }
             ];
 
-            console.log('🔵 Gerando ideia de story...', { category: category.label, client: client.empresa });
+            debugLog('🔵 Gerando ideia de story...', { category: category.label, client: client.empresa });
 
             const { data, error } = await supabase.functions.invoke('openai-chat', {
                 body: JSON.stringify({ messages, model: 'gpt-4o' }),
@@ -218,7 +227,7 @@ ${toneOfVoice !== 'indiferente' ? `- Tom de voz: ${toneOfVoice === 'casual' ? 'U
                                 fullResponse += delta;
                             }
                         } catch (parseError) {
-                            console.error('Erro ao parsear chunk:', parseError);
+                            debugError('Erro ao parsear chunk:', parseError);
                         }
                     }
                 }
@@ -282,7 +291,7 @@ ${toneOfVoice !== 'indiferente' ? `- Tom de voz: ${toneOfVoice === 'casual' ? 'U
             setStep(3);
 
         } catch (error) {
-            console.error('Erro ao gerar ideia:', error);
+            debugError('Erro ao gerar ideia:', error);
             toast({
                 title: 'Erro ao gerar ideia',
                 description: error.message || 'Não foi possível gerar a ideia. Tente novamente.',

@@ -9,6 +9,12 @@ import { X, Camera, Image as ImageIcon, Send, Loader2, Sparkles, Settings } from
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+// Helper para logs apenas em desenvolvimento
+const isDev = import.meta.env.DEV;
+const debugError = (...args) => {
+    if (isDev) console.error(...args);
+};
+
 const ImageAnalyzer = ({ client, isOpen, onClose, currentAgent }) => {
     const { toast } = useToast();
     const { getOpenAIKey } = useAuth();
@@ -240,7 +246,7 @@ ${includeDetails ? '- IMPORTANTE: Descreva detalhadamente o que está na imagem 
             await processStream();
 
         } catch (error) {
-            console.error('Erro ao analisar imagem:', error);
+            debugError('Erro ao analisar imagem:', error);
             toast({
                 title: 'Erro ao analisar imagem',
                 description: error.message || 'Não foi possível processar a imagem.',
