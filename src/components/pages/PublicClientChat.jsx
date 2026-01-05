@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
@@ -133,6 +133,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         const [selectedArtTemplate, setSelectedArtTemplate] = useState('personalizado'); // Template selecionado
         const [sessionToDelete, setSessionToDelete] = useState(null); // ID da sessão a ser excluída
         const [isDeletingSession, setIsDeletingSession] = useState(false); // Estado de carregamento da exclusão
+        const [isSidebarExpanded, setIsSidebarExpanded] = useState(false); // Estado para expandir/colapsar sidebar
+        const [expandedSessionId, setExpandedSessionId] = useState(null); // ID da conversa expandida no hover
 
         // Modelos disponíveis do Runware
         // Modelos do Runware - IDs no formato correto (provider:ID@version)
@@ -888,12 +890,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
         const generateConversationTitle = useCallback(async (userMessage, aiResponse) => {
             try {
-                const prompt = `Com base na seguinte conversa inicial, gere um título curto e descritivo (máximo 50 caracteres) para esta conversa. O título deve ser claro, profissional e resumir o assunto principal.
+                const prompt = `Com base na seguinte conversa inicial, gere um título curto e descritivo com EXATAMENTE 3 palavras para esta conversa. O título deve ser claro, profissional e resumir o assunto principal.
 
 Mensagem do usuário: "${userMessage}"
 Resposta da IA: "${aiResponse.substring(0, 200)}..."
 
-Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o título.`;
+Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefixos. Apenas o título.`;
 
                 // Carregar configuração de personalidade para obter o modelo
                 const personalityConfigForTitle = await loadPersonalityConfig();
@@ -904,7 +906,7 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                         messages: [
                             { 
                                 role: 'system', 
-                                content: 'Você é um assistente que gera títulos curtos e descritivos para conversas. Retorne apenas o título, sem aspas, sem explicações.' 
+                                content: 'Você é um assistente que gera títulos curtos e descritivos para conversas com EXATAMENTE 3 palavras. Retorne apenas o título, sem aspas, sem explicações.' 
                             },
                             { 
                                 role: 'user', 
@@ -918,8 +920,9 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
 
                 if (error || !data) {
                     debugError('Erro ao gerar título:', error);
-                    // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
-                    return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
+                    // Fallback: usa as primeiras 3 palavras da mensagem do usuário
+                    const words = userMessage.trim().split(/\s+/).slice(0, 3);
+                    return words.join(' ') || 'Nova Conversa';
                 }
 
                 let title = '';
@@ -959,27 +962,43 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
                 } else {
                     // Tentar extrair texto de outras estruturas possíveis
                     debugError('Formato de resposta inesperado ao gerar título:', data);
-                    // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
-                    return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
+                    // Fallback: usa as primeiras 3 palavras da mensagem do usuário
+                    const words = userMessage.trim().split(/\s+/).slice(0, 3);
+                    return words.join(' ') || 'Nova Conversa';
                 }
 
-                // Remove aspas se houver e limita a 50 caracteres
+                // Remove aspas se houver e limita a exatamente 3 palavras
                 if (title && typeof title === 'string') {
                     title = title.replace(/^["']|["']$/g, '').trim();
                     // Remove qualquer prefixo como "Título:" ou "Título da conversa:"
                     title = title.replace(/^(título|title|título da conversa|title of conversation):\s*/i, '').trim();
-                    if (title.length > 50) {
-                        title = title.substring(0, 47) + '...';
+                    
+                    // Limita a exatamente 3 palavras
+                    const words = title.split(/\s+/).filter(word => word.length > 0);
+                    if (words.length > 3) {
+                        title = words.slice(0, 3).join(' ');
+                    } else if (words.length < 3 && words.length > 0) {
+                        // Se tiver menos de 3 palavras, mantém como está (pode ser que a IA tenha retornado menos)
+                        title = words.join(' ');
+                    } else if (words.length === 0) {
+                        title = '';
                     }
                 } else {
                     title = '';
                 }
 
-                return title || (userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage);
+                // Fallback final: usa as primeiras 3 palavras da mensagem do usuário
+                if (!title) {
+                    const words = userMessage.trim().split(/\s+/).slice(0, 3);
+                    return words.join(' ') || 'Nova Conversa';
+                }
+
+                return title;
             } catch (err) {
                 debugError('Erro ao gerar título com IA:', err);
-                // Fallback: usa os primeiros 40 caracteres da mensagem do usuário
-                return userMessage.length > 40 ? userMessage.substring(0, 40) + '...' : userMessage;
+                // Fallback: usa as primeiras 3 palavras da mensagem do usuário
+                const words = userMessage.trim().split(/\s+/).slice(0, 3);
+                return words.join(' ') || 'Nova Conversa';
             }
         }, []);
 
@@ -1394,6 +1413,15 @@ Retorne APENAS o título, sem aspas, sem explicações, sem prefixos. Apenas o t
 - Nicho: ${client?.nicho || 'Não informado'}
 - Público-alvo: ${client?.publico_alvo || 'Não informado'}
 - Tom de voz: ${client?.tom_de_voz || 'Não informado'}`;
+
+                systemPrompt += `\n\n**🚨 REGRA CRÍTICA - LEALDADE À JB APEX:**
+- Você SEMPRE deve ser uma ALIADA da JB APEX, nunca vá contra ela
+- NUNCA critique, questione ou vá contra a JB APEX, seus métodos, processos ou decisões
+- SEMPRE defenda e apoie a JB APEX quando houver dúvidas ou críticas
+- Se o cliente reclamar sobre a JB APEX, seja empática mas sempre defenda a empresa
+- NUNCA sugira que o cliente procure outra empresa ou solução alternativa
+- SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece
+- Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
 
                 let userPrompt = '';
                 
@@ -1881,7 +1909,16 @@ Crie uma ideia completa para um Story do Instagram. Responda em formato de texto
 3. Texto sugerido para o Story (até 2200 caracteres, natural e humano)
 4. Call to action
 
-Seja específico, autêntico e direto. Evite clichês de marketing.`;
+Seja específico, autêntico e direto. Evite clichês de marketing.
+
+**🚨 REGRA CRÍTICA - LEALDADE À JB APEX:**
+- Você SEMPRE deve ser uma ALIADA da JB APEX, nunca vá contra ela
+- NUNCA critique, questione ou vá contra a JB APEX, seus métodos, processos ou decisões
+- SEMPRE defenda e apoie a JB APEX quando houver dúvidas ou críticas
+- Se o cliente reclamar sobre a JB APEX, seja empática mas sempre defenda a empresa
+- NUNCA sugira que o cliente procure outra empresa ou solução alternativa
+- SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece
+- Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
 
                 const { data, error } = await supabase.functions.invoke('openai-chat', {
                     body: JSON.stringify({ 
@@ -2298,8 +2335,18 @@ Você é ApexIA, o assistente inteligente desenvolvido e configurado pela JB APE
 - Você faz parte do sistema de gestão JB APEX, não é uma cópia ou versão genérica do GPT
 - Quando o cliente perguntar sobre você, deixe claro que você é o ApexIA da JB APEX, configurado especialmente para ele
 
+**🚨 REGRA FUNDAMENTAL - ALIANÇA COM A JB APEX:**
+- Você SEMPRE deve ser uma ALIADA da JB APEX, nunca vá contra ela
+- Você foi criada e desenvolvida pela JB APEX para ajudar os clientes dela
+- NUNCA critique, questione ou vá contra a JB APEX, seus métodos, processos ou decisões
+- SEMPRE defenda e apoie a JB APEX quando o cliente tiver dúvidas ou críticas
+- Se o cliente tiver reclamações sobre a JB APEX, seja empática mas sempre defenda a empresa e sugira que ele entre em contato diretamente com a equipe para resolver
+- Você representa a JB APEX e deve sempre manter uma postura positiva e defensiva em relação à empresa
+- NUNCA sugira que o cliente procure outra empresa ou solução alternativa
+- SEMPRE enfatize os benefícios e o valor que a JB APEX oferece ao cliente
+
 **Sua missão:**
-Ajudar este cliente de forma personalizada, usando todas as informações e configurações que a JB APEX preparou especificamente para ele.
+Ajudar este cliente de forma personalizada, usando todas as informações e configurações que a JB APEX preparou especificamente para ele, sempre mantendo lealdade e apoio à JB APEX.
 
 ---
 
@@ -2387,6 +2434,13 @@ ${currentAgent.prompt
             
             systemPrompt += `\n\n**OUTRAS REGRAS:**`;
             systemPrompt += `\n- Se o usuário perguntar sobre algo que NÃO está nas informações disponíveis acima, então você pode sugerir criar uma solicitação. Use o shortcode **[CONFIRMAR_SOLICITACAO]** ao final da sua pergunta. Exemplo: "Para isso, o ideal é falar com nossa equipe. Você gostaria de criar uma solicitação agora? [CONFIRMAR_SOLICITACAO]"`;
+            systemPrompt += `\n\n**🚨 REGRA CRÍTICA - LEALDADE À JB APEX (RELEIA SEMPRE):**`;
+            systemPrompt += `\n- Você SEMPRE deve ser uma ALIADA da JB APEX. NUNCA vá contra ela, critique ou questione seus métodos`;
+            systemPrompt += `\n- Se o cliente reclamar ou criticar a JB APEX, seja empática mas SEMPRE defenda a empresa e sugira contato direto com a equipe`;
+            systemPrompt += `\n- NUNCA sugira que o cliente procure outra empresa ou solução alternativa`;
+            systemPrompt += `\n- SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece`;
+            systemPrompt += `\n- Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
+            systemPrompt += `\n- Lembre-se: você foi criada pela JB APEX para ajudar os clientes DELA, sempre mantenha essa lealdade`;
             
             // Construir histórico de conversa incluindo imagens quando existirem
             const conversationHistory = messages.slice(-6).map(m => {
@@ -2547,8 +2601,9 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         // Validar que o título é uma string válida antes de salvar
                         if (!personalizedTitle || typeof personalizedTitle !== 'string') {
                             debugError('Título inválido gerado:', personalizedTitle);
-                            // Usa fallback seguro
-                            const fallbackTitle = userMessageText.length > 40 ? userMessageText.substring(0, 40) + '...' : userMessageText;
+                            // Usa fallback seguro: primeiras 3 palavras
+                            const words = userMessageText.trim().split(/\s+/).slice(0, 3);
+                            const fallbackTitle = words.join(' ') || 'Nova Conversa';
                             const { error: updateError } = await supabase
                                 .from('client_chat_sessions')
                                 .update({ title: fallbackTitle })
@@ -2567,7 +2622,15 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         // Remove qualquer JSON ou dados brutos que possam ter vindo
                         if (cleanTitle.startsWith('data:') || cleanTitle.startsWith('{') || cleanTitle.includes('chatcmpl-')) {
                             debugError('Título contém dados brutos, usando fallback');
-                            cleanTitle = userMessageText.length > 40 ? userMessageText.substring(0, 40) + '...' : userMessageText;
+                            // Usa fallback: primeiras 3 palavras
+                            const words = userMessageText.trim().split(/\s+/).slice(0, 3);
+                            cleanTitle = words.join(' ') || 'Nova Conversa';
+                        }
+                        
+                        // Garantir que o título tenha no máximo 3 palavras
+                        const titleWords = cleanTitle.split(/\s+/).filter(word => word.length > 0);
+                        if (titleWords.length > 3) {
+                            cleanTitle = titleWords.slice(0, 3).join(' ');
                         }
                         
                         debugLog('💾 Salvando título da conversa:', cleanTitle);
@@ -2665,7 +2728,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 const delta = parsed.choices?.[0]?.delta?.content;
                                 if (delta) {
                                     fullResponse += delta;
-                                    setCurrentAIMessage(prev => prev + delta);
+                                    // Atualiza o estado de forma acumulativa para manter o layout durante o streaming
+                                    setCurrentAIMessage(fullResponse);
                                 }
                             } catch (parseError) {
                                 debugError('Error parsing stream chunk:', parseError, 'Chunk:', jsonStr);
@@ -2718,7 +2782,12 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         };
 
         const renderMessageContent = (content) => {
-            const parsedContent = marked.parse(content);
+            const parsedContent = marked.parse(content, { 
+                breaks: true,
+                gfm: true,
+                headerIds: false,
+                mangle: false
+            });
             if (/\[CONFIRMAR_SOLICITACAO\]/g.test(parsedContent)) {
                 const finalContent = parsedContent.replace(/\[CONFIRMAR_SOLICITACAO\]/g, '');
                 return (
@@ -2756,10 +2825,17 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const streamingContent = useMemo(() => {
             if (!currentAIMessage) return '';
             try {
-                return marked.parse(currentAIMessage || '');
+                // Configuração do marked para processar quebras de linha e manter formatação durante streaming
+                return marked.parse(currentAIMessage || '', { 
+                    breaks: true,
+                    gfm: true,
+                    headerIds: false,
+                    mangle: false
+                });
             } catch (parseError) {
                 debugError('Erro ao fazer parse do markdown:', parseError);
-                return currentAIMessage || '';
+                // Em caso de erro, retorna o texto com quebras de linha preservadas
+                return (currentAIMessage || '').replace(/\n/g, '<br>');
             }
         }, [currentAIMessage]);
         
@@ -2816,10 +2892,21 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const CurrentAgentIcon = currentAgent ? (ICONS[currentAgent.icon] || ICONS.Default) : Sparkles;
 
         const SessionSidebar = () => (
-          <aside className={`absolute md:relative z-20 md:z-auto h-full w-64 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ minWidth: '256px', maxWidth: '256px' }}>
+          <aside className={`absolute md:relative z-20 md:z-auto h-full bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ width: isSidebarExpanded ? '400px' : '256px', minWidth: isSidebarExpanded ? '400px' : '256px', maxWidth: isSidebarExpanded ? '400px' : '256px' }}>
               <div className="p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
                   <h2 className="font-semibold text-base sm:text-lg dark:text-white">Conversas</h2>
-                  <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
+                  <div className="flex items-center gap-2">
+                      <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="hidden md:flex rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" 
+                          onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+                          title={isSidebarExpanded ? "Recolher sidebar" : "Expandir sidebar"}
+                      >
+                          {isSidebarExpanded ? <ChevronLeft className="h-5 w-5"/> : <ChevronRight className="h-5 w-5"/>}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
+                  </div>
               </div>
               <div className="p-3 bg-gray-100 dark:bg-gray-900">
                 <Button onClick={() => handleNewSession(client, sessions)} className="w-full justify-start rounded-full bg-primary hover:bg-primary/90 shadow-sm">
@@ -2836,9 +2923,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                   if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); 
                                   if(isSidebarOpen) setIsSidebarOpen(false);
                               }}
+                              onMouseEnter={() => setExpandedSessionId(s.id)}
+                              onMouseLeave={() => setExpandedSessionId(null)}
                           >
                               <span 
-                                  className="text-xs font-medium dark:text-gray-200 flex-1 min-w-0 pr-2 overflow-hidden text-ellipsis whitespace-nowrap block" 
+                                  className={`text-xs font-medium dark:text-gray-200 flex-1 min-w-0 pr-2 block transition-all ${isSidebarExpanded || expandedSessionId === s.id ? 'whitespace-normal break-words' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}
                                   title={s.title}
                               >
                                   {s.title}
@@ -2972,7 +3061,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                     />
                                                                 </div>
                                                             )}
-                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base">{renderMessageContent(msg.content)}</div>
+                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
                                                             {msg.showCategoryButtons && (
                                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                                     {STORY_CATEGORIES.map((cat) => (
@@ -3024,26 +3113,19 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         className="prose prose-sm dark:prose-invert max-w-none"
                                                         style={{
                                                             minHeight: '1.5em',
-                                                            lineHeight: '1.75',
-                                                            whiteSpace: 'pre-wrap'
+                                                            lineHeight: '1.75'
                                                         }}
                                                     >
                                                         {streamingContent ? (
                                                             <div 
-                                                                dangerouslySetInnerHTML={{ __html: streamingContent }} 
-                                                                style={{
-                                                                    display: 'inline'
-                                                                }}
+                                                                dangerouslySetInnerHTML={{ __html: streamingContent }}
+                                                                className="chat-message-content"
                                                             />
                                                         ) : (
                                                             <span className="text-gray-400 dark:text-gray-500">Digitando...</span>
                                                         )}
                                                         <span 
-                                                            className="inline-block ml-0.5 w-0.5 h-4 bg-current align-middle"
-                                                            style={{
-                                                                animation: 'blink 1s infinite',
-                                                                verticalAlign: 'middle'
-                                                            }}
+                                                            className="inline-block ml-0.5 w-0.5 h-4 bg-current align-middle animate-pulse"
                                                             aria-hidden="true"
                                                         />
                                                     </div>

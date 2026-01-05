@@ -112,3 +112,180 @@
         font-size: 16px !important;
       }
     }
+
+    /* Estilos customizados para formatação de markdown no chat */
+    .prose {
+      @apply text-gray-800 dark:text-gray-200;
+    }
+
+    .prose p {
+      @apply mb-4 leading-relaxed;
+      margin-top: 0;
+    }
+
+    .prose p:last-child {
+      @apply mb-0;
+    }
+
+    .prose ul,
+    .prose ol {
+      @apply mb-4 pl-6 space-y-2;
+      margin-top: 0;
+    }
+
+    .prose ul {
+      @apply list-disc;
+    }
+
+    .prose ol {
+      @apply list-decimal;
+    }
+
+    .prose li {
+      @apply mb-1 leading-relaxed;
+    }
+
+    .prose li p {
+      @apply mb-2;
+    }
+
+    .prose h1,
+    .prose h2,
+    .prose h3,
+    .prose h4,
+    .prose h5,
+    .prose h6 {
+      @apply font-semibold mb-3 mt-6;
+      margin-top: 1.5rem;
+    }
+
+    .prose h1:first-child,
+    .prose h2:first-child,
+    .prose h3:first-child,
+    .prose h4:first-child,
+    .prose h5:first-child,
+    .prose h6:first-child {
+      @apply mt-0;
+    }
+
+    .prose h1 {
+      @apply text-2xl;
+    }
+
+    .prose h2 {
+      @apply text-xl;
+    }
+
+    .prose h3 {
+      @apply text-lg;
+    }
+
+    .prose strong {
+      @apply font-semibold;
+    }
+
+    .prose em {
+      @apply italic;
+    }
+
+    .prose code {
+      @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono;
+    }
+
+    .prose pre {
+      @apply bg-gray-100 dark:bg-gray-800 p-4 rounded-lg mb-4 overflow-x-auto;
+      margin-top: 0;
+    }
+
+    .prose pre code {
+      @apply bg-transparent p-0;
+    }
+
+    .prose blockquote {
+      @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-4;
+    }
+
+    .prose a {
+      @apply text-primary underline;
+    }
+
+    .prose hr {
+      @apply border-gray-300 dark:border-gray-700 my-6;
+    }
+
+    .prose table {
+      @apply w-full mb-4 border-collapse;
+    }
+
+    .prose th,
+    .prose td {
+      @apply border border-gray-300 dark:border-gray-700 px-4 py-2;
+    }
+
+    .prose th {
+      @apply bg-gray-100 dark:bg-gray-800 font-semibold;
+    }
+
+    /* Estilos específicos para conteúdo de mensagens do chat */
+    .chat-message-content {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .chat-message-content p {
+      margin-bottom: 1rem;
+      margin-top: 0;
+    }
+
+    .chat-message-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .chat-message-content ul,
+    .chat-message-content ol {
+      margin-bottom: 1rem;
+      margin-top: 0;
+      padding-left: 1.5rem;
+    }
+
+    .chat-message-content li {
+      margin-bottom: 0.5rem;
+    }
+
+    .chat-message-content li:last-child {
+      margin-bottom: 0;
+    }
+
+    .chat-message-content h1,
+    .chat-message-content h2,
+    .chat-message-content h3,
+    .chat-message-content h4,
+    .chat-message-content h5,
+    .chat-message-content h6 {
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .chat-message-content h1:first-child,
+    .chat-message-content h2:first-child,
+    .chat-message-content h3:first-child,
+    .chat-message-content h4:first-child,
+    .chat-message-content h5:first-child,
+    .chat-message-content h6:first-child {
+      margin-top: 0;
+    }
+
+    .chat-message-content blockquote {
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .chat-message-content pre {
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .chat-message-content hr {
+      margin-top: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
