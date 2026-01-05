@@ -117,10 +117,28 @@ const ClientMetaList = () => {
   // Busca todos os clientes
   const fetchClients = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      // Tenta buscar com limite_meta primeiro, se falhar usa apenas valor (fallback para antes da migration)
+      let query = supabase
         .from('clientes')
-        .select('id, empresa, valor, objetivo_meta, meta_custo_mensagem, meta_custo_compra, roas_alvo')
+        .select('id, empresa, valor, limite_meta, objetivo_meta, meta_custo_mensagem, meta_custo_compra, roas_alvo')
         .order('empresa', { ascending: true });
+      
+      let { data, error } = await query;
+      
+      // Se erro for porque limite_meta não existe, busca sem esse campo e adiciona null
+      if (error && error.message?.includes('limite_meta')) {
+        console.warn('⚠️ Coluna limite_meta não existe. Execute a migration EXECUTAR_MIGRATION_LIMITE_META.sql');
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('clientes')
+          .select('id, empresa, valor, objetivo_meta, meta_custo_mensagem, meta_custo_compra, roas_alvo')
+          .order('empresa', { ascending: true });
+        
+        if (fallbackError) throw fallbackError;
+        
+        // Adiciona limite_meta como null para todos os clientes
+        data = (fallbackData || []).map(client => ({ ...client, limite_meta: null }));
+        error = null;
+      }
 
       if (error) throw error;
       // Debug: ver objetivos vindos do banco
@@ -139,21 +157,39 @@ const ClientMetaList = () => {
     }
   }, [toast]);
 
-  // Atualiza limite do cliente
+  // Atualiza limite de gasto no Meta do cliente (limite_meta, não valor)
   const updateClientLimit = useCallback(async (clientId, newLimit) => {
     try {
       const limitNumber = parseFloat(newLimit.replace(/[^\d,.-]/g, '').replace(',', '.')) || 0;
       
       const { error } = await supabase
         .from('clientes')
-        .update({ valor: limitNumber })
+        .update({ limite_meta: limitNumber })
         .eq('id', clientId);
+
+      // Se erro for porque limite_meta não existe, mostra aviso para executar migration
+      const errorMessage = error?.message || JSON.stringify(error || '');
+      if (error && (
+        errorMessage.includes('limite_meta') || 
+        errorMessage.includes('Could not find') ||
+        errorMessage.includes('does not exist') ||
+        error?.code === 'PGRST204'
+      )) {
+        toast({
+          title: '⚠️ Migration necessária',
+          description: 'A coluna limite_meta ainda não existe. Execute a migration EXECUTAR_MIGRATION_LIMITE_META.sql no Supabase SQL Editor para habilitar esta funcionalidade.',
+          variant: 'destructive',
+        });
+        setEditingLimit(null);
+        setLimitValue('');
+        return; // Não lança erro, apenas cancela a edição
+      }
 
       if (error) throw error;
 
       // Atualiza localmente
       setClients(prev => prev.map(client => 
-        client.id === clientId ? { ...client, valor: limitNumber } : client
+        client.id === clientId ? { ...client, limite_meta: limitNumber } : client
       ));
 
       toast({
@@ -165,22 +201,29 @@ const ClientMetaList = () => {
       setEditingLimit(null);
       setLimitValue('');
     } catch (err) {
+      // Se já foi tratado acima (coluna não existe), não mostra erro duplicado
+      if (err.message?.includes('limite_meta') || err.message?.includes('Could not find')) {
+        return; // Já foi tratado acima
+      }
+      
       console.error('Erro ao atualizar limite:', err);
       toast({
         title: 'Erro ao atualizar limite',
         description: err.message,
         variant: 'destructive',
       });
+      setEditingLimit(null);
+      setLimitValue('');
     }
   }, [toast]);
 
-  // Inicia edição do limite
+  // Inicia edição do limite de gasto no Meta
   const startEditingLimit = useCallback((client) => {
     setEditingLimit(client.id);
-    // Usa o valor numérico diretamente, formatado para edição (sem R$)
-    if (client.valor) {
+    // Usa o limite_meta (limite de gasto no Meta), não o valor (quanto o cliente paga)
+    if (client.limite_meta) {
       // Converte para string e formata com vírgula como separador decimal
-      const valueStr = client.valor.toString();
+      const valueStr = client.limite_meta.toString();
       setLimitValue(valueStr.includes('.') ? valueStr.replace('.', ',') : valueStr);
     } else {
       setLimitValue('');
@@ -590,6 +633,7 @@ const ClientMetaList = () => {
   };
 
   // Calcula métricas derivadas
+  // limite = limite_meta (limite de gasto no Meta Ads), não valor (quanto o cliente paga)
   const calculateMetrics = (metrics, limite, client) => {
     if (!metrics) return null;
 
@@ -988,7 +1032,7 @@ const ClientMetaList = () => {
           <TableBody>
             {filteredClients.map(client => {
               const data = clientData[client.id];
-              const metrics = data?.metrics ? calculateMetrics(data.metrics, client.valor, client) : null;
+              const metrics = data?.metrics ? calculateMetrics(data.metrics, client.limite_meta, client) : null;
               const status = getMetaStatus(data?.metrics);
 
               return (
@@ -1062,7 +1106,7 @@ const ClientMetaList = () => {
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 group">
-                        <span>{client.valor ? formatCurrency(client.valor) : '-'}</span>
+                        <span>{client.limite_meta ? formatCurrency(client.limite_meta) : '-'}</span>
                         <Button
                           variant="ghost"
                           size="sm"
