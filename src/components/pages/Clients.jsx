@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { AnimatePresence, motion } from 'framer-motion';
-    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, DollarSign } from 'lucide-react';
+    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, DollarSign, Search } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
@@ -15,6 +15,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
     import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+    import { Input } from "@/components/ui/input";
     import { useDataCache } from '@/hooks/useDataCache';
 
     const ETAPAS = [
@@ -42,6 +43,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
       const [etapaFilter, setEtapaFilter] = useState('all');
       const [etiquetaFilter, setEtiquetaFilter] = useState([]);
       const [selectedClients, setSelectedClients] = useState([]);
+      const [searchTerm, setSearchTerm] = useState('');
       const { toast } = useToast();
       const { user, profile, loading: authLoading } = useAuth();
       const { moduleAccess } = useModuleSettings();
@@ -212,9 +214,16 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         return clients.filter(client => {
           const etapaMatch = etapaFilter === 'all' || client.etapa === etapaFilter;
           const etiquetaMatch = etiquetaFilter.length === 0 || etiquetaFilter.every(tag => client.etiquetas?.includes(tag));
-          return etapaMatch && etiquetaMatch;
+          
+          // Busca por nome da empresa, nome do contato ou email
+          const searchMatch = searchTerm === '' || 
+            (client.empresa?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             client.nome_contato?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             client.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+          
+          return etapaMatch && etiquetaMatch && searchMatch;
         });
-      }, [clients, etapaFilter, etiquetaFilter]);
+      }, [clients, etapaFilter, etiquetaFilter, searchTerm]);
 
       // Calcula estatísticas dos clientes filtrados (apenas para super admin)
       const stats = useMemo(() => {
@@ -238,21 +247,35 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
       return (
         <div className="space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Clientes</h1>
-            <div className="flex items-center gap-2">
-              {(userRole === 'superadmin' || userRole === 'admin') && (
-                <Button onClick={() => handleOpenForm()} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
-                  <Plus size={16} className="mr-2" />Novo Cliente
-                </Button>
-              )}
-              <div className="flex items-center rounded-md bg-gray-200 dark:bg-gray-700 p-1">
-                <Button size="sm" variant={viewMode === 'list' ? 'primary' : 'ghost'} onClick={() => setViewMode('list')} className={`px-3 py-1 h-auto ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                  <List size={16} />
-                </Button>
-                <Button size="sm" variant={viewMode === 'cards' ? 'primary' : 'ghost'} onClick={() => setViewMode('cards')} className={`px-3 py-1 h-auto ${viewMode === 'cards' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                  <LayoutGrid size={16} />
-                </Button>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Clientes</h1>
+              <div className="flex items-center gap-2">
+                {(userRole === 'superadmin' || userRole === 'admin') && (
+                  <Button onClick={() => handleOpenForm()} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
+                    <Plus size={16} className="mr-2" />Novo Cliente
+                  </Button>
+                )}
+                <div className="flex items-center rounded-md bg-gray-200 dark:bg-gray-700 p-1">
+                  <Button size="sm" variant={viewMode === 'list' ? 'primary' : 'ghost'} onClick={() => setViewMode('list')} className={`px-3 py-1 h-auto ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
+                    <List size={16} />
+                  </Button>
+                  <Button size="sm" variant={viewMode === 'cards' ? 'primary' : 'ghost'} onClick={() => setViewMode('cards')} className={`px-3 py-1 h-auto ${viewMode === 'cards' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
+                    <LayoutGrid size={16} />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
+                <Input
+                  type="search"
+                  placeholder="Buscar cliente..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400"
+                />
               </div>
             </div>
           </div>
