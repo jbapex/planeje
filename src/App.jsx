@@ -30,6 +30,10 @@ import React, { useEffect } from 'react';
     import MarketingDiagnostic from '@/components/pages/MarketingDiagnostic';
 import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
 import PublicClientChat from '@/components/pages/PublicClientChat';
+import AssistantHome from '@/components/pages/AssistantHome';
+import SelectClient from '@/components/pages/SelectClient';
+import ClientChat from '@/components/pages/ClientChat';
+import GeneralChat from '@/components/pages/GeneralChat';
 import TestImageModels from '@/components/pages/TestImageModels';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
@@ -123,6 +127,10 @@ import TestImageModels from '@/components/pages/TestImageModels';
                 <Route path="meta-reporter" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><MetaAdsReporter /></ProtectedRoute>} />
                 <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="reports"><PerformanceReport /></ProtectedRoute>} />
                 <Route path="onboarding" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><Onboarding /></ProtectedRoute>} />
+                <Route path="assistant" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AssistantHome /></ProtectedRoute>} />
+                <Route path="assistant/select-client" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><SelectClient /></ProtectedRoute>} />
+                <Route path="assistant/client/:clientId" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><ClientChat /></ProtectedRoute>} />
+                <Route path="assistant/general" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><GeneralChat /></ProtectedRoute>} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
                 <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />

@@ -248,21 +248,21 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
       return (
         <div className="space-y-6">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Clientes</h1>
-              <div className="flex items-center gap-2">
-                {(userRole === 'superadmin' || userRole === 'admin') && (
-                  <Button onClick={() => handleOpenForm()} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
-                    <Plus size={16} className="mr-2" />Novo Cliente
-                  </Button>
-                )}
-                <div className="flex items-center rounded-md bg-gray-200 dark:bg-gray-700 p-1">
-                  <Button size="sm" variant={viewMode === 'list' ? 'primary' : 'ghost'} onClick={() => setViewMode('list')} className={`px-3 py-1 h-auto ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                    <List size={16} />
-                  </Button>
-                  <Button size="sm" variant={viewMode === 'cards' ? 'primary' : 'ghost'} onClick={() => setViewMode('cards')} className={`px-3 py-1 h-auto ${viewMode === 'cards' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                    <LayoutGrid size={16} />
-                  </Button>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Clientes</h1>
+            <div className="flex items-center gap-2">
+              {(userRole === 'superadmin' || userRole === 'admin') && (
+                <Button onClick={() => handleOpenForm()} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
+                  <Plus size={16} className="mr-2" />Novo Cliente
+                </Button>
+              )}
+              <div className="flex items-center rounded-md bg-gray-200 dark:bg-gray-700 p-1">
+                <Button size="sm" variant={viewMode === 'list' ? 'primary' : 'ghost'} onClick={() => setViewMode('list')} className={`px-3 py-1 h-auto ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
+                  <List size={16} />
+                </Button>
+                <Button size="sm" variant={viewMode === 'cards' ? 'primary' : 'ghost'} onClick={() => setViewMode('cards')} className={`px-3 py-1 h-auto ${viewMode === 'cards' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
+                  <LayoutGrid size={16} />
+                </Button>
                 </div>
               </div>
             </div>

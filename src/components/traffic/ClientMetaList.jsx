@@ -129,9 +129,9 @@ const ClientMetaList = () => {
       if (error && error.message?.includes('limite_meta')) {
         console.warn('⚠️ Coluna limite_meta não existe. Execute a migration EXECUTAR_MIGRATION_LIMITE_META.sql');
         const { data: fallbackData, error: fallbackError } = await supabase
-          .from('clientes')
-          .select('id, empresa, valor, objetivo_meta, meta_custo_mensagem, meta_custo_compra, roas_alvo')
-          .order('empresa', { ascending: true });
+        .from('clientes')
+        .select('id, empresa, valor, objetivo_meta, meta_custo_mensagem, meta_custo_compra, roas_alvo')
+        .order('empresa', { ascending: true });
         
         if (fallbackError) throw fallbackError;
         

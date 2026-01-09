@@ -11,6 +11,7 @@ import React from 'react';
 import DashboardSettings from './DashboardSettings';
 import CompanyInfoSettings from './CompanyInfoSettings';
 import ApexIAClientPersonalitySettings from './ApexIAClientPersonalitySettings';
+import AssistantProjectModelSettings from './AssistantProjectModelSettings';
 import { LayoutDashboard } from 'lucide-react';
 
     const SuperAdmin = () => {
@@ -27,6 +28,7 @@ import { LayoutDashboard } from 'lucide-react';
             { path: '/super-admin/ai-agents', label: 'Agentes de IA', icon: <Sparkles className="h-4 w-4" /> },
             { path: '/super-admin/apexia-client-personality', label: 'Personalidade ApexIA', icon: <Bot className="h-4 w-4" /> },
             { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
+            { path: '/super-admin/assistant-project-models', label: 'Modelos Assistente', icon: <Sparkles className="h-4 w-4" /> },
         ];
         
         return (
@@ -67,6 +69,7 @@ import { LayoutDashboard } from 'lucide-react';
                         <Route path="ai-agents" element={<AiAgentsManager />} />
                         <Route path="apexia-client-personality" element={<ApexIAClientPersonalitySettings />} />
                         <Route path="chat-limits" element={<ChatLimitsManager />} />
+                        <Route path="assistant-project-models" element={<AssistantProjectModelSettings />} />
                         <Route index element={<Navigate to="modules" replace />} />
                    </Routes>
                 </main>
