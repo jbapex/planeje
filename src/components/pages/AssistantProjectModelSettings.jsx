@@ -18,6 +18,7 @@ const CONFIG_KEY = 'assistant_project_model_config';
 const AssistantProjectModelSettings = () => {
   const { toast } = useToast();
   const [selectedModels, setSelectedModels] = useState(['openai/gpt-4o']);
+  const [defaultModel, setDefaultModel] = useState('openai/gpt-4o');
   const [loading, setLoading] = useState(true);
   const [loadingModels, setLoadingModels] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -78,15 +79,20 @@ const AssistantProjectModelSettings = () => {
         // Suporta formato antigo (model) e novo (models)
         if (config.models && Array.isArray(config.models)) {
           setSelectedModels(config.models);
+          // Se houver defaultModel configurado, usar; senão usar o primeiro
+          setDefaultModel(config.defaultModel || config.models[0] || 'openai/gpt-4o');
         } else if (config.model) {
           // Migração: converter formato antigo para novo
           setSelectedModels([config.model]);
+          setDefaultModel(config.model);
         } else {
           setSelectedModels(['openai/gpt-4o']);
+          setDefaultModel('openai/gpt-4o');
         }
       } else {
         // Valor padrão
         setSelectedModels(['openai/gpt-4o']);
+        setDefaultModel('openai/gpt-4o');
       }
     } catch (e) {
       console.warn('Configuração não carregada:', e?.message || e);
@@ -110,7 +116,12 @@ const AssistantProjectModelSettings = () => {
       if (prev.includes(modelId)) {
         // Remove se já está selecionado (mas mantém pelo menos um)
         if (prev.length > 1) {
-          return prev.filter(id => id !== modelId);
+          const newModels = prev.filter(id => id !== modelId);
+          // Se o modelo removido era o padrão, definir o primeiro da lista como padrão
+          if (defaultModel === modelId && newModels.length > 0) {
+            setDefaultModel(newModels[0]);
+          }
+          return newModels;
         }
         return prev;
       } else {
@@ -118,6 +129,12 @@ const AssistantProjectModelSettings = () => {
         return [...prev, modelId];
       }
     });
+  };
+
+  const handleSetDefaultModel = (modelId) => {
+    if (selectedModels.includes(modelId)) {
+      setDefaultModel(modelId);
+    }
   };
 
   const handleSelectAll = (category) => {
@@ -152,13 +169,18 @@ const AssistantProjectModelSettings = () => {
 
     setSaving(true);
     try {
+      // Garantir que o modelo padrão está na lista de selecionados
+      const finalDefaultModel = selectedModels.includes(defaultModel) 
+        ? defaultModel 
+        : selectedModels[0];
+
       const { error } = await supabase
         .from('public_config')
         .upsert({
           key: CONFIG_KEY,
           value: JSON.stringify({ 
             models: selectedModels,
-            defaultModel: selectedModels[0] // Primeiro como padrão
+            defaultModel: finalDefaultModel
           }),
         }, {
           onConflict: 'key',
@@ -171,7 +193,7 @@ const AssistantProjectModelSettings = () => {
 
       toast({
         title: 'Modelos salvos!',
-        description: `${selectedModels.length} modelo(s) disponível(is) para os usuários escolherem no chat.`,
+        description: `${selectedModels.length} modelo(s) disponível(is). Modelo padrão: ${getModelInfo(finalDefaultModel).name}`,
       });
     } catch (e) {
       toast({
@@ -454,12 +476,30 @@ const AssistantProjectModelSettings = () => {
             </p>
           ) : (
             <div className="space-y-2">
-              {selectedModels.map((modelId, index) => {
+              {selectedModels.map((modelId) => {
                 const modelInfo = getModelInfo(modelId);
+                const isDefault = defaultModel === modelId;
                 return (
-                  <div key={modelId} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                  <div 
+                    key={modelId} 
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
+                      isDefault 
+                        ? 'bg-primary/10 border-primary' 
+                        : 'bg-muted hover:bg-muted/80'
+                    }`}
+                    onClick={() => handleSetDefaultModel(modelId)}
+                  >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {index === 0 && (
+                      <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        isDefault 
+                          ? 'border-primary bg-primary' 
+                          : 'border-gray-300 dark:border-gray-600'
+                      }`}>
+                        {isDefault && (
+                          <div className="h-2 w-2 rounded-full bg-white"></div>
+                        )}
+                      </div>
+                      {isDefault && (
                         <Badge variant="default" className="text-xs flex-shrink-0">Padrão</Badge>
                       )}
                       <div className="flex-1 min-w-0">

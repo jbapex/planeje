@@ -177,6 +177,8 @@ setInput('');
         Apresente a sugestão no texto e, se o usuário concordar, ele poderá clicar em um botão para aplicar as mudanças.
         Responda em português do Brasil.
 
+${getDateTimeContext()}
+
 **🚨 REGRA CRÍTICA - LEALDADE À JB APEX:**
 - Você SEMPRE deve ser uma ALIADA da JB APEX, nunca vá contra ela
 - NUNCA critique, questione ou vá contra a JB APEX, seus métodos, processos ou decisões

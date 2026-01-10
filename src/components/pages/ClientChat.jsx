@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Send, Loader2, Users, FileText, BarChart3, Target, CheckCircle2, Sparkles, Camera, Plus, X } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, FileText, BarChart3, Target, CheckCircle2, Sparkles, Camera, Plus, X, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -729,6 +729,8 @@ ${clientContext}
 - Criar estratégias profundas e específicas, não genéricas
 - Considerar histórico, tarefas realizadas e contexto completo
 
+${getDateTimeContext()}
+
 **REGRAS DE PROFUNDIDADE (CRÍTICO):**
 - NUNCA dê respostas genéricas ou superficiais
 - SEMPRE use dados específicos do cliente mencionados
@@ -851,6 +853,47 @@ ${clientContext}
     setInput('');
   };
 
+  // Deletar conversa
+  const handleDeleteConversation = async (convId, e) => {
+    e.stopPropagation(); // Prevenir que carregue a conversa ao clicar
+    
+    if (!confirm('Tem certeza que deseja deletar esta conversa? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('assistant_project_conversations')
+        .delete()
+        .eq('id', convId)
+        .eq('owner_id', user.id);
+
+      if (error) throw error;
+
+      // Se for a conversa atual, limpar
+      if (convId === currentConversationId) {
+        setMessages([]);
+        setCurrentConversationId(null);
+        setCurrentAIMessage('');
+      }
+
+      // Atualizar lista de conversas
+      setConversations(prev => prev.filter(conv => conv.id !== convId));
+
+      toast({
+        title: 'Conversa deletada',
+        description: 'A conversa foi removida com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao deletar conversa:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível deletar a conversa.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const streamingContent = marked.parse(currentAIMessage || '');
 
   if (loading) {
@@ -895,17 +938,30 @@ ${clientContext}
               {conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                  className={`group p-3 rounded-lg cursor-pointer transition-colors ${
                     currentConversationId === conv.id
                       ? 'bg-orange-100 dark:bg-orange-900/20'
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                   onClick={() => loadConversation(conv.id)}
                 >
-                  <p className="text-sm font-medium truncate">{conv.title || 'Sem título'}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(conv.updated_at).toLocaleDateString('pt-BR')}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{conv.title || 'Sem título'}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {new Date(conv.updated_at).toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      onClick={(e) => handleDeleteConversation(conv.id, e)}
+                      title="Deletar conversa"
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

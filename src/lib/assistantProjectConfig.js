@@ -44,12 +44,42 @@ export async function getAvailableModels() {
 }
 
 /**
- * Busca o modelo padrão (primeiro da lista)
+ * Busca o modelo padrão configurado
  * @returns {Promise<string>} ID do modelo padrão
  */
 export async function getDefaultModel() {
-  const models = await getAvailableModels();
-  return models[0] || DEFAULT_MODEL;
+  try {
+    const { data, error } = await supabase
+      .from('public_config')
+      .select('value')
+      .eq('key', CONFIG_KEY)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Erro ao buscar modelo padrão:', error);
+      const models = await getAvailableModels();
+      return models[0] || DEFAULT_MODEL;
+    }
+
+    if (data?.value) {
+      const config = JSON.parse(data.value);
+      // Se houver defaultModel configurado, usar; senão usar o primeiro da lista
+      if (config.defaultModel && config.models && config.models.includes(config.defaultModel)) {
+        return config.defaultModel;
+      } else if (config.models && config.models.length > 0) {
+        return config.models[0];
+      } else if (config.model) {
+        return config.model;
+      }
+    }
+
+    const models = await getAvailableModels();
+    return models[0] || DEFAULT_MODEL;
+  } catch (e) {
+    console.warn('Erro ao buscar modelo padrão:', e);
+    const models = await getAvailableModels();
+    return models[0] || DEFAULT_MODEL;
+  }
 }
 
 /**

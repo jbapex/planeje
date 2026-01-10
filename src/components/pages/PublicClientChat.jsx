@@ -7,6 +7,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { motion, AnimatePresence } from 'framer-motion';
     import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
+import { isOpenRouterModel } from '@/lib/apexiaModelConfig';
+import { getDateTimeContext } from '@/lib/utils';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
 import { Button } from '@/components/ui/button';
@@ -1423,6 +1425,9 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
 - SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece
 - Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
 
+                // Adicionar data e hora atual (tempo real)
+                systemPrompt += getDateTimeContext();
+
                 let userPrompt = '';
                 
                 switch (action) {
@@ -1920,6 +1925,9 @@ Seja específico, autêntico e direto. Evite clichês de marketing.
 - SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece
 - Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
 
+                // Adicionar data e hora atual (tempo real)
+                systemPrompt += getDateTimeContext();
+
                 const { data, error } = await supabase.functions.invoke('openai-chat', {
                     body: JSON.stringify({ 
                         messages: [
@@ -2370,6 +2378,9 @@ ${currentAgent.prompt
             systemPrompt += `\n\n**Informações de Contexto (se necessário):**\n**Projetos Atuais Selecionados:**\n${projectsInfo}`;
             }
             
+            // Adicionar data e hora atual (tempo real) - SEMPRE atualizado
+            systemPrompt += getDateTimeContext();
+            
             // Adicionar instruções importantes e explícitas
             systemPrompt += `\n\n**🚨 REGRAS CRÍTICAS DE RESPOSTA - LEIA COM ATENÇÃO:**`;
             systemPrompt += `\n\n**SOBRE ACESSO A INFORMAÇÕES:**`;
@@ -2466,13 +2477,22 @@ ${currentAgent.prompt
             const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
 
             try {
-                debugLog('🔵 Iniciando chamada para Edge Function openai-chat...', {
+                // Detectar se deve usar OpenRouter ou OpenAI
+                const useOpenRouter = isOpenRouterModel(selectedModel);
+                const functionName = useOpenRouter ? 'openrouter-chat' : 'openai-chat';
+                
+                debugLog(`🔵 Iniciando chamada para Edge Function ${functionName}...`, {
                     messagesCount: apiMessages.length,
-                    model: selectedModel
+                    model: selectedModel,
+                    useOpenRouter
                 });
 
-                const { data, error } = await supabase.functions.invoke('openai-chat', {
-                    body: JSON.stringify({ messages: apiMessages, model: selectedModel }),
+                const { data, error } = await supabase.functions.invoke(functionName, {
+                    body: JSON.stringify({ 
+                        messages: apiMessages, 
+                        model: selectedModel,
+                        stream: true // OpenRouter sempre usa stream
+                    }),
                 });
 
                 debugLog('🔵 Resposta da Edge Function:', { data: !!data, error: !!error, hasBody: !!data?.body });
@@ -2542,17 +2562,19 @@ ${currentAgent.prompt
                     }
                     
                     // Último recurso: mensagem genérica com instruções de diagnóstico
+                    const functionNameToCheck = useOpenRouter ? 'openrouter-chat' : 'openai-chat';
+                    const apiKeyName = useOpenRouter ? 'OPENROUTER_API_KEY' : 'OPENAI_API_KEY';
                     const diagnosticMessage = `
 Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
 
 📋 DIAGNÓSTICO:
-1. Verifique se a Edge Function 'openai-chat' está deployada no Supabase
-2. Verifique se a API key da OpenAI está configurada
+1. Verifique se a Edge Function '${functionNameToCheck}' está deployada no Supabase
+2. Verifique se a API key (${apiKeyName}) está configurada
 3. Veja os logs da Edge Function no Dashboard do Supabase
 
 🔧 Para corrigir:
 - Acesse: Supabase Dashboard → Edge Functions → Deploy a função
-- Configure: OPENAI_API_KEY nas Settings da Edge Function
+- Configure: ${apiKeyName} nas Settings da Edge Function
 `;
                     throw new Error(diagnosticMessage.trim());
                 }

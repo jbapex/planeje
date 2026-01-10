@@ -7,11 +7,14 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, Info, Bot, Sparkles, Eye, FileText, Download, Upload } from 'lucide-react';
+import { Loader2, Save, Info, Bot, Sparkles, Eye, FileText, Download, Upload, RefreshCw, ExternalLink, Search } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Slider } from '@/components/ui/slider';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { fetchOpenRouterModels, organizeModelsByProvider, getPriceIndicator, formatPrice, translateDescription } from '@/lib/openrouterModels';
 
 const CONFIG_KEY = 'apexia_client_personality_config';
 
@@ -184,6 +187,15 @@ const ApexIAClientPersonalitySettings = () => {
   const [saving, setSaving] = useState(false);
   const [customRulesText, setCustomRulesText] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
+  
+  // Estados para modelos OpenRouter
+  const [openRouterModels, setOpenRouterModels] = useState([]);
+  const [organizedOpenRouterModels, setOrganizedOpenRouterModels] = useState({});
+  const [loadingOpenRouterModels, setLoadingOpenRouterModels] = useState(false);
+  const [showOpenRouterModels, setShowOpenRouterModels] = useState(false);
+  const [openRouterSearchTerm, setOpenRouterSearchTerm] = useState('');
+  const [openRouterCategoryFilter, setOpenRouterCategoryFilter] = useState('all');
+  const [expandedOpenRouterCategories, setExpandedOpenRouterCategories] = useState({});
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -232,6 +244,41 @@ const ApexIAClientPersonalitySettings = () => {
       setConfig(defaultConfig);
     } finally {
       setLoading(false);
+    }
+  }, [toast]);
+
+  // Carregar modelos do OpenRouter
+  const loadOpenRouterModels = useCallback(async () => {
+    setLoadingOpenRouterModels(true);
+    try {
+      const models = await fetchOpenRouterModels();
+      setOpenRouterModels(models);
+      const organized = organizeModelsByProvider(models);
+      setOrganizedOpenRouterModels(organized);
+      
+      // Expandir categorias principais por padrão
+      setExpandedOpenRouterCategories({
+        openai: true,
+        anthropic: true,
+        google: true,
+        meta: true,
+        mistral: false,
+        deepseek: false,
+        grok: false,
+        cohere: false,
+        perplexity: false,
+        qwen: false,
+        other: false,
+      });
+    } catch (error) {
+      console.error('Erro ao carregar modelos do OpenRouter:', error);
+      toast({
+        title: 'Erro ao carregar modelos',
+        description: 'Não foi possível buscar modelos do OpenRouter.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingOpenRouterModels(false);
     }
   }, [toast]);
 
@@ -568,37 +615,259 @@ ${accessibleFields.length > 0 ? accessibleFields.map(f => `- ${f}`).join('\n') :
             <Info className="h-4 w-4" />
             <AlertDescription>
               Selecione o modelo de IA que será usado em todas as conversas do ApexIA com os clientes. 
-              O modelo escolhido afeta a qualidade das respostas, velocidade e custo. 
-              GPT-5.1 é o mais inteligente, enquanto GPT-4o Mini é mais rápido e econômico.
+              Você pode escolher entre modelos OpenAI (via OpenAI API) ou modelos do OpenRouter (acesso a múltiplos provedores).
+              <br />
+              <a 
+                href="https://openrouter.ai/models" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline inline-flex items-center gap-1 mt-2"
+              >
+                Ver todos os modelos disponíveis no OpenRouter
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </AlertDescription>
           </Alert>
 
-          <div className="space-y-2">
-            <Label htmlFor="ai-model">Modelo de IA</Label>
-            <Select
-              value={config.ai_model || 'gpt-5.1'}
-              onValueChange={(value) => updateConfig('ai_model', value)}
+          {/* Tabs para escolher entre OpenAI e OpenRouter */}
+          <div className="flex gap-2 border-b">
+            <Button
+              variant={!showOpenRouterModels ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setShowOpenRouterModels(false)}
+              className="rounded-b-none"
             >
-              <SelectTrigger id="ai-model">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AI_MODELS.map(model => (
-                  <SelectItem key={model.value} value={model.value}>
-                    <div className="flex flex-col">
-                      <span>{model.label}</span>
-                      <span className="text-xs text-muted-foreground">{model.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {config.ai_model && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Modelo selecionado: <strong>{AI_MODELS.find(m => m.value === config.ai_model)?.label || config.ai_model}</strong>
-              </p>
-            )}
+              Modelos OpenAI
+            </Button>
+            <Button
+              variant={showOpenRouterModels ? "default" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setShowOpenRouterModels(true);
+                if (openRouterModels.length === 0) {
+                  loadOpenRouterModels();
+                }
+              }}
+              className="rounded-b-none"
+            >
+              Modelos OpenRouter
+            </Button>
           </div>
+
+          {!showOpenRouterModels ? (
+            // Seleção de modelos OpenAI (original)
+            <div className="space-y-2">
+              <Label htmlFor="ai-model">Modelo de IA (OpenAI)</Label>
+              <Select
+                value={config.ai_model || 'gpt-5.1'}
+                onValueChange={(value) => updateConfig('ai_model', value)}
+              >
+                <SelectTrigger id="ai-model">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AI_MODELS.map(model => (
+                    <SelectItem key={model.value} value={model.value}>
+                      <div className="flex flex-col">
+                        <span>{model.label}</span>
+                        <span className="text-xs text-muted-foreground">{model.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {config.ai_model && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Modelo selecionado: <strong>{AI_MODELS.find(m => m.value === config.ai_model)?.label || config.ai_model}</strong>
+                </p>
+              )}
+            </div>
+          ) : (
+            // Seleção de modelos OpenRouter
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Modelo de IA (OpenRouter)</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadOpenRouterModels}
+                  disabled={loadingOpenRouterModels}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loadingOpenRouterModels ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </Button>
+              </div>
+
+              {/* Filtros */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground mb-2 block">Filtrar por Empresa</Label>
+                  <Select value={openRouterCategoryFilter} onValueChange={setOpenRouterCategoryFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Todas as empresas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as Empresas</SelectItem>
+                      {Object.keys(organizedOpenRouterModels).map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category === 'openai' ? 'OpenAI' :
+                           category === 'anthropic' ? 'Anthropic (Claude)' :
+                           category === 'google' ? 'Google (Gemini)' :
+                           category === 'meta' ? 'Meta (Llama)' :
+                           category === 'mistral' ? 'Mistral AI' :
+                           category === 'deepseek' ? 'DeepSeek' :
+                           category === 'grok' ? 'Grok (xAI)' :
+                           category === 'cohere' ? 'Cohere' :
+                           category === 'perplexity' ? 'Perplexity' :
+                           category === 'qwen' ? 'Qwen (Alibaba)' :
+                           'Outros'} ({organizedOpenRouterModels[category]?.length || 0})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 relative">
+                  <Label className="text-xs text-muted-foreground mb-2 block">Buscar Modelos</Label>
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nome, ID ou descrição..."
+                    value={openRouterSearchTerm}
+                    onChange={(e) => setOpenRouterSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Lista de modelos OpenRouter */}
+              {loadingOpenRouterModels ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="ml-3 text-muted-foreground">Carregando modelos do OpenRouter...</span>
+                </div>
+              ) : (
+                <ScrollArea className="h-[400px] border rounded-lg p-4">
+                  <div className="space-y-4">
+                    {Object.entries(organizedOpenRouterModels)
+                      .filter(([category]) => {
+                        if (openRouterCategoryFilter === 'all') return true;
+                        return category === openRouterCategoryFilter;
+                      })
+                      .map(([category, models]) => {
+                        const filteredModels = openRouterSearchTerm
+                          ? models.filter(model => 
+                              model.id.toLowerCase().includes(openRouterSearchTerm.toLowerCase()) ||
+                              (model.name && model.name.toLowerCase().includes(openRouterSearchTerm.toLowerCase())) ||
+                              (model.description && model.description.toLowerCase().includes(openRouterSearchTerm.toLowerCase()))
+                            )
+                          : models;
+                        
+                        if (filteredModels.length === 0) return null;
+                        
+                        const isExpanded = expandedOpenRouterCategories[category] !== false;
+                        
+                        return (
+                          <div key={category} className="space-y-2">
+                            <div className="flex items-center justify-between border-b pb-2">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setExpandedOpenRouterCategories(prev => ({ ...prev, [category]: !isExpanded }))}
+                                  className="h-6 w-6 p-0"
+                                >
+                                  {isExpanded ? '▼' : '▶'}
+                                </Button>
+                                <h3 className="font-semibold text-sm">
+                                  {category === 'openai' ? 'OpenAI' :
+                                   category === 'anthropic' ? 'Anthropic (Claude)' :
+                                   category === 'google' ? 'Google (Gemini)' :
+                                   category === 'meta' ? 'Meta (Llama)' :
+                                   category === 'mistral' ? 'Mistral AI' :
+                                   category === 'deepseek' ? 'DeepSeek' :
+                                   category === 'grok' ? 'Grok (xAI)' :
+                                   category === 'cohere' ? 'Cohere' :
+                                   category === 'perplexity' ? 'Perplexity' :
+                                   category === 'qwen' ? 'Qwen (Alibaba)' :
+                                   'Outros'}
+                                </h3>
+                                <Badge variant="outline" className="text-xs">
+                                  {filteredModels.length}
+                                </Badge>
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div className="space-y-2">
+                                {filteredModels.map((model) => {
+                                  const isSelected = config.ai_model === model.id;
+                                  const priceIndicator = getPriceIndicator(model.pricing);
+                                  const priceFormatted = formatPrice(model.pricing);
+                                  const descriptionPT = translateDescription(model.id, model.description);
+                                  
+                                  return (
+                                    <div
+                                      key={model.id}
+                                      className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                                        isSelected
+                                          ? 'border-primary bg-primary/10'
+                                          : 'hover:bg-muted/50'
+                                      }`}
+                                      onClick={() => updateConfig('ai_model', model.id)}
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                              isSelected 
+                                                ? 'border-primary bg-primary' 
+                                                : 'border-gray-300 dark:border-gray-600'
+                                            }`}>
+                                              {isSelected && (
+                                                <div className="h-2 w-2 rounded-full bg-white"></div>
+                                              )}
+                                            </div>
+                                            <h4 className="font-semibold text-sm truncate">{model.name || model.id.split('/').pop()}</h4>
+                                            <Badge variant="outline" className="text-xs flex-shrink-0">
+                                              {priceIndicator}
+                                            </Badge>
+                                          </div>
+                                          {descriptionPT && (
+                                            <p className="text-xs text-muted-foreground mb-1 line-clamp-2">
+                                              {descriptionPT}
+                                            </p>
+                                          )}
+                                          <p className="text-xs font-semibold text-primary mb-1">{priceFormatted}</p>
+                                          <p className="text-xs font-mono text-muted-foreground truncate" title={model.id}>
+                                            {model.id}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </ScrollArea>
+              )}
+
+              {config.ai_model && openRouterModels.some(m => m.id === config.ai_model) && (
+                <div className="p-3 bg-primary/10 border border-primary rounded-lg">
+                  <p className="text-sm font-medium">
+                    Modelo selecionado: <strong>{openRouterModels.find(m => m.id === config.ai_model)?.name || config.ai_model}</strong>
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {translateDescription(config.ai_model, openRouterModels.find(m => m.id === config.ai_model)?.description || '')}
+                  </p>
+                  <p className="text-xs font-semibold text-primary mt-1">
+                    {formatPrice(openRouterModels.find(m => m.id === config.ai_model)?.pricing)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
