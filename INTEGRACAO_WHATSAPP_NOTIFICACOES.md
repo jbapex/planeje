@@ -89,68 +89,49 @@ Por favor, atualize o status ou conclua a tarefa.
 
 ## 🏗️ Arquitetura da Integração
 
-### **Opção 1: WhatsApp Business API (Recomendado)** ⭐
+### **Opção 1: Evolution API (Gratuito - Recomendado para Começar)** ⭐⭐⭐⭐⭐
 
 **Vantagens:**
-- ✅ API oficial do WhatsApp
-- ✅ Suporte a mensagens automatizadas
+- ✅ 100% Gratuito
+- ✅ Fácil de instalar (Docker)
+- ✅ API REST simples
+- ✅ Muito usado no Brasil
+- ✅ Suporta múltiplos números
+- ✅ Open-source
+
+**Desvantagens:**
+- ⚠️ Precisa manter servidor rodando
+- ⚠️ Pode desconectar se não usar por muito tempo
+- ⚠️ Não é oficial (usa WhatsApp Web)
+
+**Como funciona:**
+```
+Sistema detecta mudança no Kanban
+  ↓
+Edge Function processa evento
+  ↓
+Envia mensagem via Evolution API
+  ↓
+Evolution API → WhatsApp Web → WhatsApp
+```
+
+**Custo:** R$ 0,00 (gratuito)
+
+**📚 Veja guia completo:** `OPCOES_INTEGRACAO_WHATSAPP_GRATUITA.md`
+
+---
+
+### **Opção 2: Twilio WhatsApp API (Pago - Profissional)** 💼
+
+**Vantagens:**
+- ✅ API profissional e oficial
 - ✅ Confiável e estável
-- ✅ Suporte a templates aprovados
+- ✅ Não desconecta
+- ✅ Suporte profissional
+- ✅ Escalável
 
 **Desvantagens:**
-- ❌ Requer aprovação do WhatsApp
-- ❌ Pode ter custos por mensagem
-- ❌ Setup mais complexo
-
-**Como funciona:**
-```
-Sistema detecta mudança no Kanban
-  ↓
-Edge Function processa evento
-  ↓
-Envia mensagem via WhatsApp Business API
-  ↓
-WhatsApp entrega mensagem ao destinatário
-```
-
----
-
-### **Opção 2: WhatsApp Web via API (Mais Simples)** 🚀
-
-**Vantagens:**
-- ✅ Setup rápido
-- ✅ Gratuito
-- ✅ Fácil de implementar
-- ✅ Não precisa aprovação
-
-**Desvantagens:**
-- ❌ Menos confiável (pode desconectar)
-- ❌ Limitações de rate limit
-- ❌ Pode violar termos de uso do WhatsApp
-
-**Como funciona:**
-```
-Sistema detecta mudança no Kanban
-  ↓
-Edge Function processa evento
-  ↓
-Envia mensagem via API do WhatsApp Web
-  ↓
-WhatsApp Web entrega mensagem
-```
-
----
-
-### **Opção 3: Twilio WhatsApp API** 💼
-
-**Vantagens:**
-- ✅ API profissional
-- ✅ Confiável
-- ✅ Boa documentação
-- ✅ Suporte a múltiplos canais
-
-**Desvantagens:**
-- ❌ Custo por mensagem
+- ❌ Custo por mensagem (~R$ 0,10-0,20)
 - ❌ Requer conta Twilio
 
 **Como funciona:**
@@ -164,6 +145,36 @@ Envia mensagem via Twilio API
 Twilio entrega via WhatsApp
 ```
 
+**Custo:** ~R$ 0,10-0,20 por mensagem
+
+---
+
+### **Opção 3: WhatsApp Business API (Pago - Oficial)** ⭐
+
+**Vantagens:**
+- ✅ API oficial do WhatsApp
+- ✅ Suporte a mensagens automatizadas
+- ✅ Confiável e estável
+- ✅ Suporte a templates aprovados
+
+**Desvantagens:**
+- ❌ Requer aprovação do WhatsApp
+- ❌ Custo por mensagem
+- ❌ Setup mais complexo
+
+**Como funciona:**
+```
+Sistema detecta mudança no Kanban
+  ↓
+Edge Function processa evento
+  ↓
+Envia mensagem via WhatsApp Business API
+  ↓
+WhatsApp entrega mensagem ao destinatário
+```
+
+**Custo:** Variável (depende do volume)
+
 ---
 
 ## 📋 Implementação Recomendada
@@ -171,8 +182,9 @@ Twilio entrega via WhatsApp
 ### **Fase 1: Setup Básico (1 semana)** 🚀
 
 **1. Escolher Provedor:**
-- Recomendado: **Twilio WhatsApp API** (mais profissional)
-- Alternativa: **WhatsApp Business API** (se tiver conta Business)
+- **Para começar (gratuito):** **Evolution API** ⭐ Recomendado
+- **Para produção (pago):** **Twilio WhatsApp API** (mais profissional)
+- **Alternativa:** **WhatsApp Business API** (se tiver conta Business)
 
 **2. Criar Edge Function:**
 ```typescript
