@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Users, MessageSquare, Zap, FileText, PenTool, BarChart3, Image as ImageIcon, Megaphone, Target, TrendingUp, Search, Clock, Sparkles, Palette, TrendingDown, ArrowRight, Building2 } from 'lucide-react';
+import { Users, MessageSquare, Zap, FileText, PenTool, BarChart3, Image as ImageIcon, Megaphone, Target, TrendingUp, Search, Clock, Sparkles, Palette, TrendingDown, ArrowRight, Building2, Brain } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -262,6 +262,41 @@ const AssistantHome = () => {
             </Card>
           </motion.div>
         </div>
+
+        {/* Dashboard de Aprendizado */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          transition={{ duration: 0.2 }}
+          className="mb-10"
+        >
+          <Card className="border-2 border-gray-200 dark:border-gray-800 hover:border-blue-500/50 dark:hover:border-blue-500/50 transition-all cursor-pointer group">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-600/10 group-hover:from-blue-500/20 group-hover:to-blue-600/20 transition-colors">
+                    <Brain className="h-6 w-6 text-blue-600 dark:text-blue-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+                      Dashboard de Aprendizado
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Visualize como a IA está aprendendo com suas interações e preferências
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  className="border-blue-500/50 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  onClick={() => navigate('/assistant/learning')}
+                >
+                  <ArrowRight className="h-4 w-4 mr-2" />
+                  Ver Dashboard
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
 
         {/* Ações Rápidas */}
         <Card className="mb-8 border border-gray-200 dark:border-gray-800 shadow-sm">

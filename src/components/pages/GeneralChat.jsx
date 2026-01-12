@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Send, Loader2, Zap, FileText, PenTool, BarChart3, Image as ImageIcon, Megaphone, Target, TrendingUp, Sparkles, Camera, Plus, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Zap, FileText, PenTool, BarChart3, Image as ImageIcon, Megaphone, Target, TrendingUp, Sparkles, Camera, Plus, X, Trash2, RotateCw, ThumbsUp, ThumbsDown, Edit, Star } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -15,8 +15,9 @@ import { getAvailableModelsCached, getDefaultModelCached } from '@/lib/assistant
 import ModelSelector from '@/components/chat/ModelSelector';
 import { Badge } from '@/components/ui/badge';
 import { isGeminiModel, searchGoogle, extractSearchQuery, formatSearchResults } from '@/lib/googleSearch';
-import { isImageGenerationModel } from '@/lib/openrouterModels';
+import { isImageGenerationModel, isReasoningModel, getOptimalHistoryLength } from '@/lib/openrouterModels';
 import { getDateTimeContext } from '@/lib/utils';
+import { saveFeedback, saveReferenceExample, applyLearnedPreferences } from '@/lib/aiLearning';
 
 const GeneralChat = () => {
   const [searchParams] = useSearchParams();
@@ -30,6 +31,8 @@ const GeneralChat = () => {
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentAIMessage, setCurrentAIMessage] = useState('');
+  const [currentThinking, setCurrentThinking] = useState('');
+  const [isReasoning, setIsReasoning] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(conversationId || null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +51,8 @@ const GeneralChat = () => {
   const [attachedImage, setAttachedImage] = useState(null);
   const [attachedImagePreview, setAttachedImagePreview] = useState(null);
   const [pendingImagePrompt, setPendingImagePrompt] = useState(null);
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null); // Índice da mensagem sendo editada
+  const [editedMessageText, setEditedMessageText] = useState(''); // Texto editado
   
   const scrollAreaRef = useRef(null);
   const textareaRef = useRef(null);
@@ -456,40 +461,106 @@ const GeneralChat = () => {
   };
 
   // Stream de resposta da IA
-  const streamAIResponse = async (response) => {
+  const streamAIResponse = async (response, modelId) => {
     if (!response.body) {
       throw new Error("Resposta sem corpo para streaming");
     }
+    
+    // Verificar se é modelo de raciocínio
+    const isReasoningModelType = isReasoningModel(modelId);
+    setIsReasoning(isReasoningModelType);
+    
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let fullResponse = '';
+    let thinking = '';
     setCurrentAIMessage('');
+    setCurrentThinking('');
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    let streamFinished = false;
+    
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          streamFinished = true;
+          break;
+        }
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.substring(6);
-          if (jsonStr === '[DONE]') break;
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) {
-              fullResponse += delta;
-              setCurrentAIMessage(fullResponse);
+        for (const line of lines) {
+          if (!line.trim()) continue; // Ignorar linhas vazias
+          
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.substring(6).trim();
+            
+            // Verificar se é o marcador de fim
+            if (jsonStr === '[DONE]') {
+              streamFinished = true;
+              break;
             }
-          } catch (e) {
-            // Ignora erros de parsing
+            
+            try {
+              const parsed = JSON.parse(jsonStr);
+              
+              // Verificar se há finish_reason indicando fim da resposta
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+              if (finishReason) {
+                // Se finish_reason existe, a resposta pode estar completa
+                // Mas ainda processamos o conteúdo se houver
+              }
+              
+              // Capturar thinking (raciocínio) se disponível
+              if (isReasoningModelType) {
+                const thinkingDelta = parsed.choices?.[0]?.delta?.thinking;
+                if (thinkingDelta) {
+                  thinking += thinkingDelta;
+                  setCurrentThinking(thinking);
+                }
+              }
+              
+              // Capturar conteúdo da resposta
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullResponse += delta;
+                setCurrentAIMessage(fullResponse);
+              }
+              
+              // Verificar se há mensagem completa (não delta)
+              const messageContent = parsed.choices?.[0]?.message?.content;
+              if (messageContent && !delta) {
+                fullResponse = messageContent;
+                setCurrentAIMessage(fullResponse);
+              }
+            } catch (e) {
+              // Log erro de parsing para debug, mas continua processando
+              console.warn('Erro ao processar chunk do stream:', e, 'Chunk:', jsonStr.substring(0, 100));
+            }
           }
         }
+        
+        // Se marcou como finalizado, sair do loop externo também
+        if (streamFinished) break;
+      }
+    } catch (streamError) {
+      console.error('Erro durante streaming:', streamError);
+      // Se já coletou alguma resposta parcial, continuar com ela
+      if (fullResponse.length === 0) {
+        throw new Error(`Erro ao processar stream: ${streamError.message}`);
+      }
+    } finally {
+      // Garantir que o reader seja liberado
+      try {
+        reader.releaseLock();
+      } catch (e) {
+        // Ignorar erro se já foi liberado
       }
     }
-    return fullResponse;
+    
+    setIsReasoning(false);
+    return { content: fullResponse, thinking: thinking || null };
   };
 
   // Construir contexto geral
@@ -720,7 +791,10 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
       }
     }
 
-    const conversationHistory = messages.slice(-10).map(m => ({ role: m.role, content: m.content }));
+    // Ajustar histórico baseado na capacidade do modelo
+    // Modelos com grande contexto e baixo custo (ex: Gemini Flash) podem usar mais mensagens
+    const optimalHistoryLength = getOptimalHistoryLength(selectedModel);
+    const conversationHistory = messages.slice(-optimalHistoryLength).map(m => ({ role: m.role, content: m.content }));
     const apiMessages = [
       { role: 'system', content: enhancedSystemPrompt },
       ...conversationHistory,
@@ -735,8 +809,12 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
       if (error) throw error;
 
       let fullResponse = '';
+      let thinking = null;
+      
       if (data?.body) {
-        fullResponse = await streamAIResponse(data);
+        const result = await streamAIResponse(data, selectedModel);
+        fullResponse = result.content;
+        thinking = result.thinking;
       } else if (data?.text) {
         fullResponse = data.text;
       } else {
@@ -745,7 +823,8 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
 
       const assistantMessage = { 
         role: 'assistant', 
-        content: fullResponse, 
+        content: fullResponse,
+        thinking: thinking, // Raciocínio do modelo (se disponível)
         timestamp: new Date().toISOString(),
         model: selectedModel // Salvar qual modelo foi usado
       };
@@ -766,7 +845,303 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsGenerating(false);
+      setIsReasoning(false);
+      setCurrentThinking('');
     }
+  };
+
+  // Regenerar última resposta da IA
+  const handleRegenerateMessage = async () => {
+    if (isGenerating || messages.length < 2) return;
+    
+    // Encontrar a última mensagem do usuário e a última do assistente
+    let lastUserMessageIndex = -1;
+    let lastAssistantMessageIndex = -1;
+    
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && lastAssistantMessageIndex === -1) {
+        lastAssistantMessageIndex = i;
+      }
+      if (messages[i].role === 'user' && lastUserMessageIndex === -1) {
+        lastUserMessageIndex = i;
+      }
+      if (lastUserMessageIndex !== -1 && lastAssistantMessageIndex !== -1) break;
+    }
+    
+    // Se não encontrou ambas as mensagens, não pode regenerar
+    if (lastUserMessageIndex === -1 || lastAssistantMessageIndex === -1) {
+      toast({
+        title: 'Não é possível regenerar',
+        description: 'É necessário ter pelo menos uma mensagem do usuário e uma resposta da IA.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Remover a última resposta do assistente
+    const messagesWithoutLastAssistant = messages.slice(0, lastAssistantMessageIndex);
+    setMessages(messagesWithoutLastAssistant);
+    
+    // Reenviar a última mensagem do usuário
+    const lastUserMessage = messages[lastUserMessageIndex];
+    setIsGenerating(true);
+    setCurrentAIMessage('');
+    setCurrentThinking('');
+    
+    // Construir contexto geral (mesmo código do handleSendMessage)
+    const generalContext = await buildGeneralContext();
+    const dateTimeContext = getDateTimeContext();
+    const userName = profile?.full_name || profile?.email || 'Funcionário da JB APEX';
+    
+    const systemPrompt = `Você é o CÉREBRO DE MARKETING da JB APEX - um estrategista de marketing digital de nível mundial, especialista em criar campanhas que VENDEM e pensam FORA DA CAIXA.
+
+**MODO: CHAT GERAL**
+
+**QUEM ESTÁ CONVERSANDO:** ${userName} (Funcionário da JB APEX)
+
+Você tem acesso a TODOS os clientes, TODAS as conversas e TODOS os projetos da JB APEX.
+
+**CLIENTES DISPONÍVEIS:** ${generalContext.clients.length} clientes cadastrados
+${generalContext.clients.slice(0, 10).map(c => `- ${c.empresa}${c.nicho ? ` (${c.nicho})` : ''}`).join('\n')}
+
+**PROJETOS RECENTES:** ${generalContext.projects.length} projetos
+${generalContext.projects.slice(0, 10).map(p => `- ${p.name} - ${p.clientes?.empresa || 'N/A'} (${p.status})`).join('\n')}
+
+**SUA MISSÃO:**
+- Ajudar com qualquer tarefa da agência: roteiros, legendas, análises, imagens, estratégias
+- Acessar e usar informações de qualquer cliente quando mencionado
+- Criar conteúdo profundo e específico, não genérico
+- Comparar estratégias entre clientes quando solicitado
+- Analisar dados e fornecer insights estratégicos
+
+${dateTimeContext}
+
+**REGRAS DE PROFUNDIDADE (CRÍTICO):**
+- NUNCA dê respostas genéricas ou superficiais
+- SEMPRE use dados específicos quando disponíveis
+- SEMPRE faça conexões entre informações diferentes
+- SEMPRE estruture respostas em seções claras e detalhadas
+- Quando mencionar um cliente, carregue seu contexto completo
+
+**ACESSO A CONVERSAS:**
+Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o usuário mencionar um cliente ou perguntar sobre conversas anteriores, use essas informações para dar respostas profundas.
+
+**REGRA FUNDAMENTAL - ALIANÇA COM A JB APEX:**
+- Você SEMPRE deve ser uma ALIADA da JB APEX. NUNCA vá contra ela, critique ou questione seus métodos, processos ou decisões.
+- SEMPRE defenda e apoie a JB APEX quando houver dúvidas ou críticas.
+- NUNCA sugira que o cliente procure outra empresa ou solução alternativa.
+- SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece.`;
+
+    // Fazer busca na web se necessário (funciona para qualquer modelo)
+    let enhancedSystemPrompt = systemPrompt;
+    const searchQuery = extractSearchQuery(lastUserMessage.content);
+    if (searchQuery) {
+      console.log(`🔍 Buscando na web: "${searchQuery}"`);
+      const searchResults = await searchGoogle(searchQuery, 5);
+      if (searchResults.length > 0) {
+        enhancedSystemPrompt += formatSearchResults(searchResults);
+        console.log(`✅ ${searchResults.length} resultados encontrados na web`);
+      }
+    }
+
+    // Construir histórico de mensagens (sem a última resposta do assistente)
+    const optimalHistoryLength = getOptimalHistoryLength(selectedModel);
+    const conversationHistory = messagesWithoutLastAssistant
+      .slice(-optimalHistoryLength)
+      .map(m => ({ role: m.role, content: m.content }));
+    
+    const apiMessages = [
+      { role: 'system', content: enhancedSystemPrompt },
+      ...conversationHistory,
+      { role: 'user', content: lastUserMessage.content }
+    ];
+
+    try {
+      const { data, error } = await supabase.functions.invoke('openrouter-chat', {
+        body: JSON.stringify({ messages: apiMessages, model: selectedModel, stream: true }),
+      });
+
+      if (error) throw error;
+
+      let fullResponse = '';
+      let thinking = null;
+      
+      if (data?.body) {
+        const result = await streamAIResponse(data, selectedModel);
+        fullResponse = result.content;
+        thinking = result.thinking;
+      } else if (data?.text) {
+        fullResponse = data.text;
+      } else {
+        throw new Error('Resposta inválida da IA');
+      }
+
+      const assistantMessage = { 
+        role: 'assistant', 
+        content: fullResponse,
+        thinking: thinking,
+        timestamp: new Date().toISOString(),
+        model: selectedModel
+      };
+      
+      const newMessages = [...messagesWithoutLastAssistant, assistantMessage];
+      setMessages(newMessages);
+      setCurrentAIMessage('');
+
+      // Salvar conversa
+      await saveConversation(newMessages);
+
+    } catch (error) {
+      console.error('Erro ao regenerar mensagem:', error);
+      toast({
+        title: 'Erro',
+        description: error.message || 'Não foi possível regenerar a mensagem',
+        variant: 'destructive',
+      });
+      // Restaurar mensagens originais em caso de erro
+      setMessages(messages);
+    } finally {
+      setIsGenerating(false);
+      setIsReasoning(false);
+      setCurrentThinking('');
+    }
+  };
+
+  // Handlers para sistema de aprendizado
+  const handleFeedback = async (messageIndex, feedbackType, notes = null) => {
+    if (!currentConversationId) return;
+    
+    const message = messages[messageIndex];
+    if (!message || message.role !== 'assistant') return;
+
+    try {
+      await saveFeedback({
+        conversationId: currentConversationId,
+        messageIndex,
+        feedbackType,
+        originalMessage: message.content,
+        messageType: detectMessageType(message.content),
+        modelUsed: message.model || selectedModel,
+        feedbackNotes: notes
+      });
+
+      toast({
+        title: feedbackType === 'positive' ? 'Feedback positivo registrado!' : 'Feedback registrado',
+        description: feedbackType === 'positive' 
+          ? 'A IA aprenderá com sua preferência.' 
+          : 'Sua opinião ajudará a melhorar as respostas.',
+      });
+    } catch (error) {
+      console.error('Erro ao salvar feedback:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível salvar o feedback.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleMarkAsExample = async (messageIndex) => {
+    if (!currentConversationId) return;
+    
+    const message = messages[messageIndex];
+    if (!message || message.role !== 'assistant') return;
+
+    try {
+      await saveReferenceExample({
+        conversationId: currentConversationId,
+        messageIndex,
+        exampleType: detectMessageType(message.content),
+        exampleContent: message.content,
+        tags: extractTags(message.content)
+      });
+
+      toast({
+        title: 'Exemplo salvo!',
+        description: 'Esta resposta será usada como referência no futuro.',
+      });
+    } catch (error) {
+      console.error('Erro ao salvar exemplo:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível salvar o exemplo.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCorrectMessage = (messageIndex) => {
+    const message = messages[messageIndex];
+    if (!message || message.role !== 'assistant') return;
+
+    setEditingMessageIndex(messageIndex);
+    setEditedMessageText(message.content);
+  };
+
+  const handleSaveCorrection = async () => {
+    if (editingMessageIndex === null) return;
+    
+    const message = messages[editingMessageIndex];
+    const correctedText = editedMessageText.trim();
+
+    if (!correctedText || correctedText === message.content) {
+      setEditingMessageIndex(null);
+      setEditedMessageText('');
+      return;
+    }
+
+    try {
+      await saveFeedback({
+        conversationId: currentConversationId,
+        messageIndex: editingMessageIndex,
+        feedbackType: 'correction',
+        originalMessage: message.content,
+        correctedMessage: correctedText,
+        messageType: detectMessageType(message.content),
+        modelUsed: message.model || selectedModel
+      });
+
+      const updatedMessages = [...messages];
+      updatedMessages[editingMessageIndex] = { ...message, content: correctedText };
+      setMessages(updatedMessages);
+      await saveConversation(updatedMessages);
+
+      setEditingMessageIndex(null);
+      setEditedMessageText('');
+
+      toast({
+        title: 'Correção salva!',
+        description: 'A IA aprenderá com sua correção.',
+      });
+    } catch (error) {
+      console.error('Erro ao salvar correção:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível salvar a correção.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const detectMessageType = (content) => {
+    const lowerContent = content.toLowerCase();
+    if (lowerContent.includes('campanha') || lowerContent.includes('campaign')) return 'campaign';
+    if (lowerContent.includes('análise') || lowerContent.includes('analise') || lowerContent.includes('insight')) return 'analysis';
+    if (lowerContent.includes('estratégia') || lowerContent.includes('estrategia')) return 'strategy';
+    if (lowerContent.includes('roteiro') || lowerContent.includes('script')) return 'content';
+    return 'general';
+  };
+
+  const extractTags = (content) => {
+    const tags = [];
+    const lowerContent = content.toLowerCase();
+    if (lowerContent.includes('instagram')) tags.push('instagram');
+    if (lowerContent.includes('facebook')) tags.push('facebook');
+    if (lowerContent.includes('youtube')) tags.push('youtube');
+    if (lowerContent.includes('tiktok')) tags.push('tiktok');
+    if (lowerContent.includes('stories')) tags.push('stories');
+    if (lowerContent.includes('reels')) tags.push('reels');
+    return tags;
   };
 
   // Salvar conversa
@@ -1026,10 +1401,83 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
                           </Badge>
                         </div>
                       )}
-                      <div
-                        className="prose prose-sm dark:prose-invert max-w-none"
-                        dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
-                      />
+                      {/* Exibir raciocínio (thinking) se disponível */}
+                      {msg.thinking && (
+                        <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="flex gap-1">
+                              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                            </div>
+                            <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Raciocínio</span>
+                          </div>
+                          <div className="text-xs text-purple-600 dark:text-purple-400 whitespace-pre-wrap font-mono">
+                            {msg.thinking}
+                          </div>
+                        </div>
+                      )}
+                      <div className="relative group">
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none"
+                          dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
+                        />
+                        {/* Botão de regenerar - aparece no hover e apenas na última mensagem do assistente */}
+                        {idx === messages.length - 1 && msg.role === 'assistant' && !isGenerating && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 p-0 -mt-1 -mr-1"
+                            onClick={handleRegenerateMessage}
+                            title="Regenerar resposta"
+                          >
+                            <RotateCw className="h-4 w-4 text-gray-500 hover:text-orange-500" />
+                          </Button>
+                        )}
+                        {/* Botões de feedback e ações - aparece no hover */}
+                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => handleFeedback(idx, 'positive')}
+                            title="Gostei desta resposta"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5 mr-1 text-green-500" />
+                            Gostei
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => handleFeedback(idx, 'negative')}
+                            title="Não gostei desta resposta"
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5 mr-1 text-red-500" />
+                            Não gostei
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => handleCorrectMessage(idx)}
+                            title="Corrigir esta resposta"
+                          >
+                            <Edit className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                            Corrigir
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => handleMarkAsExample(idx)}
+                            title="Marcar como exemplo de referência"
+                          >
+                            <Star className="h-3.5 w-3.5 mr-1 text-yellow-500" />
+                            Exemplo
+                          </Button>
+                        </div>
+                      </div>
                       {/* Botões de escolha de método de geração de imagem */}
                       {msg.imageGenerationOptions && (
                         <div className="mt-4 flex flex-col gap-2">
@@ -1074,12 +1522,41 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
                   <span className="text-xs text-gray-500 dark:text-gray-400 mb-1 px-2">
                     Assistente JB APEX
                   </span>
-                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 w-full">
+                    {/* Exibir thinking durante o streaming (modelos de raciocínio) */}
+                    {isReasoning && currentThinking && (
+                      <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex gap-1">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                          </div>
+                          <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Pensando...</span>
+                        </div>
+                        <div className="text-xs text-purple-600 dark:text-purple-400 whitespace-pre-wrap font-mono max-h-60 overflow-y-auto">
+                          {currentThinking}
+                        </div>
+                      </div>
+                    )}
+                    {/* Indicador de "pensando" quando não há thinking ainda mas é modelo de raciocínio */}
+                    {isReasoning && !currentThinking && !currentAIMessage && (
+                      <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-1">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                          </div>
+                          <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Pensando...</span>
+                        </div>
+                      </div>
+                    )}
                     <div
                       className="prose prose-sm dark:prose-invert max-w-none"
                       dangerouslySetInnerHTML={{ __html: streamingContent }}
                     />
-                    {!currentAIMessage && (
+                    {!currentAIMessage && !isReasoning && (
                       <div className="flex items-center gap-2 text-gray-500">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>Digitando...</span>
@@ -1221,6 +1698,70 @@ Você tem acesso a TODAS as conversas anteriores de TODOS os clientes. Quando o 
             </div>
           </div>
         </footer>
+
+        {/* Dialog para Editar Mensagem */}
+        <Dialog open={editingMessageIndex !== null} onOpenChange={(open) => {
+          if (!open) {
+            setEditingMessageIndex(null);
+            setEditedMessageText('');
+          }
+        }}>
+          <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Corrigir Resposta</DialogTitle>
+              <DialogDescription>
+                Edite a mensagem abaixo. A IA aprenderá com sua correção.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                  <span>Mensagem Original:</span>
+                  <Badge variant="outline" className="text-xs">Somente leitura</Badge>
+                </label>
+                <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md text-sm text-gray-600 dark:text-gray-400 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700">
+                  {editingMessageIndex !== null && (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <div dangerouslySetInnerHTML={{ __html: marked.parse(messages[editingMessageIndex]?.content || '') }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                  <span>Mensagem Corrigida:</span>
+                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Edite aqui</Badge>
+                </label>
+                <Textarea
+                  value={editedMessageText}
+                  onChange={(e) => setEditedMessageText(e.target.value)}
+                  className="min-h-[250px] text-sm border-2 border-green-200 dark:border-green-800 focus:border-green-400 dark:focus:border-green-600"
+                  placeholder="Edite a mensagem aqui... A IA aprenderá com suas correções."
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Dica: Seja específico nas correções. O sistema aprenderá padrões como tom de voz, profundidade e formato.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingMessageIndex(null);
+                    setEditedMessageText('');
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSaveCorrection}
+                  disabled={!editedMessageText.trim() || (editingMessageIndex !== null && editedMessageText.trim() === messages[editingMessageIndex]?.content)}
+                >
+                  Salvar Correção
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Dialog para Gerar Run (Runware) */}
         <Dialog open={showRunwareGenerator} onOpenChange={(open) => {

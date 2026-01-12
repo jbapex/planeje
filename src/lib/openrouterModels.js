@@ -335,6 +335,84 @@ export function clearModelsCache() {
 }
 
 /**
+ * Retorna o número ideal de mensagens de histórico baseado na capacidade do modelo
+ * Modelos com grande contexto e baixo custo podem usar mais mensagens
+ * @param {string} modelId - ID do modelo
+ * @returns {number} Número de mensagens recomendado
+ */
+export function getOptimalHistoryLength(modelId) {
+  if (!modelId) return 30; // Padrão
+  
+  const id = modelId.toLowerCase();
+  
+  // Modelos com contexto GIGANTE e baixo custo - usar máximo de contexto
+  // Gemini Flash/Pro Preview: 1M+ tokens, muito barato
+  if (id.includes('gemini-3-flash') || id.includes('gemini3flash') || 
+      id.includes('gemini-flash') || id.includes('gemini-flash-1.5')) {
+    return 100; // Aproveitar ao máximo o contexto gigante e baixo custo
+  }
+  
+  // Modelos Gemini Pro com contexto grande
+  if (id.includes('gemini-3-pro') || id.includes('gemini3pro') || 
+      id.includes('gemini-pro-1.5') || id.includes('gemini-pro')) {
+    return 80; // Contexto grande, pode usar bastante
+  }
+  
+  // Modelos com contexto grande (200k+ tokens)
+  // Claude 3.5 Sonnet, GPT-4o, etc.
+  if (id.includes('claude-3.5-sonnet') || id.includes('claude-3-opus') ||
+      id.includes('gpt-4o') || id.includes('gpt-4-turbo')) {
+    return 50; // Contexto grande, mas modelos mais caros
+  }
+  
+  // Modelos com contexto médio-grande (64k-128k tokens)
+  // Claude 3 Sonnet, DeepSeek R1, GPT-4
+  if (id.includes('claude-3-sonnet') || id.includes('deepseek-r1') ||
+      id.includes('gpt-4') || id.includes('claude-3-haiku')) {
+    return 40; // Contexto bom, mas não exagerar
+  }
+  
+  // Modelos com contexto médio (32k tokens)
+  if (id.includes('gpt-3.5') || id.includes('claude-2') ||
+      id.includes('llama-3.1') || id.includes('mistral')) {
+    return 30; // Contexto médio, usar moderadamente
+  }
+  
+  // Modelos menores ou desconhecidos
+  return 30; // Padrão seguro
+}
+
+/**
+ * Verifica se um modelo é de raciocínio (O1, O3, DeepSeek R1, etc.)
+ * @param {string} modelId - ID do modelo
+ * @returns {boolean} True se for modelo de raciocínio
+ */
+export function isReasoningModel(modelId) {
+  if (!modelId) return false;
+  
+  const id = modelId.toLowerCase();
+  
+  // Modelos de raciocínio conhecidos
+  const reasoningModelPatterns = [
+    'o1',
+    'o3',
+    'o1-preview',
+    'o1-mini',
+    'o3-mini',
+    'reasoning',
+    'deepseek-r1', // DeepSeek R1 é um modelo de raciocínio
+    'deepseekr1', // Sem hífen também
+    'r1-', // Padrão R1- para modelos DeepSeek R1
+    'gemini-3-pro', // Gemini 3 Pro tem capacidades de raciocínio avançado
+    'gemini3pro', // Sem hífen também
+    'gemini-3-pro-preview', // Versão preview do Gemini 3 Pro
+    'gemini3propreview', // Sem hífen também
+  ];
+  
+  return reasoningModelPatterns.some(pattern => id.includes(pattern));
+}
+
+/**
  * Verifica se um modelo é de geração de imagem
  * @param {string} modelId - ID do modelo
  * @returns {boolean} True se for modelo de imagem

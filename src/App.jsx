@@ -35,6 +35,7 @@ import SelectClient from '@/components/pages/SelectClient';
 import ClientChat from '@/components/pages/ClientChat';
 import GeneralChat from '@/components/pages/GeneralChat';
 import TestImageModels from '@/components/pages/TestImageModels';
+import AILearningDashboard from '@/components/pages/AILearningDashboard';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
     import ChatLauncher from '@/components/pages/ChatLauncher';
@@ -131,6 +132,7 @@ import TestImageModels from '@/components/pages/TestImageModels';
                 <Route path="assistant/select-client" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><SelectClient /></ProtectedRoute>} />
                 <Route path="assistant/client/:clientId" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><ClientChat /></ProtectedRoute>} />
                 <Route path="assistant/general" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><GeneralChat /></ProtectedRoute>} />
+                <Route path="assistant/learning" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AILearningDashboard /></ProtectedRoute>} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
                 <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />

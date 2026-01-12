@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import { isOpenRouterModel } from '@/lib/apexiaModelConfig';
+import { isReasoningModel } from '@/lib/openrouterModels';
 import { getDateTimeContext } from '@/lib/utils';
 import StoryIdeasGenerator from './StoryIdeasGenerator';
 import ImageAnalyzer from './ImageAnalyzer';
@@ -83,6 +84,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
             }
         }, [input]);
         const [currentAIMessage, setCurrentAIMessage] = useState('');
+        const [currentThinking, setCurrentThinking] = useState('');
+        const [isReasoning, setIsReasoning] = useState(false);
         const [isSidebarOpen, setIsSidebarOpen] = useState(false);
         const [selectedTemplate, setSelectedTemplate] = useState(null);
         const [showTemplateSelector, setShowTemplateSelector] = useState(false);
@@ -1399,7 +1402,9 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
 
             setImageActionMode(action);
             setIsGenerating(true);
-            setCurrentAIMessage(''); // Reset antes de começar
+                setCurrentAIMessage(''); // Reset antes de começar
+                setCurrentThinking('');
+                setIsReasoning(false);
 
             try {
                 // Preparar prompt do sistema baseado na ação
@@ -1483,7 +1488,8 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
 
                 // Processar stream (mesma lógica do chat normal)
                 // streamAIResponse já atualiza setCurrentAIMessage durante o streaming
-                const fullResponse = await streamAIResponse(data);
+                const result = await streamAIResponse(data, 'gpt-4o'); // Modelo padrão para análise de imagem
+                const fullResponse = result.content;
                 
                 debugLog('✅ Análise de imagem completa!', { length: fullResponse.length });
 
@@ -1493,7 +1499,11 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                     content: userPrompt,
                     image: attachedImagePreview 
                 };
-                const assistantMessage = { role: 'assistant', content: fullResponse };
+                const assistantMessage = { 
+                    role: 'assistant', 
+                    content: fullResponse,
+                    thinking: result.thinking // Raciocínio se disponível
+                };
                 
                 setMessages(prev => [...prev, userMessage, assistantMessage]);
                 await saveMessage(userMessage, sessionId);
@@ -2608,9 +2618,14 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 } else {
                     // Processa o streaming
                     debugLog('✅ Processando stream de resposta...');
-                    aiResponseText = await streamAIResponse(data);
+                    const result = await streamAIResponse(data, selectedModel);
+                    aiResponseText = result.content;
                     debugLog('✅ Stream completo! Tamanho:', aiResponseText.length, 'caracteres');
-                    const assistantMessage = { role: 'assistant', content: aiResponseText };
+                    const assistantMessage = { 
+                        role: 'assistant', 
+                        content: aiResponseText,
+                        thinking: result.thinking // Raciocínio se disponível
+                    };
                     setMessages(prev => [...prev, assistantMessage]);
                     await saveMessage(assistantMessage, sessionId);
                 }
@@ -2710,6 +2725,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             } finally {
                 setIsGenerating(false);
                 setCurrentAIMessage('');
+                setCurrentThinking('');
+                setIsReasoning(false);
             }
         };
 
@@ -2762,16 +2779,18 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 }
             } catch (streamError) {
                 debugError('Erro durante o streaming:', streamError);
+                setIsReasoning(false);
                 // Se já coletou alguma resposta parcial, retorna ela
                 if (fullResponse.length > 0) {
-                    return fullResponse;
+                    return { content: fullResponse, thinking: thinking || null };
                 }
                 throw new Error(`Erro ao processar a resposta da IA: ${streamError.message}`);
             } finally {
+                setIsReasoning(false);
                 reader.releaseLock();
             }
             
-            return fullResponse;
+            return { content: fullResponse, thinking: thinking || null };
         };
 
         const handleCreateRequest = async () => {
@@ -3083,6 +3102,22 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                     />
                                                                 </div>
                                                             )}
+                                                            {/* Exibir raciocínio (thinking) se disponível */}
+                                                            {msg.thinking && (
+                                                                <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                                                                    <div className="flex items-center gap-2 mb-2">
+                                                                        <div className="flex gap-1">
+                                                                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                                                                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                                                                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                                                                        </div>
+                                                                        <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Raciocínio</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-purple-600 dark:text-purple-400 whitespace-pre-wrap font-mono">
+                                                                        {msg.thinking}
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                             <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
                                                             {msg.showCategoryButtons && (
                                                                 <div className="mt-4 flex flex-wrap gap-2">
@@ -3107,7 +3142,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                 </div>
                                             </motion.div>
                                         ))}
-                                        {isGenerating && currentAIMessage && (
+                                        {isGenerating && (currentAIMessage || isReasoning) && (
                                             <motion.div 
                                                 key="streaming-message"
                                                 layout={false}
@@ -3131,6 +3166,35 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         contain: 'layout style'
                                                     }}
                                                 >
+                                                    {/* Exibir thinking durante o streaming (modelos de raciocínio) */}
+                                                    {isReasoning && currentThinking && (
+                                                        <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <div className="flex gap-1">
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                                                                </div>
+                                                                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Pensando...</span>
+                                                            </div>
+                                                            <div className="text-xs text-purple-600 dark:text-purple-400 whitespace-pre-wrap font-mono max-h-60 overflow-y-auto">
+                                                                {currentThinking}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {/* Indicador de "pensando" quando não há thinking ainda mas é modelo de raciocínio */}
+                                                    {isReasoning && !currentThinking && !currentAIMessage && (
+                                                        <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="flex gap-1">
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                                                                </div>
+                                                                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Pensando...</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     <div 
                                                         className="prose prose-sm dark:prose-invert max-w-none"
                                                         style={{
@@ -3143,13 +3207,15 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                 dangerouslySetInnerHTML={{ __html: streamingContent }}
                                                                 className="chat-message-content"
                                                             />
-                                                        ) : (
+                                                        ) : !isReasoning ? (
                                                             <span className="text-gray-400 dark:text-gray-500">Digitando...</span>
+                                                        ) : null}
+                                                        {currentAIMessage && (
+                                                            <span 
+                                                                className="inline-block ml-0.5 w-0.5 h-4 bg-current align-middle animate-pulse"
+                                                                aria-hidden="true"
+                                                            />
                                                         )}
-                                                        <span 
-                                                            className="inline-block ml-0.5 w-0.5 h-4 bg-current align-middle animate-pulse"
-                                                            aria-hidden="true"
-                                                        />
                                                     </div>
                                                 </div>
                                                 <style>{`
