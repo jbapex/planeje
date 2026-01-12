@@ -39,6 +39,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
     import ChatLauncher from '@/components/pages/ChatLauncher';
+    import WhatsAppSettings from '@/components/pages/WhatsAppSettings';
 
     const ProtectedRoute = ({ children, allowedRoles, requiredModule }) => {
       const { profile, loading: authLoading } = useAuth();
@@ -134,6 +135,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                 <Route path="assistant/general" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><GeneralChat /></ProtectedRoute>} />
                 <Route path="assistant/learning" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AILearningDashboard /></ProtectedRoute>} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="settings/whatsapp" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><WhatsAppSettings /></ProtectedRoute>} />
                 <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
                 <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />
                 <Route path="super-admin/chat-limits" element={<ProtectedRoute allowedRoles={['superadmin']}><ChatLimitsManager /></ProtectedRoute>} />

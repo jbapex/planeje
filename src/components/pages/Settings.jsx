@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -502,6 +503,28 @@ const Settings = () => {
                 </CardContent>
               </Card>
             )}
+
+            <Card className="dark:bg-gray-800 dark:border-gray-700">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <MessageSquare className="h-8 w-8 text-green-600" />
+                  <div>
+                    <CardTitle className="text-xl dark:text-white">Notificações WhatsApp</CardTitle>
+                    <CardDescription className="dark:text-gray-400">Configure notificações automáticas via WhatsApp.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Button 
+                  onClick={() => navigate('/settings/whatsapp')} 
+                  className="w-full"
+                  variant="outline"
+                >
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Configurar WhatsApp
+                </Button>
+              </CardContent>
+            </Card>
         </div>
 
         {isSuperAdmin && (
