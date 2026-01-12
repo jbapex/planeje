@@ -2619,12 +2619,17 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                     // Processa o streaming
                     debugLog('✅ Processando stream de resposta...');
                     const result = await streamAIResponse(data, selectedModel);
-                    aiResponseText = result.content;
+                    aiResponseText = result.content || '';
                     debugLog('✅ Stream completo! Tamanho:', aiResponseText.length, 'caracteres');
+                    
+                    if (!aiResponseText) {
+                        throw new Error('Resposta vazia da IA');
+                    }
+                    
                     const assistantMessage = { 
                         role: 'assistant', 
                         content: aiResponseText,
-                        thinking: result.thinking // Raciocínio se disponível
+                        thinking: result.thinking || null // Raciocínio se disponível
                     };
                     setMessages(prev => [...prev, assistantMessage]);
                     await saveMessage(assistantMessage, sessionId);
@@ -2730,7 +2735,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             }
         };
 
-        const streamAIResponse = async (response) => {
+        const streamAIResponse = async (response, model = null) => {
             if (!response.body) {
                 throw new Error("A resposta da função não continha um corpo para streaming.");
             }
@@ -2744,11 +2749,18 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let fullResponse = '';
+            let thinking = '';
+            const isReasoningModelType = model && isReasoningModel(model);
+            
+            if (isReasoningModelType) {
+                setIsReasoning(true);
+            }
             
             try {
+                let streamFinished = false;
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done || streamFinished) break;
                     
                     const chunk = decoder.decode(value, { stream: true });
                     const lines = chunk.split('\n');
@@ -2759,16 +2771,36 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         if (line.startsWith('data: ')) {
                             const jsonStr = line.substring(6).trim();
                             if (jsonStr === '[DONE]') {
-                                return fullResponse;
+                                streamFinished = true;
+                                break;
                             }
                             
                             try {
                                 const parsed = JSON.parse(jsonStr);
+                                
+                                // Processar thinking (raciocínio) para modelos de raciocínio
+                                if (isReasoningModelType && parsed.choices?.[0]?.delta?.thinking) {
+                                    thinking += parsed.choices[0].delta.thinking;
+                                    setCurrentThinking(thinking);
+                                }
+                                
+                                // Processar conteúdo da mensagem
                                 const delta = parsed.choices?.[0]?.delta?.content;
+                                const messageContent = parsed.choices?.[0]?.message?.content;
+                                
                                 if (delta) {
                                     fullResponse += delta;
-                                    // Atualiza o estado de forma acumulativa para manter o layout durante o streaming
                                     setCurrentAIMessage(fullResponse);
+                                } else if (messageContent) {
+                                    // Para respostas não-streaming ou formatos alternativos
+                                    fullResponse = messageContent;
+                                    setCurrentAIMessage(fullResponse);
+                                }
+                                
+                                // Verificar se a resposta está completa
+                                if (parsed.choices?.[0]?.finish_reason) {
+                                    streamFinished = true;
+                                    break;
                                 }
                             } catch (parseError) {
                                 debugError('Error parsing stream chunk:', parseError, 'Chunk:', jsonStr);
@@ -2787,10 +2819,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                 throw new Error(`Erro ao processar a resposta da IA: ${streamError.message}`);
             } finally {
                 setIsReasoning(false);
+                setCurrentThinking('');
                 reader.releaseLock();
             }
             
-            return { content: fullResponse, thinking: thinking || null };
+            return { content: fullResponse || '', thinking: thinking || null };
         };
 
         const handleCreateRequest = async () => {
