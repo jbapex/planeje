@@ -2612,6 +2612,10 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                     if (data.text) {
                         debugLog('✅ Usando resposta de texto direto (sem streaming)');
                         aiResponseText = data.text;
+                        // Limpar currentAIMessage para evitar duplicação
+                        setCurrentAIMessage('');
+                        setCurrentThinking('');
+                        setIsReasoning(false);
                         const assistantMessage = { role: 'assistant', content: aiResponseText };
                         setMessages(prev => [...prev, assistantMessage]);
                         await saveMessage(assistantMessage, sessionId);
