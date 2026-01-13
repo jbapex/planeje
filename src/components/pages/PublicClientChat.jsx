@@ -2630,6 +2630,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         throw new Error('Resposta vazia da IA');
                     }
                     
+                    // Limpar currentAIMessage ANTES de adicionar ao array para evitar duplicação
+                    setCurrentAIMessage('');
+                    setCurrentThinking('');
+                    setIsReasoning(false);
+                    
                     const assistantMessage = { 
                         role: 'assistant', 
                         content: aiResponseText,
