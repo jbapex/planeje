@@ -1489,7 +1489,11 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                 // Processar stream (mesma lógica do chat normal)
                 // streamAIResponse já atualiza setCurrentAIMessage durante o streaming
                 const result = await streamAIResponse(data, 'gpt-4o'); // Modelo padrão para análise de imagem
-                const fullResponse = result.content;
+                const fullResponse = result.content || '';
+                
+                if (!fullResponse) {
+                    throw new Error('Resposta vazia da análise de imagem');
+                }
                 
                 debugLog('✅ Análise de imagem completa!', { length: fullResponse.length });
 
