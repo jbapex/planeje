@@ -19,6 +19,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import { cn } from "@/lib/utils";
     import { MultiSelect } from '@/components/ui/multi-select';
     import ClientDocumentEditor from '@/components/clients/ClientDocumentEditor';
+    import OnboardingTaskItemInline from '@/components/onboarding/OnboardingTaskItemInline';
 
     const ItemDetailDialog = ({ item, open, onOpenChange, onUpdate, profiles }) => {
         const [details, setDetails] = useState(item);
@@ -331,18 +332,37 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                   </div>
                   <div className="space-y-1">
                       <AnimatePresence>
-                        {pendingItems.map(item => (
-                            <ChecklistItem
-                                key={item.id}
-                                item={item}
-                                onToggle={(itemId, isCompleted) => handleToggleItem(checklist.id, itemId, isCompleted)}
-                                isEditing={isEditing}
-                                onContentChange={(e) => handleUpdateItemContent(checklist.id, item.id, e.target.value)}
-                                onDelete={() => handleDeleteItem(checklist.id, item.id)}
-                                onOpenDetails={() => onOpenItemDetails(checklist.id, item)}
-                                profiles={profiles}
+                        {pendingItems.map(item => {
+                          // Garantir que item tenha subtasks
+                          const itemWithSubtasks = {
+                            ...item,
+                            subtasks: item.subtasks || []
+                          };
+                          
+                          return (
+                            <OnboardingTaskItemInline
+                              key={item.id}
+                              item={itemWithSubtasks}
+                              checklistId={checklist.id}
+                              onUpdate={(updatedItem) => {
+                                const updatedItems = checklist.items.map(i => 
+                                  i.id === item.id ? updatedItem : i
+                                );
+                                onUpdate(checklist.id, { items: updatedItems });
+                              }}
+                              onDelete={() => handleDeleteItem(checklist.id, item.id)}
+                              onAddSubtask={(newSubtask) => {
+                                const updatedItems = checklist.items.map(i => 
+                                  i.id === item.id 
+                                    ? { ...i, subtasks: [...(i.subtasks || []), newSubtask] }
+                                    : i
+                                );
+                                onUpdate(checklist.id, { items: updatedItems });
+                              }}
+                              profiles={profiles}
                             />
-                        ))}
+                          );
+                        })}
                       </AnimatePresence>
                   </div>
                   
@@ -360,18 +380,36 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                                       animate={{ opacity: 1, height: 'auto' }}
                                       exit={{ opacity: 0, height: 0 }}
                                   >
-                                      {completedItems.sort((a,b) => new Date(b.completed_at) - new Date(a.completed_at)).map(item => (
-                                          <ChecklistItem
+                                      {completedItems.sort((a,b) => new Date(b.completed_at) - new Date(a.completed_at)).map(item => {
+                                        const itemWithSubtasks = {
+                                          ...item,
+                                          subtasks: item.subtasks || []
+                                        };
+                                        
+                                        return (
+                                          <OnboardingTaskItemInline
                                             key={item.id}
-                                            item={item}
-                                            onToggle={(itemId, isCompleted) => handleToggleItem(checklist.id, itemId, isCompleted)}
-                                            isEditing={isEditing}
-                                            onContentChange={(e) => handleUpdateItemContent(checklist.id, item.id, e.target.value)}
+                                            item={itemWithSubtasks}
+                                            checklistId={checklist.id}
+                                            onUpdate={(updatedItem) => {
+                                              const updatedItems = checklist.items.map(i => 
+                                                i.id === item.id ? updatedItem : i
+                                              );
+                                              onUpdate(checklist.id, { items: updatedItems });
+                                            }}
                                             onDelete={() => handleDeleteItem(checklist.id, item.id)}
-                                            onOpenDetails={() => onOpenItemDetails(checklist.id, item)}
+                                            onAddSubtask={(newSubtask) => {
+                                              const updatedItems = checklist.items.map(i => 
+                                                i.id === item.id 
+                                                  ? { ...i, subtasks: [...(i.subtasks || []), newSubtask] }
+                                                  : i
+                                              );
+                                              onUpdate(checklist.id, { items: updatedItems });
+                                            }}
                                             profiles={profiles}
                                           />
-                                      ))}
+                                        );
+                                      })}
                                   </motion.div>
                               )}
                           </AnimatePresence>
