@@ -169,25 +169,28 @@ const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultCli
           </div>
           <div className="space-y-2">
             <Label htmlFor="owner_id"><UserCircle className="inline-block mr-2 h-4 w-4" />Responsável pela Execução</Label>
-            <Select value={formData.owner_id || ''} onValueChange={(v) => handleChange('owner_id', v)}>
+            <Select value={formData.owner_id || 'unassigned'} onValueChange={(v) => handleChange('owner_id', v === 'unassigned' ? '' : v)}>
               <SelectTrigger id="owner_id">
                 <SelectValue placeholder="Selecione o responsável" />
               </SelectTrigger>
               <SelectContent>
                 {users && users.length > 0 ? (
-                  users.map(u => (
-                    <SelectItem key={u.id} value={u.id}>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-6 w-6">
-                          <AvatarImage src={u.avatar_url} />
-                          <AvatarFallback>{u.full_name ? u.full_name.charAt(0).toUpperCase() : '?'}</AvatarFallback>
-                        </Avatar>
-                        <span>{u.full_name || 'Sem nome'}</span>
-                      </div>
-                    </SelectItem>
-                  ))
+                  <>
+                    <SelectItem value="unassigned">Sem responsável</SelectItem>
+                    {users.map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={u.avatar_url} />
+                            <AvatarFallback>{u.full_name ? u.full_name.charAt(0).toUpperCase() : '?'}</AvatarFallback>
+                          </Avatar>
+                          <span>{u.full_name || 'Sem nome'}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </>
                 ) : (
-                  <SelectItem value="" disabled>Carregando usuários...</SelectItem>
+                  <SelectItem value="loading" disabled>Carregando usuários...</SelectItem>
                 )}
               </SelectContent>
             </Select>

@@ -175,7 +175,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
     const ClientChecklist = ({ client, checklists, onUpdate, onCreate, onDeleteChecklist, userRole, profiles, onOpenItemDetails, onOpenDocument }) => {
       const { toast } = useToast();
-      const [newChecklistTitle, setNewChecklistTitle] = useState('');
       const [newItemTitles, setNewItemTitles] = useState({});
       const [editingListId, setEditingListId] = useState(null);
       const [showCompleted, setShowCompleted] = useState({});
@@ -201,13 +200,17 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         const checklist = clientChecklists.find(c => c.id === checklistId);
         if (!checklist) return;
 
+        // Data padrão: hoje
+        const defaultDate = new Date();
+        defaultDate.setHours(23, 59, 59, 999); // Final do dia
+        
         const newItem = { 
           id: crypto.randomUUID(), 
           title, 
           is_completed: false, 
           completed_at: null, 
           description: '', 
-          due_date: null, 
+          due_date: defaultDate.toISOString(), 
           assignee_id: null,
           note: null,
           subtasks: []
@@ -218,12 +221,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         setNewItemTitles(prev => ({ ...prev, [checklistId]: '' }));
       };
       
-      const handleCreateChecklist = async () => {
-        if (!newChecklistTitle.trim()) return;
-        onCreate(client.id, newChecklistTitle);
-        setNewChecklistTitle('');
-      };
-
       const handleUpdateItemContent = (checklistId, itemId, newContent) => {
         const checklist = clientChecklists.find(c => c.id === checklistId);
         if (!checklist) return;
@@ -254,7 +251,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
       const stopEditing = () => {
         setEditingListId(null);
-        toast({ title: 'Alterações salvas!' });
       };
 
       const toggleShowCompleted = (checklistId) => {
@@ -264,8 +260,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
       const primaryLogo = client.logo_urls && client.logo_urls.length > 0 ? client.logo_urls[0] : null;
 
       return (
-        <div className="w-80 h-full flex-shrink-0 bg-gray-100 dark:bg-gray-800/50 rounded-xl p-4 flex flex-col">
-          <div className="flex items-center justify-between gap-3 mb-4 flex-shrink-0">
+        <div className="w-[420px] h-full flex-shrink-0 bg-gray-100 dark:bg-gray-800/50 rounded-xl p-5 flex flex-col">
+          <div className="flex items-center justify-between gap-3 mb-5 flex-shrink-0">
             <div className="flex items-center gap-3 overflow-hidden">
               <Avatar className="h-9 w-9">
                 <AvatarImage src={primaryLogo} alt={client.empresa} />
@@ -280,7 +276,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
             </Button>
           </div>
           
-          <div className="flex-grow space-y-4 overflow-y-auto pr-2">
+          <div className="flex-grow space-y-5 overflow-y-auto pr-2">
             {clientChecklists.length === 0 && (userRole === 'superadmin' || userRole === 'admin') && (
                  <div className="text-center p-4 text-gray-500 dark:text-gray-400">
                     <p className="text-sm">Nenhum checklist de onboarding para este cliente.</p>
@@ -294,53 +290,82 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
               const progress = checklist.items.length > 0 ? (completedItems.length / checklist.items.length) * 100 : 0;
               
               return (
-                <div key={checklist.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm group/checklist">
-                  <div className="flex items-center justify-between mb-2">
-                    {isEditing ? (
-                        <Input 
-                            value={checklist.title}
-                            onChange={(e) => handleUpdateChecklistTitle(checklist.id, e.target.value)}
-                            className="h-8 font-semibold text-md"
-                        />
-                    ) : (
-                        <h4 className="font-semibold text-gray-700 dark:text-gray-200">{checklist.title}</h4>
-                    )}
-                    <div className="flex items-center">
-                      <Button variant={isEditing ? 'default' : 'ghost'} size="sm" className="h-7" onClick={() => isEditing ? stopEditing() : startEditing(checklist.id)}>
-                        {isEditing ? 'Salvar' : 'Editar'}
-                      </Button>
-                      {isEditing && (
-                           <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 opacity-0 group-hover/checklist:opacity-100">
-                                  <Trash2 size={16} />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Excluir esta lista?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        A lista "{checklist.title}" e todos os seus itens serão excluídos permanentemente.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => onDeleteChecklist(checklist.id)}>Excluir Lista</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                           </AlertDialog>
+                <div key={checklist.id} className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow-sm group/checklist">
+                  {/* Ocultar título quando há apenas uma lista por cliente */}
+                  {clientChecklists.length > 1 && (
+                    <div className="flex items-center justify-between mb-4">
+                      {isEditing ? (
+                          <Input 
+                              value={checklist.title}
+                              onChange={(e) => handleUpdateChecklistTitle(checklist.id, e.target.value)}
+                              onBlur={stopEditing}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  stopEditing();
+                                } else if (e.key === 'Escape') {
+                                  setEditingListId(null);
+                                }
+                              }}
+                              className="h-8 font-semibold text-md"
+                              autoFocus
+                          />
+                      ) : (
+                          <h4 
+                            className="font-semibold text-gray-700 dark:text-gray-200 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                            onClick={() => {
+                              if (userRole === 'superadmin' || userRole === 'admin') {
+                                startEditing(checklist.id);
+                              }
+                            }}
+                          >
+                            {checklist.title}
+                          </h4>
                       )}
+                      <div className="flex items-center gap-1">
+                        {(userRole === 'superadmin' || userRole === 'admin') && !isEditing && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7 opacity-0 group-hover/checklist:opacity-100" 
+                            onClick={() => startEditing(checklist.id)}
+                            title="Editar título"
+                          >
+                            <FileText size={14} />
+                          </Button>
+                        )}
+                        {(userRole === 'superadmin' || userRole === 'admin') && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 opacity-0 group-hover/checklist:opacity-100" title="Excluir lista">
+                              <Trash2 size={16} />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir esta lista?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                      A lista "{checklist.title}" e todos os seus itens serão excluídos permanentemente.
+                                  </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => onDeleteChecklist(checklist.id)}>Excluir Lista</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="relative h-1 w-full bg-gray-200 dark:bg-gray-700 rounded-full mb-3">
+                  )}
+                  <div className="relative h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full mb-4">
                       <motion.div 
-                        className="absolute top-0 left-0 h-1 bg-gradient-to-r from-green-400 to-blue-500 rounded-full"
+                        className="absolute top-0 left-0 h-1.5 bg-gradient-to-r from-green-400 to-blue-500 rounded-full"
                         initial={{ width: 0 }}
                         animate={{ width: `${progress}%` }}
                         transition={{ duration: 0.5 }}
                       />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                       <AnimatePresence>
                         {pendingItems.map(item => {
                           // Garantir que item tenha subtasks
@@ -426,16 +451,28 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                       </div>
                   )}
 
-                  {isEditing && (
-                    <div className="flex items-center gap-2 mt-3">
+                  {/* Sempre mostrar campo para adicionar novo item */}
+                  {(userRole === 'superadmin' || userRole === 'admin') && (
+                    <div className="flex items-center gap-2 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                       <Input
-                        placeholder="Novo item..."
+                        placeholder="Adicionar nova tarefa..."
                         value={newItemTitles[checklist.id] || ''}
                         onChange={(e) => setNewItemTitles(prev => ({ ...prev, [checklist.id]: e.target.value }))}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddItem(checklist.id)}
-                        className="h-8 text-sm"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newItemTitles[checklist.id]?.trim()) {
+                            handleAddItem(checklist.id);
+                          }
+                        }}
+                        className="h-9 text-sm"
                       />
-                      <Button size="sm" className="h-8" onClick={() => handleAddItem(checklist.id)}>Adicionar</Button>
+                      <Button 
+                        size="sm" 
+                        className="h-9" 
+                        onClick={() => handleAddItem(checklist.id)}
+                        disabled={!newItemTitles[checklist.id]?.trim()}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -444,15 +481,42 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
           </div>
 
           {(userRole === 'superadmin' || userRole === 'admin') && (
-            <div className="flex items-center gap-2 pt-4 mt-auto border-t border-gray-200 dark:border-gray-700/50 flex-shrink-0">
-              <Input 
-                placeholder="Nova lista..."
-                value={newChecklistTitle}
-                onChange={(e) => setNewChecklistTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateChecklist()}
-                className="h-9"
-              />
-              <Button onClick={handleCreateChecklist}><Plus className="h-4 w-4" /></Button>
+            <div className="flex items-center justify-center pt-5 mt-auto border-t border-gray-200 dark:border-gray-700/50 flex-shrink-0">
+              <Button 
+                onClick={async () => {
+                  // Verificar se já existe checklist para este cliente
+                  const existingChecklist = clientChecklists[0];
+                  
+                  if (existingChecklist) {
+                    // Se existe, adicionar novo item diretamente
+                    // Data padrão: hoje
+                    const defaultDate = new Date();
+                    defaultDate.setHours(23, 59, 59, 999); // Final do dia
+                    
+                    const newItem = {
+                      id: crypto.randomUUID(),
+                      title: 'Nova tarefa',
+                      is_completed: false,
+                      completed_at: null,
+                      description: '',
+                      due_date: defaultDate.toISOString(),
+                      assignee_id: null,
+                      note: null,
+                      subtasks: []
+                    };
+                    const updatedItems = [...(existingChecklist.items || []), newItem];
+                    onUpdate(existingChecklist.id, { items: updatedItems });
+                  } else {
+                    // Se não existe, criar checklist com primeiro item
+                    onCreate(client.id, 'Checklist');
+                  }
+                }}
+                variant="outline"
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Adicionar Tarefa
+              </Button>
             </div>
           )}
         </div>
@@ -535,6 +599,548 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         );
     };
     
+    const DateStatusView = ({ checklists, profiles, clients, onOpenItemDetails, onUpdate, onDeleteItem }) => {
+        const [editingNoteItem, setEditingNoteItem] = useState(null);
+        const [editingNoteText, setEditingNoteText] = useState('');
+
+        const handleToggleComplete = async (checklistId, itemId, isCompleted, isSubtask = false, parentId = null) => {
+            const checklist = checklists.find(c => c.id === checklistId);
+            if (!checklist) return;
+
+            let updatedItems;
+            
+            if (isSubtask && parentId) {
+                // Atualizar subtarefa dentro da tarefa pai
+                updatedItems = checklist.items.map(i => {
+                    if (i.id === parentId) {
+                        const updatedSubtasks = (i.subtasks || []).map(st => 
+                            st.id === itemId 
+                                ? { ...st, is_completed: isCompleted, completed_at: isCompleted ? new Date().toISOString() : null }
+                                : st
+                        );
+                        return { ...i, subtasks: updatedSubtasks };
+                    }
+                    return i;
+                });
+            } else {
+                // Atualizar tarefa principal
+                updatedItems = checklist.items.map(i => 
+                    i.id === itemId 
+                    ? { ...i, is_completed: isCompleted, completed_at: isCompleted ? new Date().toISOString() : null } 
+                    : i
+                );
+            }
+            
+            await onUpdate(checklistId, { items: updatedItems });
+        };
+
+        const handleUpdateItem = async (checklistId, updatedItem, isSubtask = false, parentId = null) => {
+            const checklist = checklists.find(c => c.id === checklistId);
+            if (!checklist) return;
+
+            let updatedItems;
+            
+            if (isSubtask && parentId) {
+                // Atualizar subtarefa dentro da tarefa pai
+                updatedItems = checklist.items.map(i => {
+                    if (i.id === parentId) {
+                        const updatedSubtasks = (i.subtasks || []).map(st => 
+                            st.id === updatedItem.id ? updatedItem : st
+                        );
+                        return { ...i, subtasks: updatedSubtasks };
+                    }
+                    return i;
+                });
+            } else {
+                // Atualizar tarefa principal
+                updatedItems = checklist.items.map(i => 
+                    i.id === updatedItem.id ? updatedItem : i
+                );
+            }
+            
+            await onUpdate(checklistId, { items: updatedItems });
+        };
+
+        const handleAddSubtask = async (checklistId, parentItemId, newSubtask) => {
+            const checklist = checklists.find(c => c.id === checklistId);
+            if (!checklist) return;
+
+            const updatedItems = checklist.items.map(i => 
+                i.id === parentItemId 
+                    ? { ...i, subtasks: [...(i.subtasks || []), newSubtask] }
+                    : i
+            );
+            await onUpdate(checklistId, { items: updatedItems });
+        };
+
+        const handleDeleteItem = async (checklistId, itemId, isSubtask = false, parentId = null) => {
+            const checklist = checklists.find(c => c.id === checklistId);
+            if (!checklist) return;
+
+            let updatedItems;
+            
+            if (isSubtask && parentId) {
+                // Deletar subtarefa dentro da tarefa pai
+                updatedItems = checklist.items.map(i => {
+                    if (i.id === parentId) {
+                        const updatedSubtasks = (i.subtasks || []).filter(st => st.id !== itemId);
+                        return { ...i, subtasks: updatedSubtasks };
+                    }
+                    return i;
+                });
+            } else {
+                // Deletar tarefa principal
+                updatedItems = checklist.items.filter(i => i.id !== itemId);
+            }
+            
+            await onUpdate(checklistId, { items: updatedItems });
+        };
+
+        const handleOpenNoteDialog = (item) => {
+            setEditingNoteItem(item);
+            setEditingNoteText(item.note || '');
+        };
+
+        const handleSaveNote = async () => {
+            if (!editingNoteItem) return;
+            
+            const updatedItem = {
+                ...editingNoteItem,
+                note: editingNoteText.trim() || null
+            };
+            await handleUpdateItem(editingNoteItem.checklistId, updatedItem, editingNoteItem.isSubtask, editingNoteItem.parentId);
+            setEditingNoteItem(null);
+            setEditingNoteText('');
+        };
+
+        const items = useMemo(() => {
+            const allItems = [];
+            
+            checklists.forEach(list => {
+                (list.items || []).forEach(item => {
+                    // Adicionar tarefa principal com suas subtarefas
+                    if (item.due_date) {
+                        const client = clients.find(c => c.id === list.client_id);
+                        const subtasksWithDate = (item.subtasks || []).filter(st => st.due_date);
+                        
+                        allItems.push({
+                            ...item,
+                            checklistId: list.id,
+                            checklistTitle: list.title,
+                            client: client,
+                            isSubtask: false,
+                            parentId: null,
+                            subtasks: subtasksWithDate.map(subtask => ({
+                                ...subtask,
+                                checklistId: list.id,
+                                checklistTitle: list.title,
+                                client: client,
+                                isSubtask: true,
+                                parentId: item.id,
+                                parentTitle: item.title
+                            }))
+                        });
+                    }
+                });
+            });
+            
+            return allItems;
+        }, [checklists, clients]);
+
+        const groupedByStatus = useMemo(() => {
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+            const today = new Date(now);
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const nextWeek = new Date(now);
+            nextWeek.setDate(nextWeek.getDate() + 7);
+
+            const groups = {
+                overdue: [],
+                today: [],
+                tomorrow: [],
+                upcoming: []
+            };
+
+            items.forEach(item => {
+                // Pular tarefas concluídas nas seções de status
+                if (item.is_completed) return;
+                
+                const dueDate = new Date(item.due_date);
+                dueDate.setHours(0, 0, 0, 0);
+                
+                if (dueDate < today) {
+                    groups.overdue.push(item);
+                } else if (dueDate.getTime() === today.getTime()) {
+                    groups.today.push(item);
+                } else if (dueDate.getTime() === tomorrow.getTime()) {
+                    groups.tomorrow.push(item);
+                } else if (dueDate <= nextWeek) {
+                    groups.upcoming.push(item);
+                }
+            });
+
+            // Ordenar cada grupo por data
+            Object.keys(groups).forEach(key => {
+                groups[key].sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+            });
+
+            return groups;
+        }, [items]);
+
+        const sections = [
+            { key: 'overdue', title: '⚠️ Vencidas', items: groupedByStatus.overdue, color: 'text-red-600 dark:text-red-400' },
+            { key: 'today', title: '📅 Hoje', items: groupedByStatus.today, color: 'text-orange-600 dark:text-orange-400' },
+            { key: 'tomorrow', title: '🔜 Amanhã', items: groupedByStatus.tomorrow, color: 'text-blue-600 dark:text-blue-400' },
+            { key: 'upcoming', title: '📆 Próximos Dias', items: groupedByStatus.upcoming, color: 'text-gray-600 dark:text-gray-400' }
+        ];
+
+        const pendingItems = items.filter(item => !item.is_completed);
+        const totalPendingItems = pendingItems.length;
+
+        if (totalPendingItems === 0 && items.length > 0) {
+            return (
+                <div className="flex-grow flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                        <CalendarIcon className="mx-auto h-12 w-12"/>
+                        <p className="mt-2">Todas as tarefas foram concluídas!</p>
+                    </div>
+                </div>
+            );
+        }
+
+        if (items.length === 0) {
+            return (
+                <div className="flex-grow flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                        <CalendarIcon className="mx-auto h-12 w-12"/>
+                        <p className="mt-2">Nenhuma tarefa encontrada.</p>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <>
+                <div className="flex-grow overflow-y-auto pr-4 space-y-6">
+                    {sections.map(section => {
+                        if (section.items.length === 0) return null;
+                        
+                        return (
+                            <div key={section.key}>
+                                <h3 className={`font-semibold text-lg mb-3 sticky top-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm py-2 px-1 ${section.color}`}>
+                                    {section.title} ({section.items.length})
+                                </h3>
+                                <div className="space-y-2 ml-2 border-l-2 border-gray-200 dark:border-gray-700 pl-4">
+                                    {section.items.map(item => {
+                                        const assignee = profiles.find(p => p.id === item.assignee_id);
+                                        const dueDate = new Date(item.due_date);
+                                        const daysDiff = Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+                                        
+                                        // Se for subtarefa, não renderizar aqui (será renderizada dentro da tarefa pai)
+                                        if (item.isSubtask) return null;
+                                        
+                                        const itemSubtasks = item.subtasks || [];
+                                        
+                                        return (
+                                            <div 
+                                                key={item.id} 
+                                                className={cn(
+                                                    "p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow",
+                                                    item.is_completed && "opacity-75"
+                                                )}
+                                            >
+                                                {/* Tarefa Principal */}
+                                                <div className="flex items-start gap-3">
+                                                    <div className="pt-0.5 flex-shrink-0">
+                                                        <Checkbox
+                                                            checked={item.is_completed}
+                                                            onCheckedChange={(checked) => {
+                                                                handleToggleComplete(item.checklistId, item.id, checked, false, null);
+                                                            }}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="h-4 w-4"
+                                                        />
+                                                    </div>
+                                                    <div 
+                                                        className="flex-1 min-w-0 cursor-pointer"
+                                                        onClick={() => onOpenItemDetails(item.checklistId, item)}
+                                                    >
+                                                        <p className={cn(
+                                                            "font-medium text-sm",
+                                                            item.is_completed && "line-through text-gray-500 dark:text-gray-400"
+                                                        )}>
+                                                            {item.title}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                                            <span>{item.client?.empresa}</span>
+                                                            <span>•</span>
+                                                            <span>{format(dueDate, "dd/MM/yyyy", { locale: ptBR })}</span>
+                                                            {section.key === 'overdue' && !item.is_completed && (
+                                                                <>
+                                                                    <span>•</span>
+                                                                    <span className="text-red-600 dark:text-red-400">
+                                                                        {Math.abs(daysDiff)} {Math.abs(daysDiff) === 1 ? 'dia' : 'dias'} atrasado
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                    {assignee && (
+                                                        <Avatar className="h-6 w-6">
+                                                            <AvatarImage src={assignee.avatar_url} alt={assignee.full_name} />
+                                                            <AvatarFallback className="text-[8px]">
+                                                                {assignee.full_name.charAt(0)}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                    )}
+                                                    
+                                                    {/* Botões de ação */}
+                                                    <div className="flex items-center gap-0.5 ml-1">
+                                                        {/* Adicionar Nota */}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className={cn(
+                                                                "h-6 w-6",
+                                                                item.note && "text-blue-600 dark:text-blue-400"
+                                                            )}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleOpenNoteDialog(item);
+                                                            }}
+                                                            title="Adicionar nota"
+                                                        >
+                                                            <FileText className="h-3.5 w-3.5" />
+                                                        </Button>
+
+                                                        {/* Adicionar Subtarefa - apenas para tarefas principais */}
+                                                        {!item.isSubtask && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const defaultDate = item.due_date ? new Date(item.due_date) : new Date();
+                                                                    if (!item.due_date) {
+                                                                        defaultDate.setHours(23, 59, 59, 999);
+                                                                    }
+                                                                    const newSubtask = {
+                                                                        id: crypto.randomUUID(),
+                                                                        title: 'Nova subtarefa',
+                                                                        due_date: defaultDate.toISOString(),
+                                                                        assignee_id: item.assignee_id || null,
+                                                                        is_completed: false,
+                                                                        completed_at: null,
+                                                                        note: null,
+                                                                        subtasks: []
+                                                                    };
+                                                                    handleAddSubtask(item.checklistId, item.id, newSubtask);
+                                                                }}
+                                                                title="Adicionar subtarefa"
+                                                            >
+                                                                <Plus className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        )}
+
+                                                        {/* Excluir */}
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 text-red-500 hover:text-red-700"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    title="Excluir tarefa"
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>Excluir tarefa?</AlertDialogTitle>
+                                                                    <AlertDialogDescription>
+                                                                        Esta ação não pode ser desfeita. A tarefa "{item.title}" será excluída permanentemente.
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                    <AlertDialogAction 
+                                                                        onClick={() => {
+                                                                            handleDeleteItem(item.checklistId, item.id, item.isSubtask, item.parentId);
+                                                                        }} 
+                                                                        className="bg-red-500 hover:bg-red-600"
+                                                                    >
+                                                                        Excluir
+                                                                    </AlertDialogAction>
+                                                                </AlertDialogFooter>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                    </div>
+                                                </div>
+                                                </div>
+                                                
+                                                {/* Subtarefas */}
+                                                {itemSubtasks.length > 0 && (
+                                                    <div className="mt-3 ml-7 space-y-2 border-l-2 border-gray-200 dark:border-gray-700 pl-4">
+                                                        {itemSubtasks.map(subtask => {
+                                                            const subtaskDueDate = new Date(subtask.due_date);
+                                                            const subtaskDaysDiff = Math.ceil((subtaskDueDate - new Date()) / (1000 * 60 * 60 * 24));
+                                                            const subtaskAssignee = profiles.find(p => p.id === subtask.assignee_id);
+                                                            
+                                                            return (
+                                                                <div 
+                                                                    key={subtask.id}
+                                                                    className={cn(
+                                                                        "flex items-start gap-3 p-2 rounded-md bg-gray-50 dark:bg-gray-700/50",
+                                                                        subtask.is_completed && "opacity-75"
+                                                                    )}
+                                                                >
+                                                                    <div className="pt-0.5 flex-shrink-0">
+                                                                        <Checkbox
+                                                                            checked={subtask.is_completed}
+                                                                            onCheckedChange={(checked) => {
+                                                                                handleToggleComplete(item.checklistId, subtask.id, checked, true, item.id);
+                                                                            }}
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                            className="h-3.5 w-3.5"
+                                                                        />
+                                                                    </div>
+                                                                    <div 
+                                                                        className="flex-1 min-w-0 cursor-pointer"
+                                                                        onClick={() => onOpenItemDetails(item.checklistId, subtask)}
+                                                                    >
+                                                                        <p className={cn(
+                                                                            "font-medium text-xs",
+                                                                            subtask.is_completed && "line-through text-gray-500 dark:text-gray-400"
+                                                                        )}>
+                                                                            {subtask.title}
+                                                                        </p>
+                                                                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                                                            <span>{format(subtaskDueDate, "dd/MM/yyyy", { locale: ptBR })}</span>
+                                                                            {section.key === 'overdue' && !subtask.is_completed && (
+                                                                                <>
+                                                                                    <span>•</span>
+                                                                                    <span className="text-red-600 dark:text-red-400">
+                                                                                        {Math.abs(subtaskDaysDiff)} {Math.abs(subtaskDaysDiff) === 1 ? 'dia' : 'dias'} atrasado
+                                                                                    </span>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                                        {subtaskAssignee && (
+                                                                            <Avatar className="h-5 w-5">
+                                                                                <AvatarImage src={subtaskAssignee.avatar_url} alt={subtaskAssignee.full_name} />
+                                                                                <AvatarFallback className="text-[7px]">
+                                                                                    {subtaskAssignee.full_name.charAt(0)}
+                                                                                </AvatarFallback>
+                                                                            </Avatar>
+                                                                        )}
+                                                                        
+                                                                        {/* Botões de ação para subtarefa */}
+                                                                        <div className="flex items-center gap-0.5 ml-1">
+                                                                            {/* Adicionar Nota */}
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                className={cn(
+                                                                                    "h-5 w-5",
+                                                                                    subtask.note && "text-blue-600 dark:text-blue-400"
+                                                                                )}
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleOpenNoteDialog(subtask);
+                                                                                }}
+                                                                                title="Adicionar nota"
+                                                                            >
+                                                                                <FileText className="h-3 w-3" />
+                                                                            </Button>
+
+                                                                            {/* Excluir */}
+                                                                            <AlertDialog>
+                                                                                <AlertDialogTrigger asChild>
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="icon"
+                                                                                        className="h-5 w-5 text-red-500 hover:text-red-700"
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                        title="Excluir subtarefa"
+                                                                                    >
+                                                                                        <Trash2 className="h-3 w-3" />
+                                                                                    </Button>
+                                                                                </AlertDialogTrigger>
+                                                                                <AlertDialogContent>
+                                                                                    <AlertDialogHeader>
+                                                                                        <AlertDialogTitle>Excluir subtarefa?</AlertDialogTitle>
+                                                                                        <AlertDialogDescription>
+                                                                                            Esta ação não pode ser desfeita. A subtarefa "{subtask.title}" será excluída permanentemente.
+                                                                                        </AlertDialogDescription>
+                                                                                    </AlertDialogHeader>
+                                                                                    <AlertDialogFooter>
+                                                                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                                        <AlertDialogAction 
+                                                                                            onClick={() => {
+                                                                                                handleDeleteItem(item.checklistId, subtask.id, true, item.id);
+                                                                                            }} 
+                                                                                            className="bg-red-500 hover:bg-red-600"
+                                                                                        >
+                                                                                            Excluir
+                                                                                        </AlertDialogAction>
+                                                                                    </AlertDialogFooter>
+                                                                                </AlertDialogContent>
+                                                                            </AlertDialog>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Dialog para editar nota */}
+                <Dialog open={!!editingNoteItem} onOpenChange={(open) => !open && setEditingNoteItem(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Adicionar Nota</DialogTitle>
+                        </DialogHeader>
+                        <div className="py-4">
+                            <Textarea
+                                value={editingNoteText}
+                                onChange={(e) => setEditingNoteText(e.target.value)}
+                                placeholder="Digite sua nota aqui..."
+                                className="min-h-[100px]"
+                                autoFocus
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => {
+                                setEditingNoteItem(null);
+                                setEditingNoteText('');
+                            }}>
+                                Cancelar
+                            </Button>
+                            <Button onClick={handleSaveNote}>
+                                Salvar
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </>
+        );
+    };
+
     const TimelineView = ({ checklists, profiles, clients, onOpenItemDetails }) => {
         const items = useMemo(() => {
             return checklists.flatMap(list => 
@@ -724,6 +1330,24 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
               setChecklists(originalChecklists);
           }
       };
+
+      const handleDeleteItem = async (checklistId, itemId) => {
+          const checklist = checklists.find(c => c.id === checklistId);
+          if (!checklist) return;
+
+          const originalChecklists = [...checklists];
+          const updatedItems = checklist.items.filter(i => i.id !== itemId);
+          
+          setChecklists(prev => prev.map(cl => 
+              cl.id === checklistId ? { ...cl, items: updatedItems } : cl
+          ));
+
+          const { error } = await supabase.from('client_checklists').update({ items: updatedItems }).eq('id', checklistId);
+          if (error) {
+              toast({ title: 'Erro ao excluir tarefa', description: error.message, variant: 'destructive' });
+              setChecklists(originalChecklists);
+          }
+      };
       
       const handleDeleteChecklist = async (checklistId) => {
         const originalChecklists = [...checklists];
@@ -741,23 +1365,69 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
       const handleCreateChecklist = async (clientId, title) => {
           if(!user) return;
           
-          const newChecklist = {
-              client_id: clientId,
-              title,
-              items: [],
-              owner_id: user.id
-          };
+          // Verificar se já existe uma checklist para este cliente
+          const existingChecklist = checklists.find(cl => cl.client_id === clientId);
           
-          const { data, error } = await supabase.from('client_checklists').insert(newChecklist).select().single();
-          if (error) {
-              toast({ title: 'Erro ao criar checklist', description: error.message, variant: 'destructive' });
-          } else {
-              const formattedNewChecklist = {
-                ...data,
-                items: (data.items || []).map(item => ({ ...item, id: item.id || crypto.randomUUID() }))
+          if (existingChecklist) {
+              // Se já existe, adicionar novo item nela
+              // Data padrão: hoje
+              const defaultDate = new Date();
+              defaultDate.setHours(23, 59, 59, 999); // Final do dia
+              
+              const newItem = {
+                  id: crypto.randomUUID(),
+                  title: 'Nova tarefa',
+                  is_completed: false,
+                  completed_at: null,
+                  description: '',
+                  due_date: defaultDate.toISOString(),
+                  assignee_id: null,
+                  note: null,
+                  subtasks: []
               };
-              setChecklists(prev => [...prev, formattedNewChecklist]);
-              toast({ title: 'Checklist criado!' });
+              
+              const updatedItems = [...(existingChecklist.items || []), newItem];
+              await handleUpdateChecklist(existingChecklist.id, { items: updatedItems });
+          } else {
+              // Se não existe, criar nova checklist com primeiro item
+              // Data padrão: hoje
+              const defaultDate = new Date();
+              defaultDate.setHours(23, 59, 59, 999); // Final do dia
+              
+              const firstItem = {
+                  id: crypto.randomUUID(),
+                  title: 'Nova tarefa',
+                  is_completed: false,
+                  completed_at: null,
+                  description: '',
+                  due_date: defaultDate.toISOString(),
+                  assignee_id: null,
+                  note: null,
+                  subtasks: []
+              };
+              
+              const newChecklist = {
+                  client_id: clientId,
+                  title,
+                  items: [firstItem],
+                  owner_id: user.id
+              };
+              
+              const { data, error } = await supabase.from('client_checklists').insert(newChecklist).select().single();
+              if (error) {
+                  toast({ title: 'Erro ao criar checklist', description: error.message, variant: 'destructive' });
+              } else {
+                  const formattedNewChecklist = {
+                    ...data,
+                    items: (data.items || []).map(item => ({ 
+                      ...item, 
+                      id: item.id || crypto.randomUUID(),
+                      subtasks: item.subtasks || [],
+                      note: item.note || null
+                    }))
+                  };
+                  setChecklists(prev => [...prev, formattedNewChecklist]);
+              }
           }
       };
 
@@ -775,6 +1445,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         onUpdate: handleUpdateChecklist,
         onCreate: handleCreateChecklist,
         onDeleteChecklist: handleDeleteChecklist,
+        onDeleteItem: handleDeleteItem,
         userRole: userRole,
         profiles: profiles,
         onOpenItemDetails: openItemDetails,
@@ -791,6 +1462,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                 <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
                     <Button variant={viewMode === 'columns' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewMode('columns')}>
                         <Columns className="h-4 w-4 mr-2" /> Colunas
+                    </Button>
+                    <Button variant={viewMode === 'date-status' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewMode('date-status')}>
+                        <CalendarIcon className="h-4 w-4 mr-2" /> Por Data
                     </Button>
                     <Button variant={viewMode === 'timeline' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewMode('timeline')}>
                         <GanttChartSquare className="h-4 w-4 mr-2" /> Timeline
@@ -833,6 +1507,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                 >
                     {viewMode === 'columns' ? (
                         <ColumnsView clients={filteredData.filteredClients} {...commonProps} />
+                    ) : viewMode === 'date-status' ? (
+                        <DateStatusView {...commonProps} clients={clients} />
                     ) : (
                         <TimelineView {...commonProps} clients={clients} />
                     )}

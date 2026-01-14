@@ -8,6 +8,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Calendar as CalendarIcon, User, Plus, FileText, Trash2, ChevronDown, ChevronUp, Clock, CheckCircle2 } from 'lucide-react';
 import { format, differenceInDays, isPast, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -28,9 +29,9 @@ const OnboardingTaskItemInline = ({
   const [editingTitle, setEditingTitle] = useState(item.title);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [editingNote, setEditingNote] = useState(item.note || '');
-  const [isExpanded, setIsExpanded] = useState(true);
   const titleInputRef = useRef(null);
   const noteTextareaRef = useRef(null);
+  const hasAutoEditedRef = useRef(false);
 
   const assignee = useMemo(() => profiles.find(p => p.id === item.assignee_id), [profiles, item.assignee_id]);
   const subtasks = item.subtasks || [];
@@ -62,11 +63,41 @@ const OnboardingTaskItemInline = ({
     }
   }, [isEditingTitle]);
 
+  // Auto-editar quando o item é novo (título padrão "Nova tarefa")
   useEffect(() => {
-    if (isEditingNote && noteTextareaRef.current) {
-      noteTextareaRef.current.focus();
+    if (item.title === 'Nova tarefa' && !item.is_completed && !hasAutoEditedRef.current) {
+      setIsEditingTitle(true);
+      setEditingTitle('');
+      hasAutoEditedRef.current = true;
     }
-  }, [isEditingNote]);
+  }, [item.title, item.is_completed]);
+
+  // Garantir que sempre tenha data (obrigatória) - apenas uma vez
+  const hasSetDefaultDateRef = useRef(false);
+  useEffect(() => {
+    if (!item.due_date && !hasSetDefaultDateRef.current) {
+      const defaultDate = new Date();
+      defaultDate.setHours(23, 59, 59, 999);
+      hasSetDefaultDateRef.current = true;
+      onUpdate({
+        ...item,
+        due_date: defaultDate.toISOString()
+      });
+    } else if (item.due_date) {
+      hasSetDefaultDateRef.current = true;
+    }
+  }, [item.due_date]);
+
+  useEffect(() => {
+    if (isEditingNote) {
+      // Atualizar o texto da nota quando abrir o Dialog
+      setEditingNote(item.note || '');
+      // Pequeno delay para garantir que o Dialog está renderizado
+      setTimeout(() => {
+        noteTextareaRef.current?.focus();
+      }, 100);
+    }
+  }, [isEditingNote, item.note]);
 
   const handleTitleClick = () => {
     if (!item.is_completed) {
@@ -101,16 +132,20 @@ const OnboardingTaskItemInline = ({
   };
 
   const handleDateChange = (date) => {
+    // Data é obrigatória - se tentar remover, mantém a data atual
+    if (!date) {
+      return; // Não permite remover a data
+    }
     onUpdate({
       ...item,
-      due_date: date ? date.toISOString() : null
+      due_date: date.toISOString()
     });
   };
 
   const handleAssigneeChange = (assigneeId) => {
     onUpdate({
       ...item,
-      assignee_id: assigneeId || null
+      assignee_id: assigneeId === 'unassigned' ? null : assigneeId
     });
   };
 
@@ -123,10 +158,16 @@ const OnboardingTaskItemInline = ({
   };
 
   const handleAddSubtaskClick = () => {
+    // Data padrão: mesma da tarefa pai ou hoje
+    const defaultDate = item.due_date ? new Date(item.due_date) : new Date();
+    if (!item.due_date) {
+      defaultDate.setHours(23, 59, 59, 999); // Final do dia se for hoje
+    }
+    
     const newSubtask = {
       id: crypto.randomUUID(),
       title: 'Nova subtarefa',
-      due_date: item.due_date || null,
+      due_date: defaultDate.toISOString(),
       assignee_id: item.assignee_id || null,
       is_completed: false,
       completed_at: null,
@@ -174,7 +215,7 @@ const OnboardingTaskItemInline = ({
       isSubtask && "ml-6 border-l-2 border-gray-200 dark:border-gray-700 pl-3"
     )}>
       <div className={cn(
-        "flex items-start gap-2 p-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors",
+        "flex items-center gap-3 p-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors",
         item.is_completed && "opacity-75"
       )}>
         {/* Checkbox */}
@@ -186,10 +227,10 @@ const OnboardingTaskItemInline = ({
           />
         </div>
 
-        {/* Conteúdo Principal */}
-        <div className="flex-1 min-w-0">
-          {/* Título */}
-          <div className="flex items-center gap-2 mb-1">
+        {/* Conteúdo Principal - Título e data em coluna, resto na linha */}
+        <div className="flex-1 min-w-0 flex items-center gap-3">
+          {/* Título e Data em coluna */}
+          <div className="flex-1 min-w-[120px]">
             {isEditingTitle ? (
               <Input
                 ref={titleInputRef}
@@ -198,207 +239,153 @@ const OnboardingTaskItemInline = ({
                 onBlur={handleTitleSave}
                 onKeyDown={handleTitleKeyDown}
                 className={cn(
-                  "h-7 text-sm font-medium",
+                  "h-7 text-sm font-medium w-full",
                   item.is_completed && "line-through text-gray-500 dark:text-gray-400"
                 )}
               />
             ) : (
-              <span
-                onClick={handleTitleClick}
-                className={cn(
-                  "text-sm font-medium cursor-pointer hover:text-blue-600 dark:hover:text-blue-400",
-                  item.is_completed && "line-through text-gray-500 dark:text-gray-400"
-                )}
-              >
-                {item.title || 'Sem título'}
-              </span>
-            )}
-          </div>
-
-          {/* Informações (Data, Responsável, Status) */}
-          <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-            {/* Data */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-300">
-                  <CalendarIcon className="h-3 w-3" />
-                  {item.due_date ? (
-                    <span>{format(new Date(item.due_date), "dd/MM/yyyy", { locale: ptBR })}</span>
-                  ) : (
-                    <span className="text-gray-400">Sem data</span>
+              <div>
+                <span
+                  onClick={handleTitleClick}
+                  className={cn(
+                    "text-sm font-medium cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 block truncate",
+                    item.is_completed && "line-through text-gray-500 dark:text-gray-400"
                   )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={item.due_date ? new Date(item.due_date) : null}
-                  onSelect={handleDateChange}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-
-            {/* Responsável */}
-            <Select value={item.assignee_id || ''} onValueChange={handleAssigneeChange}>
-              <SelectTrigger className="h-6 w-auto px-2 text-xs border-none shadow-none hover:bg-gray-100 dark:hover:bg-gray-700">
-                <div className="flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  {assignee ? (
-                    <>
-                      <Avatar className="h-4 w-4">
-                        <AvatarImage src={assignee.avatar_url} />
-                        <AvatarFallback className="text-[8px]">{assignee.full_name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <span className="max-w-[80px] truncate">{assignee.full_name}</span>
-                    </>
-                  ) : (
-                    <span className="text-gray-400">Sem responsável</span>
+                  title={item.title || 'Sem título'}
+                >
+                  {item.title || 'Sem título'}
+                </span>
+                {/* Data e Status pequenos embaixo do nome */}
+                <div className="flex items-center gap-1.5 -mt-0.5 leading-none">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400">
+                        {item.due_date ? (
+                          format(new Date(item.due_date), "dd/MM/yy", { locale: ptBR })
+                        ) : (
+                          format(new Date(), "dd/MM/yy", { locale: ptBR })
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={item.due_date ? new Date(item.due_date) : new Date()}
+                        onSelect={handleDateChange}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  
+                  {/* Status de atraso/urgente pequeno */}
+                  {!item.is_completed && daysLeft !== null && (taskStatus === 'overdue' || taskStatus === 'urgent') && (
+                    <span className={cn(
+                      "text-[10px]",
+                      taskStatus === 'overdue' && "text-red-600 dark:text-red-400",
+                      taskStatus === 'urgent' && "text-orange-600 dark:text-orange-400"
+                    )}>
+                      {taskStatus === 'overdue' && `Atrasado ${Math.abs(daysLeft)}d`}
+                      {taskStatus === 'urgent' && `Em ${daysLeft}d`}
+                    </span>
                   )}
                 </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Sem responsável</SelectItem>
-                {profiles.map(profile => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
-                        <AvatarImage src={profile.avatar_url} />
-                        <AvatarFallback>{profile.full_name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <span>{profile.full_name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Status */}
-            {item.is_completed && item.completed_at && (
-              <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Concluído em {format(new Date(item.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-              </div>
-            )}
-            {!item.is_completed && daysLeft !== null && (
-              <div className={cn(
-                "flex items-center gap-1",
-                taskStatus === 'overdue' && "text-red-600 dark:text-red-400",
-                taskStatus === 'urgent' && "text-orange-600 dark:text-orange-400",
-                taskStatus === 'pending' && "text-gray-500 dark:text-gray-400"
-              )}>
-                <Clock className="h-3 w-3" />
-                {taskStatus === 'overdue' && <span>Atrasado {Math.abs(daysLeft)} dias</span>}
-                {taskStatus === 'urgent' && <span>Em {daysLeft} dias</span>}
-                {taskStatus === 'pending' && <span>Em {daysLeft} dias</span>}
               </div>
             )}
           </div>
 
-          {/* Nota */}
-          {isEditingNote ? (
-            <div className="mt-2">
-              <Textarea
-                ref={noteTextareaRef}
-                value={editingNote}
-                onChange={(e) => setEditingNote(e.target.value)}
-                placeholder="Adicione uma nota..."
-                className="h-16 text-xs"
-              />
-              <div className="flex gap-2 mt-1">
-                <Button size="sm" variant="default" onClick={handleNoteSave}>Salvar</Button>
-                <Button size="sm" variant="ghost" onClick={() => {
-                  setEditingNote(item.note || '');
-                  setIsEditingNote(false);
-                }}>Cancelar</Button>
-              </div>
-            </div>
-          ) : item.note && (
-            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 italic">
-              💬 {item.note}
-            </div>
-          )}
-        </div>
-
-        {/* Ações */}
-        <div className="flex items-center gap-1 opacity-0 group-hover/task:opacity-100 transition-opacity">
-          {/* Adicionar Subtarefa */}
-          {!isSubtask && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={handleAddSubtaskClick}
-              title="Adicionar subtarefa"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          )}
-
-          {/* Adicionar Nota */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-7 w-7",
-              item.note && "text-blue-600 dark:text-blue-400"
-            )}
-            onClick={() => setIsEditingNote(true)}
-            title="Adicionar nota"
-          >
-            <FileText className="h-4 w-4" />
-          </Button>
-
-          {/* Expandir/Recolher Subtarefas */}
-          {hasSubtasks && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setIsExpanded(!isExpanded)}
-              title={isExpanded ? "Recolher subtarefas" : "Expandir subtarefas"}
-            >
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
+          {/* Responsável - só avatar */}
+          <Select value={item.assignee_id || 'unassigned'} onValueChange={handleAssigneeChange}>
+            <SelectTrigger className="h-7 w-7 p-0 border-none shadow-none hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full [&>svg]:hidden">
+              {assignee ? (
+                <Avatar className="h-7 w-7 cursor-pointer">
+                  <AvatarImage src={assignee.avatar_url} />
+                  <AvatarFallback className="text-xs">{assignee.full_name.charAt(0)}</AvatarFallback>
+                </Avatar>
               ) : (
-                <ChevronDown className="h-4 w-4" />
+                <div className="h-7 w-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                  <User className="h-3.5 w-3.5 text-gray-400" />
+                </div>
               )}
-            </Button>
-          )}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Sem responsável</SelectItem>
+              {profiles.map(profile => (
+                <SelectItem key={profile.id} value={profile.id}>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-5 w-5">
+                      <AvatarImage src={profile.avatar_url} />
+                      <AvatarFallback>{profile.full_name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <span>{profile.full_name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          {/* Excluir */}
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
+          {/* Ações - sempre visíveis na mesma linha */}
+          <div className="flex items-center gap-1">
+            {/* Adicionar Nota */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-6 w-6",
+                item.note && "text-blue-600 dark:text-blue-400"
+              )}
+              onClick={() => setIsEditingNote(true)}
+              title="Adicionar nota"
+            >
+              <FileText className="h-3.5 w-3.5" />
+            </Button>
+
+            {/* Adicionar Subtarefa */}
+            {!isSubtask && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-red-500 hover:text-red-700"
-                title="Excluir tarefa"
+                className="h-6 w-6"
+                onClick={handleAddSubtaskClick}
+                title="Adicionar subtarefa"
               >
-                <Trash2 className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Excluir tarefa?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esta ação não pode ser desfeita. A tarefa "{item.title}" será excluída permanentemente.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={onDelete} className="bg-red-500 hover:bg-red-600">
-                  Excluir
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            )}
+
+            {/* Excluir */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-red-500 hover:text-red-700"
+                  title="Excluir tarefa"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir tarefa?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta ação não pode ser desfeita. A tarefa "{item.title}" será excluída permanentemente.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={onDelete} className="bg-red-500 hover:bg-red-600">
+                    Excluir
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
       </div>
 
       {/* Subtarefas */}
       <AnimatePresence>
-        {hasSubtasks && isExpanded && (
+        {hasSubtasks && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -421,6 +408,40 @@ const OnboardingTaskItemInline = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Dialog para editar nota */}
+      <Dialog open={isEditingNote} onOpenChange={setIsEditingNote}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adicionar Nota</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              ref={noteTextareaRef}
+              value={editingNote}
+              onChange={(e) => setEditingNote(e.target.value)}
+              placeholder="Digite sua nota aqui..."
+              className="min-h-[100px]"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setIsEditingNote(false);
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setEditingNote(item.note || '');
+              setIsEditingNote(false);
+            }}>
+              Cancelar
+            </Button>
+            <Button onClick={handleNoteSave}>
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
