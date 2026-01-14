@@ -675,7 +675,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
               ...cl,
               items: (cl.items || []).map(item => ({
                   ...item,
-                  id: item.id || crypto.randomUUID(), 
+                  id: item.id || crypto.randomUUID(),
+                  subtasks: item.subtasks || [],
+                  note: item.note || null
               }))
           }));
           setChecklists(formattedChecklists || []);
