@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, ArrowRight, ArrowLeft, Eraser, Palette, Bot } from 'lucide-react';
+import { FileText, PlusCircle, Trash2, Loader2, Check, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, Minus, Plus, Link, Image, Highlighter, Type, ArrowRight, ArrowLeft, Eraser, Palette, Bot, Menu, X } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,22 @@ const ProjectDocuments = ({ client }) => {
   const [imageUrl, setImageUrl] = useState('');
   const [textColor, setTextColor] = useState('#000000');
   const [highlightColor, setHighlightColor] = useState('#FFFF00');
+  const [isMobile, setIsMobile] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Detectar mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+      const isSmallScreen = window.innerWidth < 768;
+      setIsMobile(isMobileDevice || isSmallScreen);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const fetchDocuments = useCallback(async () => {
     if (!client?.id) return;
@@ -145,6 +161,7 @@ const ProjectDocuments = ({ client }) => {
   const handleSelectDoc = (doc) => {
     setSelectedDoc(doc);
     isInitialMount.current = true;
+    if (isMobile) setIsSidebarOpen(false);
   };
   
   const handleCreateNewDoc = async () => {
@@ -604,12 +621,24 @@ const ProjectDocuments = ({ client }) => {
   }, [title, content, saveChanges]);
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="w-1/4 border-r p-4 space-y-2 overflow-y-auto flex-shrink-0">
-        <Button onClick={handleCreateNewDoc} className="w-full">
-          <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Página
-        </Button>
-        <h2 className="text-lg font-semibold pt-4">Documentos do Cliente</h2>
+    <div className="flex h-full min-h-0 relative overflow-hidden">
+      {/* Sidebar de Documentos - Drawer no mobile */}
+      <aside className={`absolute md:relative z-20 md:z-auto h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ width: '280px', minWidth: '280px', maxWidth: '280px' }}>
+        <div className="p-4 space-y-2 overflow-y-auto flex-1 min-h-0">
+          <div className="flex items-center justify-between mb-2 md:mb-0">
+            <h2 className="text-lg font-semibold">Documentos do Cliente</h2>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" 
+              onClick={() => setIsSidebarOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <Button onClick={handleCreateNewDoc} className="w-full">
+            <PlusCircle className="mr-2 h-4 w-4" /> Adicionar Página
+          </Button>
         {loading && <p>Carregando...</p>}
         {documents.map(doc => (
           <div
@@ -636,35 +665,55 @@ const ProjectDocuments = ({ client }) => {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      </aside>
 
-      <div className="w-3/4 flex flex-col overflow-hidden min-h-0 flex-1">
+      {/* Overlay para fechar sidebar no mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-10 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      <div className="w-full md:w-3/4 flex flex-col overflow-hidden min-h-0 flex-1">
         {selectedDoc ? (
-          <div className="flex flex-col h-full px-12 py-8 min-h-0 overflow-hidden">
+          <div className="flex flex-col h-full px-4 md:px-12 py-4 md:py-8 min-h-0 overflow-y-auto md:overflow-hidden">
             <div className="flex-shrink-0">
-            <div className="flex items-center justify-end mb-4 text-sm text-gray-500">
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" /> Salvando...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 text-green-500 mr-1" /> Salvo
-                </>
-              )}
+            {/* Botão para abrir sidebar no mobile */}
+            <div className="flex items-center justify-between mb-4">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" 
+                onClick={() => setIsSidebarOpen(true)}
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="flex items-center text-sm text-gray-500">
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" /> Salvando...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 text-green-500 mr-1" /> Salvo
+                  </>
+                )}
+              </div>
             </div>
             <Input 
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="text-3xl font-bold border-none shadow-none focus-visible:ring-0 mb-6 px-0"
+              className="text-xl md:text-3xl font-bold border-none shadow-none focus-visible:ring-0 mb-4 md:mb-6 px-0"
               placeholder="Sem título"
             />
             
             {/* Barra de Ferramentas */}
-              <div className="flex items-center gap-2 p-2 border rounded-md mb-4 bg-gray-50 dark:bg-gray-800 flex-wrap">
+              <div className="flex items-center gap-1 md:gap-2 p-2 border rounded-md mb-4 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
               {/* Estilo de Texto */}
               <Select value={textStyle} onValueChange={changeTextStyle}>
-                <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectTrigger className="w-[100px] md:w-[140px] h-8 text-xs">
                   <SelectValue placeholder="Estilo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -682,7 +731,7 @@ const ProjectDocuments = ({ client }) => {
 
               {/* Família da Fonte */}
               <Select value={fontFamily} onValueChange={changeFontFamily}>
-                <SelectTrigger className="w-[120px] h-8 text-xs">
+                <SelectTrigger className="w-[90px] md:w-[120px] h-8 text-xs">
                   <SelectValue placeholder="Fonte" />
                 </SelectTrigger>
                 <SelectContent>
@@ -964,7 +1013,6 @@ const ProjectDocuments = ({ client }) => {
                 </Button>
               </div>
             </div>
-            </div>
 
             {/* Editor de Texto Rico */}
             <div
@@ -975,70 +1023,90 @@ const ProjectDocuments = ({ client }) => {
               onKeyDown={handleKeyDown}
               className="flex-1 w-full rounded-md bg-background text-base leading-relaxed resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 min-h-0"
               style={{ 
-                paddingLeft: '2rem', 
-                paddingRight: '2rem', 
-                paddingTop: '1.5rem', 
-                paddingBottom: '1.5rem',
+                paddingLeft: '1rem', 
+                paddingRight: '1rem', 
+                paddingTop: '1rem', 
+                paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
                 fontSize: `${fontSize}px`
               }}
               data-placeholder="Comece a escrever..."
             />
-            
-            <style>{`
-              [contenteditable][data-placeholder]:empty:before {
-                content: attr(data-placeholder);
-                color: #9ca3af;
-                pointer-events: none;
-              }
-              
-              [contenteditable] p {
-                margin-bottom: 1rem;
-                line-height: 1.6;
-                min-height: 1.5em;
-              }
-              
-              [contenteditable] p:last-child {
-                margin-bottom: 0;
-              }
-              
-              [contenteditable] ul,
-              [contenteditable] ol {
-                margin: 1rem 0;
-                padding-left: 2rem;
-                line-height: 1.6;
-              }
-              
-              [contenteditable] li {
-                margin-bottom: 0.5rem;
-              }
-              
-              [contenteditable] strong {
-                font-weight: 600;
-              }
-              
-              [contenteditable] em {
-                font-style: italic;
-              }
-              
-              [contenteditable] u {
-                text-decoration: underline;
-              }
-              
-              [contenteditable]:focus {
-                outline: none;
-              }
-              
-              [contenteditable] * {
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-              }
-            `}</style>
           </div>
+          
+          <style>{`
+            [contenteditable][data-placeholder]:empty:before {
+              content: attr(data-placeholder);
+              color: #9ca3af;
+              pointer-events: none;
+            }
+            
+            [contenteditable] p {
+              margin-bottom: 1rem;
+              line-height: 1.6;
+              min-height: 1.5em;
+            }
+            
+            [contenteditable] p:last-child {
+              margin-bottom: 0;
+            }
+            
+            [contenteditable] ul,
+            [contenteditable] ol {
+              margin: 1rem 0;
+              padding-left: 2rem;
+              line-height: 1.6;
+            }
+            
+            [contenteditable] li {
+              margin-bottom: 0.5rem;
+            }
+            
+            [contenteditable] strong {
+              font-weight: 600;
+            }
+            
+            [contenteditable] em {
+              font-style: italic;
+            }
+            
+            [contenteditable] u {
+              text-decoration: underline;
+            }
+            
+            [contenteditable]:focus {
+              outline: none;
+            }
+            
+            [contenteditable] * {
+              word-wrap: break-word;
+              overflow-wrap: break-word;
+            }
+          `}</style>
+        </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 px-4">
             <FileText className="h-16 w-16 mb-4" />
-            <h3 className="text-xl font-semibold">Selecione ou crie um documento</h3>
-            <p>Todos os documentos deste cliente aparecerão aqui.</p>
+            <h3 className="text-lg md:text-xl font-semibold mb-2 text-center">Selecione ou crie um documento</h3>
+            <p className="text-sm text-center mb-6">Todos os documentos deste cliente aparecerão aqui.</p>
+            
+            {/* Botões de ação no mobile */}
+            <div className="flex flex-col gap-3 w-full max-w-sm">
+              <Button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="w-full"
+                variant="outline"
+              >
+                <Menu className="mr-2 h-4 w-4" />
+                Ver Documentos Existentes
+              </Button>
+              <Button 
+                onClick={handleCreateNewDoc}
+                className="w-full"
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Criar Novo Documento
+              </Button>
+            </div>
           </div>
         )}
       </div>

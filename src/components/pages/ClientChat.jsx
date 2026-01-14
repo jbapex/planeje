@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Send, Loader2, Users, FileText, BarChart3, Target, CheckCircle2, Sparkles, Camera, Plus, X, Trash2, RotateCw, ThumbsUp, ThumbsDown, Edit, Star } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, FileText, BarChart3, Target, CheckCircle2, Sparkles, Camera, Plus, X, Trash2, RotateCw, ThumbsUp, ThumbsDown, Edit, Star, Menu } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -59,6 +59,8 @@ const ClientChat = () => {
   const [showDocumentSelector, setShowDocumentSelector] = useState(false);
   const [editingMessageIndex, setEditingMessageIndex] = useState(null); // Índice da mensagem sendo editada
   const [editedMessageText, setEditedMessageText] = useState(''); // Texto editado
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
   const scrollAreaRef = useRef(null);
   const textareaRef = useRef(null);
@@ -78,6 +80,20 @@ const ClientChat = () => {
       breaks: true,
       gfm: true,
     });
+  }, []);
+
+  // Detectar mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+      const isSmallScreen = window.innerWidth < 768;
+      setIsMobile(isMobileDevice || isSmallScreen);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   // Buscar dados do cliente
@@ -170,6 +186,7 @@ const ClientChat = () => {
       if (data && data.messages) {
         setMessages(Array.isArray(data.messages) ? data.messages : []);
         setCurrentConversationId(convId);
+        if (isMobile) setIsSidebarOpen(false);
       }
     } catch (error) {
       console.error('Erro ao carregar conversa:', error);
@@ -1576,12 +1593,15 @@ Quando criar uma campanha, SEMPRE inclua:
 
   return (
     <div className="fixed inset-0 flex bg-gray-50 dark:bg-gray-900 overflow-hidden" style={{ height: '100dvh', maxHeight: '100dvh', zIndex: 10 }}>
-      {/* Sidebar de Conversas */}
-      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0 h-full overflow-hidden">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/assistant')} className="w-full justify-start">
+      {/* Sidebar de Conversas - Drawer no mobile */}
+      <aside className={`absolute md:relative z-20 md:z-auto h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ width: '256px', minWidth: '256px', maxWidth: '256px' }}>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/assistant')} className="flex-1 justify-start">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
+          </Button>
+          <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" onClick={() => setIsSidebarOpen(false)}>
+            <X className="h-5 w-5" />
           </Button>
         </div>
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -1624,18 +1644,36 @@ Quando criar uma campanha, SEMPRE inclua:
             </div>
           </ScrollArea>
         </div>
-      </div>
+      </aside>
+
+      {/* Overlay para fechar sidebar no mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-10 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
       {/* Área Principal */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ height: '100%', maxHeight: '100%' }}>
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
-            <div>
-              <h1 className="text-xl font-bold">{client.empresa}</h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {client.nome_contato || 'Sem contato'}
-              </p>
+            <div className="flex items-center gap-3 min-w-0">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" 
+                onClick={() => setIsSidebarOpen(true)}
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold truncate">{client.empresa}</h1>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
+                  {client.nome_contato || 'Sem contato'}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm">
@@ -1993,8 +2031,8 @@ Quando criar uma campanha, SEMPRE inclua:
         </main>
 
         {/* Input - Fixo na parte inferior */}
-        <footer className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm" style={{ 
-          paddingBottom: 'max(0.75rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))',
+        <footer className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm md:pb-4 pb-20" style={{ 
+          paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
           paddingTop: '1rem',
           paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
           paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'

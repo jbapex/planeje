@@ -393,15 +393,16 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 bg-gray-50 dark:bg-gray-900 z-50 flex flex-col"
+                style={{ height: '100dvh', maxHeight: '100dvh' }}
               >
-                <div className="flex flex-col h-full p-6 overflow-hidden">
-                  <div className="flex-shrink-0 mb-4 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Documentos de: {selectedClientForDoc.empresa}</h2>
+                <div className="flex flex-col h-full p-3 md:p-6 overflow-hidden">
+                  <div className="flex-shrink-0 mb-3 md:mb-4 flex items-center justify-between">
+                    <h2 className="text-lg md:text-2xl font-bold text-gray-800 dark:text-white truncate pr-2">Documentos de: {selectedClientForDoc.empresa}</h2>
                     <Button variant="ghost" size="icon" onClick={() => { setShowDocument(false); setSelectedClientForDoc(null); }}>
                       <X className="h-5 w-5" />
                     </Button>
                   </div>
-                  <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-hidden">
+                  <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-hidden flex flex-col">
                     <ProjectDocuments client={selectedClientForDoc} />
                   </div>
                 </div>
