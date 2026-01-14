@@ -201,7 +201,17 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         const checklist = clientChecklists.find(c => c.id === checklistId);
         if (!checklist) return;
 
-        const newItem = { id: crypto.randomUUID(), title, is_completed: false, completed_at: null, description: '', due_date: null, assignee_id: null };
+        const newItem = { 
+          id: crypto.randomUUID(), 
+          title, 
+          is_completed: false, 
+          completed_at: null, 
+          description: '', 
+          due_date: null, 
+          assignee_id: null,
+          note: null,
+          subtasks: []
+        };
         const updatedItems = [...checklist.items, newItem];
         
         onUpdate(checklistId, { items: updatedItems });
