@@ -5,7 +5,7 @@ import React, { useMemo, useState } from 'react';
     import { Button } from "@/components/ui/button";
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-    import { Trash2, Plus, X, Edit, MoreHorizontal, DollarSign, Calendar, Tag, Building, FileText, MessageSquare, Copy, ExternalLink } from 'lucide-react';
+    import { Trash2, Plus, X, Edit, MoreHorizontal, DollarSign, Calendar, Tag, Building, FileText, MessageSquare, Copy, ExternalLink, User } from 'lucide-react';
     import { format, differenceInDays, parseISO } from 'date-fns';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
@@ -59,7 +59,7 @@ import React, { useMemo, useState } from 'react';
       return <span className={colorClass}>{display}</span>;
     };
 
-    const ClientesLista = ({ clients, users, onUpdateField, onAddClient, onEdit, onOpenDocument, selectedClients, setSelectedClients, fetchClients, userRole }) => {
+    const ClientesLista = ({ clients, users, onUpdateField, onAddClient, onEdit, onOpenDocument, onOpenUserManager, selectedClients, setSelectedClients, fetchClients, userRole }) => {
       const { toast } = useToast();
       const { canViewField } = useAuth();
       
@@ -220,6 +220,7 @@ import React, { useMemo, useState } from 'react';
                             <DropdownMenuContent align="end" className="dark:bg-gray-800 dark:border-gray-700">
                               <DropdownMenuItem onClick={() => onEdit(client)} className="dark:text-white dark:hover:bg-gray-700"><Edit className="mr-2 h-4 w-4" /> Editar Detalhes</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => onOpenDocument(client)} className="dark:text-white dark:hover:bg-gray-700"><FileText className="mr-2 h-4 w-4" /> Documento</DropdownMenuItem>
+                              {onOpenUserManager && <DropdownMenuItem onClick={() => onOpenUserManager(client)} className="dark:text-white dark:hover:bg-gray-700"><User className="mr-2 h-4 w-4" /> Gerenciar Login</DropdownMenuItem>}
                               <DropdownMenuItem onClick={() => handleViewChatLink(client.id)} className="dark:text-white dark:hover:bg-gray-700"><ExternalLink className="mr-2 h-4 w-4" /> Visualizar Link do Chat IA</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleCopyChatLink(client.id)} className="dark:text-white dark:hover:bg-gray-700"><Copy className="mr-2 h-4 w-4" /> Copiar Link do Chat IA</DropdownMenuItem>
                               <AlertDialog>

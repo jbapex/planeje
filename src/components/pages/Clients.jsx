@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import ClientesLista from '@/components/clients/ClientesLista';
     import ClientesCards from '@/components/clients/ClientesCards';
     import ProjectDocuments from '@/components/projects/ProjectDocuments';
+import ClientUserManager from '@/components/admin/ClientUserManager';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
     import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
@@ -40,6 +41,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
       const [selectedClientForProgress, setSelectedClientForProgress] = useState(null);
       const [showDocument, setShowDocument] = useState(false);
       const [selectedClientForDoc, setSelectedClientForDoc] = useState(null);
+      const [showUserManager, setShowUserManager] = useState(false);
+      const [selectedClientForUser, setSelectedClientForUser] = useState(null);
       const [etapaFilter, setEtapaFilter] = useState('all');
       const [etiquetaFilter, setEtiquetaFilter] = useState([]);
       const [selectedClients, setSelectedClients] = useState([]);
@@ -210,6 +213,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         setShowDocument(true);
       };
 
+      const handleOpenUserManager = (client) => {
+        setSelectedClientForUser(client);
+        setShowUserManager(true);
+      };
+
       const filteredClients = useMemo(() => {
         return clients.filter(client => {
           const etapaMatch = etapaFilter === 'all' || client.etapa === etapaFilter;
@@ -363,6 +371,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                 onUpdateField={handleUpdateClientField}
                 onAddClient={() => handleOpenForm()}
                 onOpenDocument={handleOpenDocument}
+                onOpenUserManager={handleOpenUserManager}
                 selectedClients={selectedClients}
                 setSelectedClients={setSelectedClients}
                 fetchClients={fetchClients}
@@ -374,6 +383,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                 onEdit={handleOpenForm} 
                 onProgress={handleOpenProgress}
                 onOpenDocument={handleOpenDocument}
+                onOpenUserManager={handleOpenUserManager}
                 fetchClients={fetchClients}
                 userRole={userRole}
               />
@@ -385,6 +395,18 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
           </AnimatePresence>
           <AnimatePresence>
             {showProgress && selectedClientForProgress && <ClientProgress client={selectedClientForProgress} onClose={() => { setShowProgress(false); setSelectedClientForProgress(null); }} />}
+          </AnimatePresence>
+           <AnimatePresence>
+            {showUserManager && selectedClientForUser && (
+              <ClientUserManager
+                clientId={selectedClientForUser.id}
+                clientName={selectedClientForUser.empresa}
+                onClose={() => {
+                  setShowUserManager(false);
+                  setSelectedClientForUser(null);
+                }}
+              />
+            )}
           </AnimatePresence>
            <AnimatePresence>
             {showDocument && selectedClientForDoc && (
@@ -402,7 +424,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
                       <X className="h-5 w-5" />
                     </Button>
                   </div>
-                  <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-hidden flex flex-col">
+                  <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-hidden flex flex-col" style={{ maxHeight: '100%' }}>
                     <ProjectDocuments client={selectedClientForDoc} />
                   </div>
                 </div>

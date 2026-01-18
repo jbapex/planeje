@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
     import { Helmet } from 'react-helmet';
-    import { Routes, Route, Navigate } from 'react-router-dom';
+    import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
     import { Toaster } from '@/components/ui/toaster';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
@@ -30,6 +30,9 @@ import React, { useEffect } from 'react';
     import MarketingDiagnostic from '@/components/pages/MarketingDiagnostic';
 import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
 import PublicClientChat from '@/components/pages/PublicClientChat';
+import ApexIAAuthenticated from '@/components/pages/ApexIAAuthenticated';
+import ClientLogin from '@/components/auth/ClientLogin';
+import ProtectedClientRoute from '@/components/auth/ProtectedClientRoute';
 import AssistantHome from '@/components/pages/AssistantHome';
 import SelectClient from '@/components/pages/SelectClient';
 import ClientChat from '@/components/pages/ClientChat';
@@ -67,14 +70,18 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
         <Route path="/terms-of-service" element={<TermsOfService />} />
         <Route path="/data-deletion" element={<DataDeletion />} />
         <Route path="/diagnostico" element={<MarketingDiagnostic />} />
+        {/* Rotas públicas do ApexIA (acesso via link) - MANTIDAS */}
         <Route path="/chat/:clientId" element={<PublicClientChat />} />
         <Route path="/chat/:clientId/:sessionId" element={<PublicClientChat />} />
         <Route path="/chat-launcher" element={<ChatLauncher />} />
+        {/* Nova rota de login para clientes */}
+        <Route path="/login-cliente" element={<ClientLogin />} />
       </>
     );
 
     function App() {
-      const { session, loading: authLoading } = useAuth();
+      const { session, profile, loading: authLoading } = useAuth();
+      const navigate = useNavigate();
 
       useEffect(() => {
         const isDarkMode = localStorage.getItem('theme') === 'dark';
@@ -84,6 +91,33 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
           document.documentElement.classList.remove('dark');
         }
       }, []);
+
+      // Redirecionar clientes para /apexia se tentarem acessar rotas internas
+      // Este useEffect é importante porque detecta mudanças no profile e redireciona imediatamente
+      useEffect(() => {
+        if (!authLoading && session && profile?.role === 'cliente' && profile?.cliente_id) {
+          // Para HashRouter, o path está no hash
+          const hash = window.location.hash;
+          const currentPath = hash ? hash.replace('#', '') : window.location.pathname;
+          
+          // Lista de rotas permitidas para clientes
+          const allowedPaths = ['/apexia', '/chat', '/login-cliente'];
+          const isAllowedPath = allowedPaths.some(path => currentPath.startsWith(path));
+          
+          // Se não está em uma rota permitida, redirecionar para /apexia
+          if (!isAllowedPath && currentPath && currentPath !== '/') {
+            console.log('🔄 App: Cliente em rota interna (' + currentPath + '), redirecionando para /apexia');
+            navigate('/apexia', { replace: true });
+            return;
+          }
+          
+          // Se estiver na raiz ou em /tasks/list, redirecionar para /apexia
+          if (currentPath === '/' || currentPath === '' || currentPath === '/tasks/list' || currentPath === '/tasks') {
+            console.log('🔄 App: Cliente na raiz ou rota padrão (' + currentPath + '), redirecionando para /apexia');
+            navigate('/apexia', { replace: true });
+          }
+        }
+      }, [session, profile, authLoading, navigate]);
 
       if (authLoading) {
         return (
@@ -108,8 +142,15 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
             {PublicPages()}
 
             {session ? (
-              <Route path="/" element={<MainLayout />}>
-                <Route index element={<Navigate to="/tasks/list" replace />} />
+              profile?.role === 'cliente' && profile?.cliente_id ? (
+                <>
+                  <Route path="/apexia" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
+                  <Route path="/apexia/:sessionId" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
+                  <Route path="*" element={<Navigate to="/apexia" replace />} />
+                </>
+              ) : (
+                <Route path="/" element={<MainLayout />}>
+                  <Route index element={<Navigate to="/tasks/list" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="clients" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
                 <Route path="clients/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
@@ -144,7 +185,8 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                 <Route path="meta-integration-help" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><MetaIntegrationHelp /></ProtectedRoute>} />
                 
                 <Route path="*" element={<Navigate to="/tasks/list" replace />} />
-              </Route>
+                </Route>
+              )
             ) : (
               <>
                 <Route path="/login" element={<Login />} />

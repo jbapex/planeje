@@ -2,7 +2,7 @@ import React from 'react';
     import { motion } from 'framer-motion';
     import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
     import { Button } from "@/components/ui/button";
-    import { Edit, Trash2, BarChart, Building, FileText, MessageSquare, Copy } from 'lucide-react';
+    import { Edit, Trash2, BarChart, Building, FileText, MessageSquare, Copy, User } from 'lucide-react';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
     import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -20,7 +20,7 @@ import React from 'react';
       { value: 'lost', label: 'Perdido', color: 'bg-red-500' }
     ];
 
-    const ClientesCards = ({ clients, onEdit, onProgress, onOpenDocument, fetchClients, userRole }) => {
+    const ClientesCards = ({ clients, onEdit, onProgress, onOpenDocument, onOpenUserManager, fetchClients, userRole }) => {
       const { toast } = useToast();
       const { canViewField } = useAuth();
       
@@ -76,6 +76,7 @@ import React from 'react';
                           <DropdownMenuContent align="end" className="dark:bg-gray-800 dark:border-gray-700">
                              <DropdownMenuItem onClick={() => onEdit(client)} className="dark:text-white dark:hover:bg-gray-700"><Edit className="mr-2 h-4 w-4" /> Editar</DropdownMenuItem>
                              <DropdownMenuItem onClick={() => onOpenDocument(client)} className="dark:text-white dark:hover:bg-gray-700"><FileText className="mr-2 h-4 w-4" /> Documento</DropdownMenuItem>
+                             {onOpenUserManager && <DropdownMenuItem onClick={() => onOpenUserManager(client)} className="dark:text-white dark:hover:bg-gray-700"><User className="mr-2 h-4 w-4" /> Gerenciar Login</DropdownMenuItem>}
                              <DropdownMenuItem onClick={() => handleCopyChatLink(client.id)} className="dark:text-white dark:hover:bg-gray-700"><Copy className="mr-2 h-4 w-4" /> Copiar Link do Chat IA</DropdownMenuItem>
                              <AlertDialog>
                               <AlertDialogTrigger asChild>

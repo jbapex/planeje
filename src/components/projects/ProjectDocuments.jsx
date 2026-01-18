@@ -678,7 +678,7 @@ const ProjectDocuments = ({ client }) => {
 
       <div className="w-full md:w-3/4 flex flex-col overflow-hidden min-h-0 flex-1">
         {selectedDoc ? (
-          <div className="flex flex-col h-full px-4 md:px-12 py-4 md:py-8 min-h-0 overflow-y-auto md:overflow-hidden">
+          <div className="flex flex-col h-full px-4 md:px-12 py-4 md:py-8 min-h-0 overflow-hidden md:overflow-hidden">
             <div className="flex-shrink-0">
             {/* Botão para abrir sidebar no mobile */}
             <div className="flex items-center justify-between mb-4">
@@ -1015,22 +1015,25 @@ const ProjectDocuments = ({ client }) => {
             </div>
 
             {/* Editor de Texto Rico */}
-            <div
-              ref={editorRef}
-              contentEditable
-              onInput={handleEditorChange}
-              onBlur={handleEditorChange}
-              onKeyDown={handleKeyDown}
-              className="flex-1 w-full rounded-md bg-background text-base leading-relaxed resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 min-h-0"
-              style={{ 
-                paddingLeft: '1rem', 
-                paddingRight: '1rem', 
-                paddingTop: '1rem', 
-                paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
-                fontSize: `${fontSize}px`
-              }}
-              data-placeholder="Comece a escrever..."
-            />
+            <div className="flex-1 min-h-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div
+                ref={editorRef}
+                contentEditable
+                onInput={handleEditorChange}
+                onBlur={handleEditorChange}
+                onKeyDown={handleKeyDown}
+                className="w-full rounded-md bg-background text-base leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                style={{ 
+                  paddingLeft: '1rem', 
+                  paddingRight: '1rem', 
+                  paddingTop: '1rem', 
+                  paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
+                  fontSize: `${fontSize}px`,
+                  minHeight: '100%'
+                }}
+                data-placeholder="Comece a escrever..."
+              />
+            </div>
           </div>
           
           <style>{`

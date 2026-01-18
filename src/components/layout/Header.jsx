@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Circle } from 'lucide-react';
+import { Sun, Moon, Circle, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const Header = () => {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+  const isClient = profile?.role === 'cliente' && profile?.cliente_id;
   const [theme, setTheme] = useState(() => {
     if (localStorage.getItem('theme')) {
       return localStorage.getItem('theme');
@@ -30,6 +33,17 @@ const Header = () => {
             <h1 className="text-xl font-bold gradient-text">JB APEX</h1>
         </div>
         <div className="flex items-center gap-2 md:gap-3 ml-auto">
+          {isClient && (
+            <Button 
+              onClick={() => navigate('/apexia')} 
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+              size="sm"
+            >
+              <Bot className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Acessar ApexIA</span>
+              <span className="sm:hidden">ApexIA</span>
+            </Button>
+          )}
           <Button variant="ghost" size="icon" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-purple-600" />}
           </Button>
