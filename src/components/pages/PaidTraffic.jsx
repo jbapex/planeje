@@ -29,7 +29,12 @@ import React, { useState, useEffect, useCallback } from 'react';
       const { toast } = useToast();
 
       const fetchDataForForm = useCallback(async () => {
-         const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+         // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+         // Então removemos perfis de cliente de todas as listas de "usuários".
+         const { data: usersData, error: usersError } = await supabase
+           .from('profiles')
+           .select('id, full_name, avatar_url')
+           .neq('role', 'cliente');
           if (usersError) throw usersError;
           setUsers(usersData || []);
 

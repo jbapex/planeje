@@ -31,7 +31,12 @@ import React, { useState, useEffect, useCallback } from 'react';
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
         const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('*, clientes(id, empresa), projetos(name)').in('type', ['post', 'reels', 'story', 'social_media']);
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('id, name, client_id, status');
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+        // Então removemos perfis de cliente de todas as listas de "usuários" (assignees/owners).
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
         const { data: statusData, error: statusError } = await supabase.from('task_statuses').select('*').order('sort_order');
 
         if (clientsError || tasksError || projectsError || usersError || statusError) {

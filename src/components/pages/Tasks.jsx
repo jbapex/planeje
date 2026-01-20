@@ -128,7 +128,12 @@ import { executeAutomation } from '@/lib/workflow';
         const { data: tasksData, error: tasksError } = await tasksQuery;
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('id, name, client_id');
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+        // Então removemos perfis de cliente de todas as listas de "usuários" (assignees/owners).
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
 
         if (tasksError || clientsError || projectsError || usersError) {
           toast({ title: "Erro ao buscar dados", description: tasksError?.message || clientsError?.message || projectsError?.message || usersError?.message, variant: "destructive" });

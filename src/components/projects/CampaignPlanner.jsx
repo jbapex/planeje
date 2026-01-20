@@ -189,7 +189,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 
       useEffect(() => {
         const fetchProfiles = async () => {
-            const { data, error } = await supabase.from('profiles').select('id, full_name');
+            // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+            // Então removemos perfis de cliente da lista usada para atribuição de "responsável".
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('id, full_name')
+              .neq('role', 'cliente');
             if (error) {
                 toast({ title: 'Erro ao buscar usuários', description: error.message, variant: 'destructive' });
             } else {

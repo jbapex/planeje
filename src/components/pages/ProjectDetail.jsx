@@ -57,7 +57,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
         const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('*').eq('project_id', id);
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('*');
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+        // Então removemos perfis de cliente de todas as listas de "usuários".
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
         const { data: planData, error: planError } = await supabase.from('campaign_plans').select('*').eq('project_id', projectData.id).maybeSingle();
         
         if (tasksError) {

@@ -75,7 +75,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('*, clientes(empresa)');
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
         const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, project_id, status, assignee_ids');
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
+        // Então removemos perfis de cliente de todas as listas de "usuários".
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
 
         if (projectsError || clientsError || tasksError || usersError) {
           toast({ title: "Erro ao buscar dados", description: projectsError?.message || clientsError?.message || tasksError?.message || usersError?.message, variant: "destructive" });
