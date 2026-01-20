@@ -1,33 +1,101 @@
 import { supabase } from '@/lib/customSupabaseClient';
 
-    export const executeAutomation = async (taskId, triggerType, eventData) => {
-      try {
-        const { data: automations, error } = await supabase
-          .from('task_automations')
-          .select('*')
-          .eq('is_active', true)
-          .eq('trigger_type', triggerType);
+    // Cache simples de automações (5 segundos de TTL)
+    let automationsCache = null;
+    let cacheTimestamp = 0;
+    const CACHE_TTL = 5000; // 5 segundos
 
-        if (error) {
+    const getCachedAutomations = async (triggerType) => {
+      const now = Date.now();
+      if (automationsCache && (now - cacheTimestamp) < CACHE_TTL) {
+        // Retorna apenas as automações do tipo solicitado
+        return automationsCache.filter(a => a.trigger_type === triggerType);
+      }
+      
+      // Busca todas as automações ativas
+      const { data, error } = await supabase
+        .from('task_automations')
+        .select('*')
+        .eq('is_active', true);
+      
+      if (error) {
+        return { error };
+      }
+      
+      automationsCache = data || [];
+      cacheTimestamp = now;
+      return automationsCache.filter(a => a.trigger_type === triggerType);
+    };
+
+    export const executeAutomation = async (taskId, triggerType, eventData) => {
+      const startTime = performance.now();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:3',message:'executeAutomation START',data:{taskId,triggerType,eventData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      try {
+        // IMPORTANTE: Automações devem ser globais, não filtradas por owner_id
+        // Se houver RLS bloqueando, isso garante que todas as automações ativas sejam encontradas
+        const queryStart = performance.now();
+        const automationsResult = await getCachedAutomations(triggerType);
+        const queryTime = performance.now() - queryStart;
+        
+        if (automationsResult.error) {
+          const error = automationsResult.error;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:10',message:'Automations query error',data:{queryTime:queryTime.toFixed(2),error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           console.error('Error fetching automations:', error);
           return { error };
         }
+        
+        const automations = automationsResult;
+        const now = Date.now();
+        const fromCache = automationsCache && (now - cacheTimestamp) < CACHE_TTL;
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:10',message:'Automations query completed',data:{queryTime:queryTime.toFixed(2),automationsCount:automations?.length||0,fromCache},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
 
         if (!automations || automations.length === 0) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:18',message:'No automations found',data:{triggerType},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           return { success: true, message: 'No automations found' };
         }
 
         const results = [];
         for (const automation of automations) {
-          if (checkTrigger(automation, eventData)) {
+          const triggerStart = performance.now();
+          const triggerPassed = checkTrigger(automation, eventData);
+          const triggerTime = performance.now() - triggerStart;
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:24',message:'Trigger check',data:{automationId:automation.id,triggerPassed,triggerTime:triggerTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          if (triggerPassed) {
+            const actionStart = performance.now();
             const result = await runActions(automation.actions, taskId, eventData);
+            const actionTime = performance.now() - actionStart;
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:26',message:'Actions executed',data:{automationId:automation.id,actionTime:actionTime.toFixed(2),success:result?.success,hasUpdatedTask:!!result?.updatedTask},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
             results.push({ automationId: automation.id, result });
           }
         }
 
+        const totalTime = performance.now() - startTime;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:31',message:'executeAutomation COMPLETE',data:{taskId,totalTime:totalTime.toFixed(2),resultsCount:results.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         return { success: true, results };
       } catch (error) {
+        const totalTime = performance.now() - startTime;
         console.error('Error executing automation:', error);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:33',message:'executeAutomation ERROR',data:{taskId,error:error.message,totalTime:totalTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         return { error };
       }
     };
@@ -47,6 +115,24 @@ import { supabase } from '@/lib/customSupabaseClient';
     };
 
     const runActions = async (actions, taskId, eventData) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'workflow.js:117',
+          message: 'runActions START',
+          data: {
+            taskId,
+            actions: actions?.map(a => ({ type: a.type, config: a.config })),
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'S',
+        }),
+      }).catch(() => {});
+      // #endregion
       const { data: task, error: fetchError } = await supabase
         .from('tarefas')
         .select('assignee_ids, status_history, status')
@@ -178,14 +264,79 @@ import { supabase } from '@/lib/customSupabaseClient';
             }
             break;
           case 'move_task':
-             if (config.destination === 'social_media_completed') {
-                const { error: moveError } = await supabase.rpc('move_task_to_social_media', { task_id: taskId });
-                if (moveError) {
-                  console.error('Error moving task:', moveError);
-                  return { error: moveError };
-                }
-             }
-             break;
+          case 'move_task_to_social_media':
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                location: 'workflow.js:248',
+                message: 'Move task action detected',
+                data: { taskId, actionType: action.type, config },
+                timestamp: Date.now(),
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'P',
+              }),
+            }).catch(() => {});
+            // #endregion
+
+            if (config.destination === 'social_media_completed') {
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: 'workflow.js:258',
+                  message: 'Move task to social media START',
+                  data: { taskId, destination: config.destination },
+                  timestamp: Date.now(),
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'Q',
+                }),
+              }).catch(() => {});
+              // #endregion
+
+              const { error: moveError } = await supabase.rpc('move_task_to_social_media', { task_id: taskId });
+
+              if (moveError) {
+                console.error('Error moving task:', moveError);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    location: 'workflow.js:268',
+                    message: 'Move task to social media ERROR',
+                    data: { taskId, error: moveError.message, code: moveError.code },
+                    timestamp: Date.now(),
+                    sessionId: 'debug-session',
+                    runId: 'run1',
+                    hypothesisId: 'R',
+                  }),
+                }).catch(() => {});
+                // #endregion
+                return { error: moveError };
+              }
+
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: 'workflow.js:278',
+                  message: 'Move task to social media SUCCESS',
+                  data: { taskId, destination: config.destination },
+                  timestamp: Date.now(),
+                  sessionId: 'debug-session',
+                  runId: 'run1',
+                  hypothesisId: 'S',
+                }),
+              }).catch(() => {});
+              // #endregion
+            }
+            break;
           default:
             // Ignora ações não implementadas
             break;
@@ -225,23 +376,34 @@ import { supabase } from '@/lib/customSupabaseClient';
       }
 
       if (Object.keys(updates).length > 0) {
-        console.log('Applying automation updates:', { taskId, updates, hasAssigneeChanges });
+        const updateStart = performance.now();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:293',message:'Applying automation updates',data:{taskId,updates,hasAssigneeChanges},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+        // #endregion
         const { data: updatedTask, error: updateError } = await supabase
           .from('tarefas')
           .update(updates)
           .eq('id', taskId)
           .select()
           .single();
+        const updateTime = performance.now() - updateStart;
 
         if (updateError) {
           console.error('Error applying automation updates:', updateError);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:302',message:'Update error',data:{taskId,error:updateError.message,updateTime:updateTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+          // #endregion
           return { error: updateError };
         }
         
-        console.log('Automation applied successfully:', { taskId, updatedTask, assignee_ids: updatedTask.assignee_ids });
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:307',message:'Update successful',data:{taskId,updateTime:updateTime.toFixed(2),assigneeIds:updatedTask.assignee_ids,status:updatedTask.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'M'})}).catch(()=>{});
+        // #endregion
         return { success: true, updates, updatedTask };
       }
       
-      console.log('No automation updates needed');
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workflow.js:312',message:'No updates needed',data:{taskId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'N'})}).catch(()=>{});
+      // #endregion
       return { success: true, message: 'No updates needed' };
     };

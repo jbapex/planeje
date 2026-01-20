@@ -205,8 +205,6 @@ import { executeAutomation } from '@/lib/workflow';
               table: 'tarefas'
             },
             async (payload) => {
-              console.log('🔴 Mudança detectada na tabela tarefas:', payload.eventType, payload.new || payload.old);
-              
               const task = payload.new || payload.old;
               
               // Para colaboradores, filtra apenas tarefas atribuídas a eles
@@ -403,16 +401,9 @@ import { executeAutomation } from '@/lib/workflow';
             setTasks(prev => [...prev, newTask]);
             // Executa automações para nova tarefa
             try {
-              const { error: functionError } = await supabase.functions.invoke('task-automations', { 
-                body: JSON.stringify({ event: 'task_created', task: newTask }) 
-              });
-              // Se a Edge Function falhar, usa workflow.js diretamente
-              if (functionError) {
-                await executeAutomation(newTask.id, 'task_created', { task: newTask });
-              }
-            } catch (err) {
-              // Fallback: executa no frontend
               await executeAutomation(newTask.id, 'task_created', { task: newTask });
+            } catch (err) {
+              console.error('Error executing automation for new task:', err);
             }
             navigate(`/tasks/${activeTab}`);
           }
@@ -446,29 +437,39 @@ import { executeAutomation } from '@/lib/workflow';
             if (oldData.status !== updatedTask.status) {
               // Executa automações para mudança de status
               const eventData = { old_status: oldData.status, new_status: updatedTask.status };
+              const automationStart = performance.now();
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:437',message:'Starting automation (form save)',data:{taskId:updatedTask.id,eventData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+              // #endregion
               try {
-                const { error: functionError } = await supabase.functions.invoke('task-automations', { 
-                  body: JSON.stringify({ 
-                    event: 'status_changed', 
-                    task: {...updatedTask, time_logs: oldData.time_logs, status_history: dataToSave.status_history }, 
-                    oldStatus: oldData.status 
-                  }) 
-                });
-                // Se a Edge Function falhar, usa workflow.js diretamente
-                if (functionError) {
-                  const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
-                  // Se a automação atualizou assignee_ids, recarrega a tarefa
-                  if (result?.success && result.results?.some(r => r.result?.updatedTask)) {
+                const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
+                const automationTime = performance.now() - automationStart;
+                
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:441',message:'Automation completed (form save)',data:{taskId:updatedTask.id,automationTime:automationTime.toFixed(2),success:result?.success,hasResults:!!result?.results?.length,willReload:result?.success&&result.results?.some(r=>r.result?.updatedTask)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                // #endregion
+                
+                // Se a automação executou com sucesso, atualiza a UI
+                if (result?.success && result.results?.length > 0) {
+                  const updatedTaskFromAutomation = result.results.find(r => r.result?.updatedTask)?.result?.updatedTask;
+                  if (updatedTaskFromAutomation) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:443',message:'Updating UI optimistically (form save)',data:{taskId:updatedTask.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'O'})}).catch(()=>{});
+                    // #endregion
+                    setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTaskFromAutomation } : t));
+                  } else {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:447',message:'Reloading data after automation (form save)',data:{taskId:updatedTask.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+                    // #endregion
                     fetchData();
                   }
                 }
               } catch (err) {
-                // Fallback: executa no frontend
-                const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
-                // Se a automação atualizou assignee_ids, recarrega a tarefa
-                if (result?.success && result.results?.some(r => r.result?.updatedTask)) {
-                  fetchData();
-                }
+                const automationTime = performance.now() - automationStart;
+                console.error('Error executing automation for status change:', err);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:447',message:'Automation error (form save)',data:{taskId:updatedTask.id,error:err.message,automationTime:automationTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+                // #endregion
               }
             }
             navigate(`/tasks/${activeTab}`);
@@ -586,29 +587,46 @@ import { executeAutomation } from '@/lib/workflow';
             if (oldData.status !== newStatus) {
                 // Executa automações para mudança de status
                 const eventData = { old_status: oldData.status, new_status: newStatus };
+                const automationStart = performance.now();
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:562',message:'Starting automation (drag-drop)',data:{taskId,eventData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                // #endregion
                 try {
-                  const { error: functionError } = await supabase.functions.invoke('task-automations', { 
-                    body: JSON.stringify({ 
-                      event: 'status_changed', 
-                      task: {...updatedTask, time_logs: oldData.time_logs, status_history: newStatusHistory}, 
-                      oldStatus: oldData.status 
-                    }) 
-                  });
-                  // Se a Edge Function falhar, usa workflow.js diretamente
-                  if (functionError) {
-                    const result = await executeAutomation(taskId, 'status_change', eventData);
-                    // Se a automação atualizou assignee_ids, recarrega os dados
-                    if (result?.success && result.results?.some(r => r.result?.updatedTask)) {
+                  const result = await executeAutomation(taskId, 'status_change', eventData);
+                  const automationTime = performance.now() - automationStart;
+                  
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:566',message:'Automation completed (drag-drop)',data:{taskId,automationTime:automationTime.toFixed(2),success:result?.success,hasResults:!!result?.results?.length,willReload:result?.success&&result.results?.some(r=>r.result?.updatedTask)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                  // #endregion
+                  
+                  // Se a automação executou com sucesso, atualiza a UI
+                  // Isso garante que mudanças de assignee_ids ou outras atualizações sejam refletidas
+                  if (result?.success && result.results?.length > 0) {
+                    // Atualização otimista: se temos a tarefa atualizada, usa ela diretamente
+                    const updatedTask = result.results.find(r => r.result?.updatedTask)?.result?.updatedTask;
+                    if (updatedTask) {
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:570',message:'Updating UI optimistically',data:{taskId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'O'})}).catch(()=>{});
+                      // #endregion
+                      setTasks(currentTasks => 
+                        currentTasks.map(task => 
+                          task.id === taskId ? { ...task, ...updatedTask } : task
+                        )
+                      );
+                    } else {
+                      // Se não temos a tarefa atualizada, recarrega os dados
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:577',message:'Reloading data after automation',data:{taskId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+                      // #endregion
                       fetchData();
                     }
                   }
                 } catch (err) {
-                  // Fallback: executa no frontend
-                  const result = await executeAutomation(taskId, 'status_change', eventData);
-                  // Se a automação atualizou assignee_ids, recarrega os dados
-                  if (result?.success && result.results?.some(r => r.result?.updatedTask)) {
-                    fetchData();
-                  }
+                  const automationTime = performance.now() - automationStart;
+                  console.error('Error executing automation for status change:', err);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:572',message:'Automation error (drag-drop)',data:{taskId,error:err.message,automationTime:automationTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+                  // #endregion
                 }
             }
         }
