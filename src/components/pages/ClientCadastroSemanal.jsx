@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -480,10 +481,10 @@ const ClientCadastroSemanal = () => {
             </Button>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)] gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)] gap-6 items-start">
             {/* Card Esquerdo - Formulário */}
-            <div className="relative rounded-lg p-[1px] bg-gradient-to-r from-orange-400/40 via-purple-500/40 to-orange-400/40 bg-[length:200%_100%] animate-gradient-shift">
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-orange-400/30 via-purple-500/30 to-orange-400/30 opacity-40 blur-sm animate-gradient-shift"></div>
+            <div className="relative rounded-lg p-[1px] bg-gradient-to-r from-orange-400/40 via-purple-500/40 to-orange-400/40 bg-[length:200%_100%] animate-gradient-shift h-fit">
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-orange-400/30 via-purple-500/30 to-orange-400/30 opacity-40 blur-sm animate-gradient-shift pointer-events-none"></div>
               <Card className="relative bg-card border-0 shadow-sm rounded-lg">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg font-semibold text-card-foreground">Cadastrar Dados Diários</CardTitle>
@@ -669,18 +670,20 @@ const ClientCadastroSemanal = () => {
           </div>
 
             {/* Card Direito - Histórico */}
-            <Card className="bg-card border border-border shadow-sm">
-            <CardHeader className="pb-4">
+            <Card className="bg-card border border-border shadow-sm flex flex-col h-full max-h-[calc(100vh-12rem)]">
+            <CardHeader className="pb-4 flex-shrink-0">
               <CardTitle className="text-lg font-semibold text-card-foreground">Histórico Recente</CardTitle>
               <CardDescription className="text-sm text-muted-foreground mt-1">
                 Últimos 4 dias cadastrados.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {historico.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhum dia cadastrado ainda.</p>
-              ) : (
-                historico.map((dia) => (
+            <CardContent className="flex-1 min-h-0 p-0">
+              <ScrollArea className="h-full px-6 pb-6">
+                <div className="space-y-4 pr-4">
+                  {historico.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhum dia cadastrado ainda.</p>
+                  ) : (
+                    historico.map((dia) => (
                   <div
                     key={dia.id}
                     className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3"
@@ -739,8 +742,10 @@ const ClientCadastroSemanal = () => {
                       </div>
                     </div>
                   </div>
-                ))
-              )}
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
             </CardContent>
           </Card>
           </div>
