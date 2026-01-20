@@ -68,6 +68,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             supabase
               .from('profiles')
               .select('id, full_name, avatar_url')
+              .neq('role', 'cliente')
               .order('full_name', { ascending: true })
           ]);
 

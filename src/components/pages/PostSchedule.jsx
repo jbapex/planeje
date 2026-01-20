@@ -32,7 +32,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('id, name, client_id');
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: clientes (role='cliente') não podem aparecer como responsáveis.
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
         const { data: statusData, error: statusError } = await supabase.from('task_statuses').select('*').eq('owner_id', user.id).order('sort_order');
 
         if (tasksError || clientsError || projectsError || usersError || statusError) {

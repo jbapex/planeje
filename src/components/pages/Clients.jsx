@@ -84,7 +84,11 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
         }
         
         const { data: clientsData, error: clientsError } = await query;
-        const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+        // Importante: clientes (role='cliente') não podem aparecer como responsáveis.
+        const { data: usersData, error: usersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .neq('role', 'cliente');
 
         if (clientsError || usersError) {
           toast({ title: "Erro ao buscar dados", description: clientsError?.message || usersError?.message, variant: "destructive" });

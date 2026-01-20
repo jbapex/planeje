@@ -39,7 +39,11 @@ const ModuleManagement = () => {
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     
-    const { data: usersData, error: usersError } = await supabase.from('profiles').select('id, full_name, role');
+    // Não incluir usuários de cliente no gerenciamento de módulos (apenas usuários internos)
+    const { data: usersData, error: usersError } = await supabase
+      .from('profiles')
+      .select('id, full_name, role')
+      .neq('role', 'cliente');
     if (usersError) {
       toast({ title: "Erro ao buscar usuários", variant: "destructive" });
     } else {

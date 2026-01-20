@@ -1273,7 +1273,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
           const { data: checklistsData, error: checklistsError } = await supabase.from('client_checklists').select('*').order('created_at');
           if (checklistsError) throw checklistsError;
           
-          const { data: profilesData, error: profilesError } = await supabase.from('profiles').select('id, full_name, avatar_url');
+          // Importante: clientes (role='cliente') não podem aparecer como responsáveis.
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .neq('role', 'cliente');
           if (profilesError) throw profilesError;
           setProfiles(profilesData || []);
 

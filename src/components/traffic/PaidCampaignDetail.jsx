@@ -65,7 +65,11 @@ import React, { useState, useEffect, useCallback } from 'react';
             const { data: clientsData } = await supabase.from('clientes').select('id, empresa');
             setClients(clientsData || []);
 
-            const { data: usersData } = await supabase.from('profiles').select('id, full_name, avatar_url');
+            // Importante: clientes (role='cliente') não podem aparecer como responsáveis.
+            const { data: usersData } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url')
+              .neq('role', 'cliente');
             setUsers(usersData || []);
 
             const { data: tasksData } = await supabase.from('tarefas').select('id, title, description');
