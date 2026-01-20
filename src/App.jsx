@@ -5,6 +5,7 @@ import React, { useEffect } from 'react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
     import MainLayout from '@/components/layout/MainLayout';
+import MainLayoutCliente from '@/components/layout/MainLayoutCliente';
     import Dashboard from '@/components/pages/Dashboard';
     import Clients from '@/components/pages/Clients';
     import Projects from '@/components/pages/Projects';
@@ -26,6 +27,7 @@ import React, { useEffect } from 'react';
     import DataDeletion from '@/components/pages/DataDeletion';
     import MetaAdsReporter from '@/components/pages/MetaAdsReporter';
     import PerformanceReport from '@/components/pages/PerformanceReport';
+    import PGMPanel from '@/components/pages/PGMPanel';
     import Onboarding from '@/components/pages/Onboarding';
     import MarketingDiagnostic from '@/components/pages/MarketingDiagnostic';
 import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
@@ -33,6 +35,11 @@ import PublicClientChat from '@/components/pages/PublicClientChat';
 import ApexIAAuthenticated from '@/components/pages/ApexIAAuthenticated';
 import ClientLogin from '@/components/auth/ClientLogin';
 import ProtectedClientRoute from '@/components/auth/ProtectedClientRoute';
+import ClientSupport from '@/components/pages/ClientSupport';
+import ClientCadastroSemanal from '@/components/pages/ClientCadastroSemanal';
+import ClientCadastros from '@/components/pages/ClientCadastros';
+import ClientAreaPanel from '@/components/pages/ClientAreaPanel';
+import TrafficWeekly from '@/components/pages/TrafficWeekly';
 import AssistantHome from '@/components/pages/AssistantHome';
 import SelectClient from '@/components/pages/SelectClient';
 import ClientChat from '@/components/pages/ClientChat';
@@ -96,12 +103,32 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
       // Este useEffect é importante porque detecta mudanças no profile e redireciona imediatamente
       useEffect(() => {
         if (!authLoading && session && profile?.role === 'cliente' && profile?.cliente_id) {
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: 'debug-session',
+              runId: 'initial',
+              hypothesisId: 'H4',
+              location: 'App.jsx:clientRedirectEffect',
+              message: 'Client redirect guard running',
+              data: {
+                sessionExists: !!session,
+                role: profile?.role || null,
+                hasClienteId: !!profile?.cliente_id,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion agent log
           // Para HashRouter, o path está no hash
           const hash = window.location.hash;
           const currentPath = hash ? hash.replace('#', '') : window.location.pathname;
           
           // Lista de rotas permitidas para clientes
-          const allowedPaths = ['/apexia', '/chat', '/login-cliente'];
+          const allowedPaths = ['/apexia', '/chat', '/login-cliente', '/cliente'];
           const isAllowedPath = allowedPaths.some(path => currentPath.startsWith(path));
           
           // Se não está em uma rota permitida, redirecionar para /apexia
@@ -146,46 +173,66 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                 <>
                   <Route path="/apexia" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
                   <Route path="/apexia/:sessionId" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
+                  <Route path="/cliente" element={<ProtectedClientRoute><MainLayoutCliente /></ProtectedClientRoute>}>
+                    <Route path="support" element={<ClientSupport />} />
+                    <Route path="trafego" element={<ClientCadastroSemanal />} />
+                    <Route path="cadastros" element={<ClientCadastros />} />
+                    <Route path="pgm-panel" element={<PGMPanel />} />
+                  </Route>
                   <Route path="*" element={<Navigate to="/apexia" replace />} />
                 </>
               ) : (
-                <Route path="/" element={<MainLayout />}>
-                  <Route index element={<Navigate to="/tasks/list" replace />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="clients" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
-                <Route path="clients/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
-                
-                <Route path="projects" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
-                <Route path="projects/new" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
-                <Route path="projects/edit/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
-                <Route path="projects/:id/*" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><ProjectDetail /></ProtectedRoute>} />
+                <>
+                  {/* Área do Cliente - Acessível por administradores (fora do MainLayout para abrir em tela cheia) */}
+                  <Route path="/client-area" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><MainLayoutCliente /></ProtectedRoute>}>
+                    <Route path="support" element={<ClientSupport />} />
+                    <Route path="trafego" element={<ClientCadastroSemanal />} />
+                    <Route path="traffic-weekly" element={<TrafficWeekly />} />
+                    <Route path="cadastros" element={<ClientCadastros />} />
+                    <Route path="pgm-panel" element={<PGMPanel />} />
+                    <Route index element={<Navigate to="/client-area/support" replace />} />
+                  </Route>
 
-                <Route path="tasks" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Navigate to="/tasks/list" replace /></ProtectedRoute>} />
-                <Route path="tasks/:view" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Tasks /></ProtectedRoute>} />
-                <Route path="tasks/:view/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Tasks /></ProtectedRoute>} />
-                
-                <Route path="requests" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']} requiredModule="requests"><Requests /></ProtectedRoute>} />
-                <Route path="social-media" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="social_media"><SocialMedia /></ProtectedRoute>} />
-                <Route path="paid-traffic" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><PaidTraffic /></ProtectedRoute>} />
-                <Route path="meta-reporter" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><MetaAdsReporter /></ProtectedRoute>} />
-                <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="reports"><PerformanceReport /></ProtectedRoute>} />
-                <Route path="onboarding" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><Onboarding /></ProtectedRoute>} />
-                <Route path="assistant" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AssistantHome /></ProtectedRoute>} />
-                <Route path="assistant/select-client" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><SelectClient /></ProtectedRoute>} />
-                <Route path="assistant/client/:clientId" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><ClientChat /></ProtectedRoute>} />
-                <Route path="assistant/general" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><GeneralChat /></ProtectedRoute>} />
-                <Route path="assistant/learning" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AILearningDashboard /></ProtectedRoute>} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="settings/whatsapp" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><WhatsAppSettings /></ProtectedRoute>} />
-                <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
-                <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />
-                <Route path="super-admin/chat-limits" element={<ProtectedRoute allowedRoles={['superadmin']}><ChatLimitsManager /></ProtectedRoute>} />
-                <Route path="test-image-models" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><TestImageModels /></ProtectedRoute>} />
-                <Route path="super-admin/*" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
-                <Route path="meta-integration-help" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><MetaIntegrationHelp /></ProtectedRoute>} />
-                
-                <Route path="*" element={<Navigate to="/tasks/list" replace />} />
-                </Route>
+                  <Route path="/" element={<MainLayout />}>
+                    <Route index element={<Navigate to="/tasks/list" replace />} />
+                    <Route path="dashboard" element={<Dashboard />} />
+                    <Route path="clients" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
+                    <Route path="clients/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="clients"><Clients /></ProtectedRoute>} />
+                    
+                    <Route path="projects" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
+                    <Route path="projects/new" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
+                    <Route path="projects/edit/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><Projects /></ProtectedRoute>} />
+                    <Route path="projects/:id/*" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="projects"><ProjectDetail /></ProtectedRoute>} />
+
+                    <Route path="tasks" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Navigate to="/tasks/list" replace /></ProtectedRoute>} />
+                    <Route path="tasks/:view" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Tasks /></ProtectedRoute>} />
+                    <Route path="tasks/:view/:id" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="tasks"><Tasks /></ProtectedRoute>} />
+                    
+                    <Route path="requests" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']} requiredModule="requests"><Requests /></ProtectedRoute>} />
+                    <Route path="social-media" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="social_media"><SocialMedia /></ProtectedRoute>} />
+                    <Route path="paid-traffic" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><PaidTraffic /></ProtectedRoute>} />
+                    <Route path="meta-reporter" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><MetaAdsReporter /></ProtectedRoute>} />
+                    <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="reports"><PerformanceReport /></ProtectedRoute>} />
+                    <Route path="pgm-panel" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><PGMPanel /></ProtectedRoute>} />
+                    <Route path="traffic-weekly" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><TrafficWeekly /></ProtectedRoute>} />
+                    <Route path="onboarding" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><Onboarding /></ProtectedRoute>} />
+                    <Route path="assistant" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AssistantHome /></ProtectedRoute>} />
+                    <Route path="assistant/select-client" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><SelectClient /></ProtectedRoute>} />
+                    <Route path="assistant/client/:clientId" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><ClientChat /></ProtectedRoute>} />
+                    <Route path="assistant/general" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><GeneralChat /></ProtectedRoute>} />
+                    <Route path="assistant/learning" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><AILearningDashboard /></ProtectedRoute>} />
+                    <Route path="settings" element={<Settings />} />
+                    <Route path="settings/whatsapp" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><WhatsAppSettings /></ProtectedRoute>} />
+                    <Route path="super-admin/diagnostic-leads" element={<ProtectedRoute allowedRoles={['superadmin']}><DiagnosticLeads /></ProtectedRoute>} />
+                    <Route path="super-admin/ai-agents" element={<ProtectedRoute allowedRoles={['superadmin']}><AiAgentsManager /></ProtectedRoute>} />
+                    <Route path="super-admin/chat-limits" element={<ProtectedRoute allowedRoles={['superadmin']}><ChatLimitsManager /></ProtectedRoute>} />
+                    <Route path="test-image-models" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><TestImageModels /></ProtectedRoute>} />
+                    <Route path="super-admin/*" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
+                    <Route path="meta-integration-help" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']}><MetaIntegrationHelp /></ProtectedRoute>} />
+                    
+                    <Route path="*" element={<Navigate to="/tasks/list" replace />} />
+                  </Route>
+                </>
               )
             ) : (
               <>

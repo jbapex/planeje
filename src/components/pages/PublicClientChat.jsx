@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft, Home } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import { isOpenRouterModel } from '@/lib/apexiaModelConfig';
 import { isReasoningModel } from '@/lib/openrouterModels';
@@ -52,6 +52,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         const location = useLocation();
         const { toast } = useToast();
         const { getOpenAIKey } = useAuth();
+        const [isEntering, setIsEntering] = useState(location.state?.fromClientArea || false);
         const [client, setClient] = useState(null);
         const [projects, setProjects] = useState([]);
         const [selectedProjectIds, setSelectedProjectIds] = useState(new Set());
@@ -714,6 +715,14 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
                 window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
             };
         }, []);
+
+        // Animação de entrada quando vier da área do cliente
+        useEffect(() => {
+            if (isEntering) {
+                const timer = setTimeout(() => setIsEntering(false), 800);
+                return () => clearTimeout(timer);
+            }
+        }, [isEntering]);
     
         const handleInstallClick = async () => {
             if (!installPrompt) return;
@@ -2995,9 +3004,19 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                       <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
                   </div>
               </div>
-              <div className="p-3 bg-gray-100 dark:bg-gray-900">
+              <div className="p-3 bg-gray-100 dark:bg-gray-900 space-y-2">
                 <Button onClick={() => handleNewSession(client, sessions)} className="w-full justify-start rounded-full bg-primary hover:bg-primary/90 shadow-sm">
                     <PlusCircle className="mr-2 h-4 w-4" /> Nova Conversa
+                </Button>
+                <Button 
+                    onClick={() => {
+                        navigate('/cliente/support');
+                        if(isSidebarOpen) setIsSidebarOpen(false);
+                    }} 
+                    variant="outline" 
+                    className="w-full justify-start rounded-full border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 shadow-sm"
+                >
+                    <Home className="mr-2 h-4 w-4" /> Voltar ao Portal Parceiro
                 </Button>
               </div>
               <ScrollArea className="flex-1 bg-gray-100 dark:bg-gray-900">
@@ -3081,9 +3100,21 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
-                <div className="flex h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900 overflow-hidden" style={{ height: '100dvh', maxHeight: '100dvh' }}>
+                <motion.div 
+                    className="flex h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900 overflow-hidden" 
+                    style={{ height: '100dvh', maxHeight: '100dvh' }}
+                    initial={isEntering ? { opacity: 0, scale: 0.95 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                >
                     <SessionSidebar />
-                    <div className="flex flex-col flex-1 min-w-0" style={{ height: '100%', maxHeight: '100%' }}>
+                    <motion.div 
+                        className="flex flex-col flex-1 min-w-0" 
+                        style={{ height: '100%', maxHeight: '100%' }}
+                        initial={isEntering ? { x: 20, opacity: 0 } : false}
+                        animate={{ x: 0, opacity: 1 }}
+                        transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
+                    >
                         <header className="p-4 border-b border-gray-200/50 dark:border-gray-800/50 flex items-center justify-between flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm">
                             <div className="flex items-center gap-3 min-w-0">
                                <Button variant="ghost" size="icon" className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full" onClick={() => setIsSidebarOpen(true)}><Menu className="h-5 w-5"/></Button>
@@ -3682,8 +3713,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 </form>
                             </div>
                         </footer>
-                    </div>
-                </div>
+                    </motion.div>
+                </motion.div>
                 <StoryIdeasGenerator
                     client={client}
                     isOpen={isStoryIdeasOpen}

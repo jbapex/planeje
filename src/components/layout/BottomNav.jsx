@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
     import { NavLink, useNavigate } from 'react-router-dom';
-    import { Home, Users, FolderKanban, ListTodo, MessageSquare, Megaphone, Rocket, BarChart2, ListChecks, MoreHorizontal, Bot } from 'lucide-react';
+    import { Home, Users, FolderKanban, ListTodo, MessageSquare, Megaphone, Rocket, BarChart2, ListChecks, MoreHorizontal, Bot, Activity } from 'lucide-react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
     import {
@@ -21,6 +21,7 @@ import React, { useState } from 'react';
       { to: '/social-media', icon: Megaphone, label: 'Social', roles: ['superadmin', 'admin', 'colaborador'] },
       { to: '/paid-traffic', icon: Rocket, label: 'Tráfego', roles: ['superadmin', 'admin', 'colaborador'], module: 'paid_traffic' },
       { to: '/reports', icon: BarChart2, label: 'Relatórios', roles: ['superadmin', 'admin'] },
+      { to: '/pgm-panel', icon: Activity, label: 'PGM', roles: ['superadmin', 'admin', 'colaborador'] },
     ];
 
     const BottomNav = () => {

@@ -101,6 +101,26 @@ export const AuthProvider = ({ children }) => {
     const currentUser = session?.user ?? null;
     setUser(currentUser);
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: isInitialLoad ? 'initial' : 'update',
+        hypothesisId: 'H1',
+        location: 'SupabaseAuthContext.jsx:handleSession',
+        message: 'handleSession called',
+        data: {
+          isInitialLoad,
+          hasUser: !!currentUser,
+          userId: currentUser?.id || null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion agent log
+
     try {
       if (currentUser?.id) {
         await fetchProfile(currentUser.id);

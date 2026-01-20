@@ -21,8 +21,8 @@ const ClientLogin = () => {
   // Redirecionar se já estiver logado como cliente
   useEffect(() => {
     if (profile?.role === 'cliente' && profile?.cliente_id) {
-      console.log('✅ ClientLogin: Cliente já logado, redirecionando para /apexia');
-      navigate('/apexia', { replace: true });
+      console.log('✅ ClientLogin: Cliente já logado, redirecionando para /cliente/support');
+      navigate('/cliente/support', { replace: true });
     }
   }, [profile, navigate]);
 
@@ -37,11 +37,11 @@ const ClientLogin = () => {
       return;
     }
     
-    // Redirecionar imediatamente para /apexia após login bem-sucedido
-    // O ApexIAAuthenticated vai verificar o perfil e redirecionar para /chat/${clientId}
+    // Redirecionar imediatamente para /cliente/support após login bem-sucedido
+    // A Home do Cliente vai permitir acesso confortável ao ApexIA e demais recursos
     // Isso evita o delay do carregamento do perfil no context
-    console.log('✅ ClientLogin: Login bem-sucedido, redirecionando para /apexia');
-    navigate('/apexia', { replace: true });
+    console.log('✅ ClientLogin: Login bem-sucedido, redirecionando para /cliente/support');
+    navigate('/cliente/support', { replace: true });
     setIsLoading(false);
   };
 
