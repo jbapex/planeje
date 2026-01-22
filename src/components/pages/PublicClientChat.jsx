@@ -3124,6 +3124,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                            src={client.logo_urls[0]} 
                                            alt={client?.empresa || 'Cliente'} 
                                            className="absolute inset-0 w-full h-full object-cover rounded-2xl"
+                                           style={{ imageOrientation: 'from-image' }}
                                            onError={() => setLogoError(true)}
                                        />
                                    ) : (
@@ -3176,6 +3177,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                         src={msg.image} 
                                                                         alt="Anexada" 
                                                                         className="max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700"
+                                                                        style={{ imageOrientation: 'from-image' }}
                                                                     />
                                                                 </div>
                                                             )}
@@ -3563,6 +3565,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                 src={attachedImagePreview} 
                                                 alt="Preview" 
                                                 className="w-20 h-20 object-cover rounded-lg"
+                                                style={{ imageOrientation: 'from-image' }}
                                             />
                                             <div className="flex-1">
                                                 <p className="text-sm font-medium dark:text-white mb-2">
@@ -3784,6 +3787,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             src={referenceImagePreview}
                                             alt="Referência"
                                             className="w-full max-h-48 object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                                            style={{ imageOrientation: 'from-image' }}
                                         />
                                         <Button
                                             variant="destructive"
@@ -3961,6 +3965,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                 src={runwareReferenceImagePreview} 
                                                 alt="Referência" 
                                                 className="w-full max-h-[300px] object-contain rounded-lg border border-gray-200 dark:border-gray-700"
+                                                style={{ imageOrientation: 'from-image' }}
                                             />
                                             <Button
                                                 type="button"
