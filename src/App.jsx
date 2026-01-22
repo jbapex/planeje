@@ -38,6 +38,7 @@ import ProtectedClientRoute from '@/components/auth/ProtectedClientRoute';
 import ClientSupport from '@/components/pages/ClientSupport';
 import ClientCadastroSemanal from '@/components/pages/ClientCadastroSemanal';
 import ClientCadastros from '@/components/pages/ClientCadastros';
+import ClientCampaignsStatus from '@/components/pages/ClientCampaignsStatus';
 import ClientAreaPanel from '@/components/pages/ClientAreaPanel';
 import TrafficWeekly from '@/components/pages/TrafficWeekly';
 import AssistantHome from '@/components/pages/AssistantHome';
@@ -177,6 +178,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                     <Route path="support" element={<ClientSupport />} />
                     <Route path="trafego" element={<ClientCadastroSemanal />} />
                     <Route path="cadastros" element={<ClientCadastros />} />
+                    <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
                     <Route path="pgm-panel" element={<PGMPanel />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/apexia" replace />} />
@@ -189,6 +191,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                     <Route path="trafego" element={<ClientCadastroSemanal />} />
                     <Route path="traffic-weekly" element={<TrafficWeekly />} />
                     <Route path="cadastros" element={<ClientCadastros />} />
+                    <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
                     <Route path="pgm-panel" element={<PGMPanel />} />
                     <Route index element={<Navigate to="/client-area/support" replace />} />
                   </Route>

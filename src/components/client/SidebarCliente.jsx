@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, FileText, Activity, LogOut, User, Info, TrendingUp, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, FileText, Activity, LogOut, User, Info, TrendingUp, ArrowLeft, ClipboardList } from 'lucide-react';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -33,6 +33,12 @@ const getMenuItems = (profile) => {
       label: 'Cadastro Diário',
       path: `${prefix}/trafego`,
       icon: FileText,
+    },
+    {
+      key: 'campaigns-status',
+      label: 'Status das Campanhas',
+      path: `${prefix}/campaigns-status`,
+      icon: ClipboardList,
     },
     {
       key: 'apexia',
@@ -143,7 +149,7 @@ const SidebarCliente = () => {
   const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
 
   return (
-    <aside className="hidden md:flex flex-col w-64 border-r border-border flex-shrink-0 h-screen overflow-hidden" style={{ backgroundColor: '#F9FAFB' }}>
+    <aside className="hidden md:flex flex-col w-64 border-r border-border flex-shrink-0 h-screen overflow-hidden md:block" style={{ backgroundColor: '#F9FAFB' }}>
       <div className="h-16 flex items-center gap-3 px-6 border-b border-border flex-shrink-0">
         <Avatar className="h-10 w-10 flex-shrink-0">
           <AvatarImage src={clienteFoto} alt={clienteNome} />

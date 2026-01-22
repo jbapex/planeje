@@ -1,6 +1,7 @@
 import React, { memo, useRef, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import SidebarCliente from '@/components/client/SidebarCliente';
+import BottomNavCliente from '@/components/client/BottomNavCliente';
 
 const MainLayoutCliente = memo(() => {
   const location = useLocation();
@@ -71,12 +72,16 @@ const MainLayoutCliente = memo(() => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <main
           ref={mainRef}
-          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 min-h-0"
-          style={{ backgroundColor: '#F9FAFB' }}
+          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 min-h-0 md:pb-6"
+          style={{ 
+            backgroundColor: '#F9FAFB',
+            paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))'
+          }}
         >
           <Outlet />
         </main>
       </div>
+      <BottomNavCliente />
     </div>
   );
 });
