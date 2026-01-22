@@ -5,8 +5,19 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { Plus, Mail, Lock, User, X, Check, Copy, RefreshCw } from 'lucide-react';
+import { Plus, Mail, Lock, User, X, Check, Copy, RefreshCw, Settings, LayoutDashboard, MessageSquare, FileText, Activity, ClipboardList } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+
+// Definição das páginas disponíveis na área do cliente
+const CLIENT_PAGES = [
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'trafego', label: 'Cadastro Diário', icon: FileText },
+  { key: 'campaigns-status', label: 'Status das Campanhas', icon: ClipboardList },
+  { key: 'apexia', label: 'ApexIA', icon: MessageSquare },
+  { key: 'pgm-panel', label: 'Painel PGM', icon: Activity },
+];
 
 const ClientUserManager = ({ clientId, clientName, onClose }) => {
   const [open, setOpen] = useState(true);
@@ -19,6 +30,8 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     full_name: ''
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [userPagePermissions, setUserPagePermissions] = useState({});
   const { toast } = useToast();
   const { signUp } = useAuth();
 
@@ -28,7 +41,7 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, role, cliente_id')
+      .select('id, full_name, role, cliente_id, allowed_pages')
       .eq('cliente_id', clientId)
       .eq('role', 'cliente')
       .order('id', { ascending: false });
@@ -41,9 +54,13 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
       });
       setUsers([]);
     } else {
-      // Por enquanto, vamos usar os dados do profile
-      // O email será mostrado depois (pode buscar via Admin API ou RPC function)
       setUsers(data || []);
+      // Inicializar permissões de páginas para cada usuário
+      const permissions = {};
+      (data || []).forEach(user => {
+        permissions[user.id] = user.allowed_pages || null; // null = todas as páginas
+      });
+      setUserPagePermissions(permissions);
       console.log('Usuários encontrados:', data?.length || 0, data);
     }
   };
@@ -224,6 +241,84 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     setFormData({ ...formData, password });
   };
 
+  const handleOpenPagePermissions = (user) => {
+    setEditingUser(user);
+    // Inicializar permissões: se null, todas as páginas estão permitidas (checkbox marcado)
+    // Se for array, apenas as páginas no array estão permitidas
+    const currentPermissions = userPagePermissions[user.id];
+    if (currentPermissions === null || currentPermissions === undefined) {
+      // Todas as páginas permitidas por padrão
+      setUserPagePermissions(prev => ({
+        ...prev,
+        [user.id]: CLIENT_PAGES.map(p => p.key)
+      }));
+    }
+  };
+
+  const handleTogglePagePermission = (userId, pageKey) => {
+    setUserPagePermissions(prev => {
+      const current = prev[userId] || [];
+      const isAllowed = Array.isArray(current) && current.includes(pageKey);
+      
+      if (isAllowed) {
+        // Remover página
+        const newPermissions = current.filter(p => p !== pageKey);
+        // Se não sobrou nenhuma página, retornar array vazio (nenhuma página permitida)
+        return { ...prev, [userId]: newPermissions };
+      } else {
+        // Adicionar página
+        return { ...prev, [userId]: [...current, pageKey] };
+      }
+    });
+  };
+
+  const handleSavePagePermissions = async (userId) => {
+    const permissions = userPagePermissions[userId];
+    
+    // Se todas as páginas estão selecionadas, salvar como null (acesso total)
+    const allPagesSelected = permissions && permissions.length === CLIENT_PAGES.length;
+    const valueToSave = allPagesSelected ? null : permissions;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ allowed_pages: valueToSave })
+      .eq('id', userId);
+
+    if (error) {
+      toast({
+        title: 'Erro ao salvar permissões',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } else {
+      toast({
+        title: 'Permissões salvas!',
+        description: 'As páginas permitidas foram atualizadas com sucesso.',
+      });
+      setEditingUser(null);
+      fetchUsers(); // Recarregar para atualizar a lista
+    }
+  };
+
+  const getPageLabel = (pageKey) => {
+    const page = CLIENT_PAGES.find(p => p.key === pageKey);
+    return page ? page.label : pageKey;
+  };
+
+  const getUserAllowedPagesDisplay = (user) => {
+    const permissions = userPagePermissions[user.id];
+    if (permissions === null || permissions === undefined || (Array.isArray(permissions) && permissions.length === CLIENT_PAGES.length)) {
+      return 'Todas as páginas';
+    }
+    if (Array.isArray(permissions) && permissions.length === 0) {
+      return 'Nenhuma página';
+    }
+    if (Array.isArray(permissions)) {
+      return permissions.map(getPageLabel).join(', ');
+    }
+    return 'Todas as páginas';
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -359,12 +454,74 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
                 {users.map((user) => (
                   <div
                     key={user.id}
-                    className="border rounded-lg p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-800"
+                    className="border rounded-lg p-3 space-y-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
-                    <div className="flex-1">
-                      <p className="font-medium">{user.full_name || 'Sem nome'}</p>
-                      <p className="text-sm text-gray-500">ID: {user.id.substring(0, 8)}...</p>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="font-medium">{user.full_name || 'Sem nome'}</p>
+                        <p className="text-sm text-gray-500">ID: {user.id.substring(0, 8)}...</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Páginas: {getUserAllowedPagesDisplay(user)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenPagePermissions(user)}
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        Permissões
+                      </Button>
                     </div>
+
+                    {/* Dialog de edição de permissões */}
+                    {editingUser?.id === user.id && (
+                      <div className="border-t pt-3 mt-3 space-y-3">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Páginas Permitidas:</Label>
+                          <div className="space-y-2 pl-2">
+                            {CLIENT_PAGES.map((page) => {
+                              const permissions = userPagePermissions[user.id] || [];
+                              const isChecked = Array.isArray(permissions) && permissions.includes(page.key);
+                              const PageIcon = page.icon;
+                              
+                              return (
+                                <div key={page.key} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`${user.id}-${page.key}`}
+                                    checked={isChecked}
+                                    onCheckedChange={() => handleTogglePagePermission(user.id, page.key)}
+                                  />
+                                  <Label
+                                    htmlFor={`${user.id}-${page.key}`}
+                                    className="text-sm font-normal cursor-pointer flex items-center gap-2"
+                                  >
+                                    <PageIcon className="h-4 w-4" />
+                                    {page.label}
+                                  </Label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSavePagePermissions(user.id)}
+                            className="flex-1"
+                          >
+                            Salvar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingUser(null)}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

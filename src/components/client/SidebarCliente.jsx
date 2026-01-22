@@ -17,6 +17,28 @@ const getRoutePrefix = (profile) => {
   return '/client-area';
 };
 
+// Função para verificar se o usuário tem acesso a uma página
+const hasPageAccess = (profile, pageKey) => {
+  // Se não for cliente, permite acesso a todas as páginas
+  if (profile?.role !== 'cliente' || !profile?.cliente_id) {
+    return true;
+  }
+
+  // Se allowed_pages é null ou undefined, permite acesso a todas as páginas
+  const allowedPages = profile?.allowed_pages;
+  if (allowedPages === null || allowedPages === undefined) {
+    return true;
+  }
+
+  // Se for array, verifica se a página está no array
+  if (Array.isArray(allowedPages)) {
+    return allowedPages.includes(pageKey);
+  }
+
+  // Por padrão, permite acesso
+  return true;
+};
+
 const getMenuItems = (profile) => {
   const prefix = getRoutePrefix(profile);
   const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
@@ -48,7 +70,7 @@ const getMenuItems = (profile) => {
       disabled: profile?.role !== 'cliente', // ApexIA só para clientes
     },
     {
-      key: 'pgm',
+      key: 'pgm-panel',
       label: 'Painel PGM',
       path: `${prefix}/pgm-panel`,
       icon: Activity,
@@ -65,7 +87,15 @@ const getMenuItems = (profile) => {
     });
   }
 
-  return items;
+  // Filtrar itens baseado nas permissões do usuário
+  return items.filter(item => {
+    // Se estiver desabilitado por outro motivo (ex: ApexIA para não-clientes), manter na lista mas desabilitado
+    if (item.disabled) {
+      return true;
+    }
+    // Verificar permissão de acesso à página
+    return hasPageAccess(profile, item.key);
+  });
 };
 
 const SidebarCliente = () => {

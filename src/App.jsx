@@ -35,6 +35,7 @@ import PublicClientChat from '@/components/pages/PublicClientChat';
 import ApexIAAuthenticated from '@/components/pages/ApexIAAuthenticated';
 import ClientLogin from '@/components/auth/ClientLogin';
 import ProtectedClientRoute from '@/components/auth/ProtectedClientRoute';
+import ProtectedClientPageRoute from '@/components/auth/ProtectedClientPageRoute';
 import ClientSupport from '@/components/pages/ClientSupport';
 import ClientCadastroSemanal from '@/components/pages/ClientCadastroSemanal';
 import ClientCadastros from '@/components/pages/ClientCadastros';
@@ -172,14 +173,14 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
             {session ? (
               profile?.role === 'cliente' && profile?.cliente_id ? (
                 <>
-                  <Route path="/apexia" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
-                  <Route path="/apexia/:sessionId" element={<ProtectedClientRoute><ApexIAAuthenticated /></ProtectedClientRoute>} />
+                  <Route path="/apexia" element={<ProtectedClientRoute><ProtectedClientPageRoute pageKey="apexia"><ApexIAAuthenticated /></ProtectedClientPageRoute></ProtectedClientRoute>} />
+                  <Route path="/apexia/:sessionId" element={<ProtectedClientRoute><ProtectedClientPageRoute pageKey="apexia"><ApexIAAuthenticated /></ProtectedClientPageRoute></ProtectedClientRoute>} />
                   <Route path="/cliente" element={<ProtectedClientRoute><MainLayoutCliente /></ProtectedClientRoute>}>
-                    <Route path="support" element={<ClientSupport />} />
-                    <Route path="trafego" element={<ClientCadastroSemanal />} />
+                    <Route path="support" element={<ProtectedClientPageRoute pageKey="dashboard"><ClientSupport /></ProtectedClientPageRoute>} />
+                    <Route path="trafego" element={<ProtectedClientPageRoute pageKey="trafego"><ClientCadastroSemanal /></ProtectedClientPageRoute>} />
                     <Route path="cadastros" element={<ClientCadastros />} />
-                    <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
-                    <Route path="pgm-panel" element={<PGMPanel />} />
+                    <Route path="campaigns-status" element={<ProtectedClientPageRoute pageKey="campaigns-status"><ClientCampaignsStatus /></ProtectedClientPageRoute>} />
+                    <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
                   </Route>
                   <Route path="*" element={<Navigate to="/apexia" replace />} />
                 </>

@@ -96,6 +96,27 @@ export const AuthProvider = ({ children }) => {
     return true;
   }, [profile?.role, fieldPermissions]);
 
+  const hasPageAccess = useCallback((pageKey) => {
+    // Se não for cliente, permite acesso a todas as páginas
+    if (profile?.role !== 'cliente' || !profile?.cliente_id) {
+      return true;
+    }
+
+    // Se allowed_pages é null ou undefined, permite acesso a todas as páginas
+    const allowedPages = profile?.allowed_pages;
+    if (allowedPages === null || allowedPages === undefined) {
+      return true;
+    }
+
+    // Se for array, verifica se a página está no array
+    if (Array.isArray(allowedPages)) {
+      return allowedPages.includes(pageKey);
+    }
+
+    // Por padrão, permite acesso
+    return true;
+  }, [profile]);
+
   const handleSession = useCallback(async (session, isInitialLoad = false) => {
     setSession(session);
     const currentUser = session?.user ?? null;
@@ -392,6 +413,7 @@ export const AuthProvider = ({ children }) => {
     signOut,
     refreshProfile,
     canViewField,
+    hasPageAccess,
     getOpenAIKey,
   }), [user, session, profile, loading, signUp, signIn, signOut, refreshProfile, canViewField, getOpenAIKey]);
 
