@@ -6,6 +6,7 @@ import { supabase } from '@/lib/customSupabaseClient';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { motion } from 'framer-motion';
+import { TooltipCustom } from '@/components/ui/tooltip-custom';
 
 // Função para determinar o prefixo da rota baseado no perfil
 const getRoutePrefix = (profile) => {
@@ -196,7 +197,7 @@ const SidebarCliente = () => {
           </p>
         </div>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4 min-h-0">
+      <nav className="flex-1 overflow-y-auto py-4 min-h-0 custom-scrollbar">
         <ul className="space-y-1 px-2">
           {getMenuItems(profile).map((item) => {
             const isActive = location.pathname.startsWith(item.path);
@@ -205,9 +206,10 @@ const SidebarCliente = () => {
 
             return (
               <li key={item.key}>
-                <motion.button
-                  type="button"
-                  onClick={() => handleNavigate(item)}
+                <TooltipCustom content={item.label} side="right" className="md:hidden lg:block" triggerClassName="w-full">
+                  <motion.button
+                    type="button"
+                    onClick={() => handleNavigate(item)}
                   disabled={item.disabled}
                   whileTap={isApexIA ? { scale: 0.95 } : { scale: 0.98 }}
                   animate={clickedApexIA && isApexIA ? {
@@ -258,55 +260,74 @@ const SidebarCliente = () => {
                     </motion.span>
                   )}
                 </motion.button>
-              </li>
+              </TooltipCustom>
+            </li>
             );
           })}
         </ul>
       </nav>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 0px;
+          background: transparent;
+        }
+        .custom-scrollbar {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+      `}</style>
 
       {/* Rodapé com botões inferiores */}
       <div className="border-t border-border flex-shrink-0 p-4 space-y-2">
         {/* Mostrar "Meus Dados" e "Quem Somos" apenas para clientes */}
         {!isAdmin && (
           <>
-            <button
-              type="button"
-              onClick={() => navigate('/cliente/cadastros')}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
-            >
-              <User className="h-4 w-4" />
-              <span>Meus Dados</span>
-            </button>
+            <TooltipCustom content="Gerenciar meus dados e configurações" side="right" triggerClassName="w-full">
+              <button
+                type="button"
+                onClick={() => navigate('/cliente/cadastros')}
+                className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
+              >
+                <User className="h-4 w-4" />
+                <span>Meus Dados</span>
+              </button>
+            </TooltipCustom>
             
-            <button
-              type="button"
-              onClick={() => setShowQuemSomos(true)}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
-            >
-              <Info className="h-4 w-4" />
-              <span>Quem Somos</span>
-            </button>
+            <TooltipCustom content="Conheça mais sobre a JB APEX" side="right" triggerClassName="w-full">
+              <button
+                type="button"
+                onClick={() => setShowQuemSomos(true)}
+                className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
+              >
+                <Info className="h-4 w-4" />
+                <span>Quem Somos</span>
+              </button>
+            </TooltipCustom>
           </>
         )}
         
         {isAdmin ? (
-          <button
-            type="button"
-            onClick={() => navigate('/tasks/list')}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Voltar ao menu do Planeje</span>
-          </button>
+          <TooltipCustom content="Retornar ao painel administrativo" side="right" triggerClassName="w-full">
+            <button
+              type="button"
+              onClick={() => navigate('/tasks/list')}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Voltar ao menu do Planeje</span>
+            </button>
+          </TooltipCustom>
         ) : (
-          <button
-            type="button"
-            onClick={signOut}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sair</span>
-          </button>
+          <TooltipCustom content="Encerrar sessão" side="right" triggerClassName="w-full">
+            <button
+              type="button"
+              onClick={signOut}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Sair</span>
+            </button>
+          </TooltipCustom>
         )}
       </div>
 

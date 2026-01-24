@@ -43,6 +43,8 @@ const ClientCadastroSemanal = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [partnerName, setPartnerName] = useState('');
+  const [funnelStep2Name, setFunnelStep2Name] = useState('Visita Agendada');
+  const [funnelStep3Name, setFunnelStep3Name] = useState('Visita Realizada');
   const [referenceDate, setReferenceDate] = useState(null);
   const [formState, setFormState] = useState({
     leads: '',
@@ -50,7 +52,6 @@ const ClientCadastroSemanal = () => {
     visitas_realizadas: '',
     vendas: '',
     faturamento: '',
-    investimento: '',
     observacoes: '',
   });
   const [historico, setHistorico] = useState([]);
@@ -87,7 +88,7 @@ const ClientCadastroSemanal = () => {
         const [{ data: cliente, error: clienteError }, { data: dias, error: historicoError }] = await Promise.all([
           supabase
             .from('clientes')
-            .select('empresa')
+            .select('empresa, funnel_step_2_name, funnel_step_3_name')
             .eq('id', clienteId)
             .maybeSingle(),
           supabase
@@ -103,8 +104,10 @@ const ClientCadastroSemanal = () => {
 
         if (clienteError) {
           console.error('Erro ao carregar parceiro:', clienteError);
-        } else if (cliente?.empresa) {
-          setPartnerName(cliente.empresa);
+        } else if (cliente) {
+          if (cliente.empresa) setPartnerName(cliente.empresa);
+          if (cliente.funnel_step_2_name) setFunnelStep2Name(cliente.funnel_step_2_name);
+          if (cliente.funnel_step_3_name) setFunnelStep3Name(cliente.funnel_step_3_name);
         }
 
         if (historicoError) {
@@ -187,7 +190,6 @@ const ClientCadastroSemanal = () => {
       visitas_realizadas: lancamento.visitas_realizadas?.toString() || '',
       vendas: lancamento.vendas?.toString() || '',
       faturamento: formatMonetaryForInput(lancamento.faturamento),
-      investimento: formatMonetaryForInput(lancamento.investimento),
       observacoes: lancamento.observacoes || '',
     });
     
@@ -267,7 +269,7 @@ const ClientCadastroSemanal = () => {
 
   const handleChange = (field, value) => {
     // Formatar campos monetários durante a digitação
-    if (field === 'faturamento' || field === 'investimento') {
+    if (field === 'faturamento') {
       value = formatMonetaryInput(value);
     }
     
@@ -301,14 +303,6 @@ const ClientCadastroSemanal = () => {
                       .replace(',', '.'),
                   ) || 0
                 : 0,
-            investimento:
-              formState.investimento && formState.investimento !== ''
-                ? parseFloat(
-                    String(formState.investimento)
-                      .replace(/\./g, '')
-                      .replace(',', '.'),
-                  ) || 0
-                : 0,
             observacoes: formState.observacoes || null,
           })
           .eq('id', editandoId);
@@ -338,7 +332,6 @@ const ClientCadastroSemanal = () => {
           visitas_realizadas: '',
           vendas: '',
           faturamento: '',
-          investimento: '',
           observacoes: '',
         });
 
@@ -379,14 +372,6 @@ const ClientCadastroSemanal = () => {
                   .replace(',', '.'),
               ) || 0
             : 0,
-        investimento:
-          formState.investimento && formState.investimento !== ''
-            ? parseFloat(
-                String(formState.investimento)
-                  .replace(/\./g, '')
-                  .replace(',', '.'),
-              ) || 0
-            : 0,
         observacoes: formState.observacoes || null,
         created_by: profile?.id || null,
       };
@@ -418,7 +403,6 @@ const ClientCadastroSemanal = () => {
           visitas_realizadas: '',
           vendas: '',
           faturamento: '',
-          investimento: '',
           observacoes: '',
         });
       }
@@ -549,7 +533,7 @@ const ClientCadastroSemanal = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Visita Agendada</label>
+                  <label className="text-sm font-medium text-foreground">{funnelStep2Name}</label>
                   <Input
                     type="number"
                     min="0"
@@ -560,7 +544,7 @@ const ClientCadastroSemanal = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Visita Realizada</label>
+                  <label className="text-sm font-medium text-foreground">{funnelStep3Name}</label>
                   <Input
                     type="number"
                     min="0"
@@ -583,8 +567,8 @@ const ClientCadastroSemanal = () => {
                 </div>
               </div>
 
-              {/* Faturamento e Investimento */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Faturamento */}
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">Faturamento (R$)</label>
                   <Input
@@ -592,17 +576,6 @@ const ClientCadastroSemanal = () => {
                     inputMode="decimal"
                     value={formState.faturamento}
                     onChange={(e) => handleChange('faturamento', e.target.value)}
-                    className="h-10"
-                    placeholder="0,00"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Investimento em Ads (R$)</label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formState.investimento}
-                    onChange={(e) => handleChange('investimento', e.target.value)}
                     className="h-10"
                     placeholder="0,00"
                   />
@@ -653,7 +626,6 @@ const ClientCadastroSemanal = () => {
                         visitas_realizadas: '',
                         vendas: '',
                         faturamento: '',
-                        investimento: '',
                         observacoes: '',
                       });
                     }}
@@ -713,11 +685,11 @@ const ClientCadastroSemanal = () => {
                         <span className="text-base font-semibold text-card-foreground">{dia.leads ?? 0}</span>
                       </div>
                       <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">VISITA AGENDADA</span>
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{funnelStep2Name}</span>
                         <span className="text-base font-semibold text-card-foreground">{dia.visitas_agendadas ?? 0}</span>
                       </div>
                       <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">VISITA REALIZADA</span>
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{funnelStep3Name}</span>
                         <span className="text-base font-semibold text-card-foreground">{dia.visitas_realizadas ?? 0}</span>
                       </div>
                       <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
@@ -726,18 +698,12 @@ const ClientCadastroSemanal = () => {
                       </div>
                     </div>
 
-                    {/* Faturamento e Investimento destacados */}
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* Faturamento destacado */}
+                    <div className="grid grid-cols-1 gap-2">
                       <div className="rounded-lg bg-green-100 border-2 border-green-400 p-3">
                         <p className="text-xs font-semibold text-green-800 mb-1">Faturamento</p>
                         <p className="text-lg font-bold text-green-700">
                           {formatCurrency(dia.faturamento || 0)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-blue-100 border-2 border-blue-400 p-3">
-                        <p className="text-xs font-semibold text-blue-800 mb-1">Investimento</p>
-                        <p className="text-lg font-bold text-blue-700">
-                          {formatCurrency(dia.investimento || 0)}
                         </p>
                       </div>
                     </div>
@@ -777,11 +743,10 @@ const ClientCadastroSemanal = () => {
                     <TableRow>
                       <TableHead>Data</TableHead>
                       <TableHead>Leads</TableHead>
-                      <TableHead>Visitas Agendadas</TableHead>
-                      <TableHead>Visitas Realizadas</TableHead>
+                      <TableHead>{funnelStep2Name}</TableHead>
+                      <TableHead>{funnelStep3Name}</TableHead>
                       <TableHead>Vendas</TableHead>
                       <TableHead>Faturamento</TableHead>
-                      <TableHead>Investimento</TableHead>
                       <TableHead>Cadastrado por</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -798,7 +763,6 @@ const ClientCadastroSemanal = () => {
                           <TableCell>{lancamento.visitas_realizadas?.toLocaleString('pt-BR') || 0}</TableCell>
                           <TableCell>{lancamento.vendas?.toLocaleString('pt-BR') || 0}</TableCell>
                           <TableCell>{formatCurrency(lancamento.faturamento || 0)}</TableCell>
-                          <TableCell>{formatCurrency(lancamento.investimento || 0)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {lancamento.created_by_profile?.full_name || 'N/A'}
                           </TableCell>

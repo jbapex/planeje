@@ -6,8 +6,9 @@ import React from 'react';
     import { useToast } from '@/components/ui/use-toast';
     import { Button } from '@/components/ui/button';
     import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-    import {
-      DropdownMenu,
+import { TooltipCustom } from '@/components/ui/tooltip-custom';
+import {
+  DropdownMenu,
       DropdownMenuContent,
       DropdownMenuItem,
       DropdownMenuTrigger,
@@ -51,54 +52,65 @@ import React from 'react';
       }
 
       return (
-        <aside className="hidden md:flex w-20 flex-col items-center bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 py-4">
-          <div className="w-10 h-10 flex items-center justify-center bg-gradient-to-br from-orange-400 to-purple-600 rounded-lg text-white font-bold text-xl">
+        <aside className="hidden md:flex w-20 flex-col items-center bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 py-4 h-screen overflow-hidden">
+          <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-orange-400 to-purple-600 rounded-lg text-white font-bold text-xl">
             J
           </div>
-          <nav className="flex flex-col items-center gap-4 mt-10">
+          <nav className="flex-1 w-full overflow-y-auto overflow-x-hidden flex flex-col items-center gap-4 py-6 custom-scrollbar">
             {menuItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `p-3 rounded-lg transition-colors duration-200 ${
-                    isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
-                  }`
-                }
-              >
-                <item.icon className="w-6 h-6" />
-              </NavLink>
+              <TooltipCustom key={item.to} content={item.label} side="right" triggerClassName="w-full flex justify-center">
+                <NavLink
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
+                      isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                    }`
+                  }
+                >
+                  <item.icon className="w-6 h-6" />
+                </NavLink>
+              </TooltipCustom>
             ))}
           </nav>
-          <div className="mt-auto flex flex-col items-center gap-4">
-            <Button variant="ghost" size="icon" className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={handleNotImplemented}>
-              <Bell className="w-6 h-6" />
-            </Button>
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `p-3 rounded-lg transition-colors duration-200 ${
-                  isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
-                }`
-              }
-            >
-              <Settings className="w-6 h-6" />
-            </NavLink>
-            {userRole === 'superadmin' && (
-               <NavLink
-                to="/super-admin"
+          <div className="mt-auto flex-shrink-0 flex flex-col items-center gap-4 pt-4 border-t border-gray-100 dark:border-gray-700 w-full">
+            <TooltipCustom content="Notificações" side="right" triggerClassName="w-full flex justify-center">
+              <Button variant="ghost" size="icon" className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={handleNotImplemented}>
+                <Bell className="w-6 h-6" />
+              </Button>
+            </TooltipCustom>
+            
+            <TooltipCustom content="Configurações" side="right" triggerClassName="w-full flex justify-center">
+              <NavLink
+                to="/settings"
                 className={({ isActive }) =>
-                  `p-3 rounded-lg transition-colors duration-200 ${
+                  `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
                     isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
                   }`
                 }
               >
-                <Shield className="w-6 h-6" />
+                <Settings className="w-6 h-6" />
               </NavLink>
+            </TooltipCustom>
+
+            {userRole === 'superadmin' && (
+              <TooltipCustom content="Super Admin" side="right" triggerClassName="w-full flex justify-center">
+                <NavLink
+                  to="/super-admin"
+                  className={({ isActive }) =>
+                    `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
+                      isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                    }`
+                  }
+                >
+                  <Shield className="w-6 h-6" />
+                </NavLink>
+              </TooltipCustom>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                 <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+
+            <TooltipCustom content="Minha Conta" side="right" triggerClassName="w-full flex justify-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 flex-shrink-0 mb-2">
                     <Avatar className="w-10 h-10">
                       <AvatarImage src={profile?.avatar_url} alt={profile?.full_name} />
                       <AvatarFallback className="bg-gradient-to-br from-green-400 to-cyan-500 text-white font-bold">
@@ -106,15 +118,26 @@ import React from 'react';
                       </AvatarFallback>
                     </Avatar>
                   </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="center" className="mb-2">
-                <DropdownMenuItem onClick={signOut} className="text-red-500 focus:text-red-500 focus:bg-red-50">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sair</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="center" className="mb-2">
+                  <DropdownMenuItem onClick={signOut} className="text-red-500 focus:text-red-500 focus:bg-red-50">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Sair</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </TooltipCustom>
           </div>
+          <style>{`
+            .custom-scrollbar::-webkit-scrollbar {
+              width: 0px;
+              background: transparent;
+            }
+            .custom-scrollbar {
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
+          `}</style>
         </aside>
       );
     };

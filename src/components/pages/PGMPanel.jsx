@@ -57,6 +57,8 @@ const PGMPanel = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortColumn, setSortColumn] = useState('faturamento');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [funnelStep2Name, setFunnelStep2Name] = useState('Etapa 2');
+  const [funnelStep3Name, setFunnelStep3Name] = useState('Etapa 3');
   
   // Se for cliente, filtrar apenas seus dados
   const isClientView = profile?.role === 'cliente' && profile?.cliente_id;
@@ -120,6 +122,24 @@ const PGMPanel = () => {
       setLoading(true);
       try {
         const { dataInicio, dataFim } = getDateRange(periodo);
+
+        // Se for cliente, buscar os nomes personalizados das etapas
+        if (isClientView) {
+          const { data: cliente, error: clienteError } = await supabase
+            .from('clientes')
+            .select('funnel_step_2_name, funnel_step_3_name')
+            .eq('id', profile.cliente_id)
+            .maybeSingle();
+
+          if (cliente) {
+            setFunnelStep2Name(cliente.funnel_step_2_name || 'Visita Agendada');
+            setFunnelStep3Name(cliente.funnel_step_3_name || 'Visita Realizada');
+          }
+        } else {
+          // Se for admin, usar nomes genéricos como solicitado no plano
+          setFunnelStep2Name('Etapa 2');
+          setFunnelStep3Name('Etapa 3');
+        }
 
         // Construir query base - buscar TODOS os campos da tabela
         let query = supabase
@@ -592,8 +612,8 @@ const PGMPanel = () => {
 
     const funil = [
       { label: 'Leads', value: totalLeads, color: '#06B6D4' }, // cyan-500
-      { label: 'Visitas Agendadas', value: totalVisitasAgendadas, color: '#6B7280' }, // gray-500
-      { label: 'Visitas Realizadas', value: totalVisitasRealizadas, color: '#10B981' }, // green-500
+      { label: funnelStep2Name, value: totalVisitasAgendadas, color: '#6B7280' }, // gray-500
+      { label: funnelStep3Name, value: totalVisitasRealizadas, color: '#10B981' }, // green-500
       { label: 'Vendas', value: totalVendas, color: '#0891B2' }, // cyan-700
     ];
     
@@ -1052,8 +1072,8 @@ const PGMPanel = () => {
                       )}
                       <TableHead className="dark:text-white">Investimento (R$)</TableHead>
                       <TableHead className="dark:text-white">Leads</TableHead>
-                      <TableHead className="dark:text-white">Visitas Agendadas</TableHead>
-                      <TableHead className="dark:text-white">Visitas Realizadas</TableHead>
+                      <TableHead className="dark:text-white">{funnelStep2Name}</TableHead>
+                      <TableHead className="dark:text-white">{funnelStep3Name}</TableHead>
                       <TableHead className="dark:text-white">Vendas</TableHead>
                       <TableHead className="dark:text-white">Faturamento (R$)</TableHead>
                       <TableHead className="dark:text-white">CPL</TableHead>
