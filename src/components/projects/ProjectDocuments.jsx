@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const ProjectDocuments = ({ client }) => {
@@ -621,7 +622,9 @@ const ProjectDocuments = ({ client }) => {
   }, [title, content, saveChanges]);
 
   return (
-    <div className="flex h-full min-h-0 relative overflow-hidden">
+    <div 
+      className="flex h-full min-h-0 relative overflow-hidden"
+    >
       {/* Sidebar de Documentos - Drawer no mobile */}
       <aside className={`absolute md:relative z-20 md:z-auto h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ width: '280px', minWidth: '280px', maxWidth: '280px' }}>
         <div className="p-4 space-y-2 overflow-y-auto flex-1 min-h-0">
@@ -676,9 +679,13 @@ const ProjectDocuments = ({ client }) => {
         />
       )}
 
-      <div className="w-full md:w-3/4 flex flex-col overflow-hidden min-h-0 flex-1">
+      <div 
+        className="w-full md:w-3/4 flex flex-col overflow-hidden min-h-0 flex-1"
+      >
         {selectedDoc ? (
-          <div className="flex flex-col h-full px-4 md:px-12 py-4 md:py-8 min-h-0 overflow-hidden md:overflow-hidden">
+          <div 
+            className="flex flex-col h-full px-4 md:px-12 py-4 md:py-8 min-h-0"
+          >
             <div className="flex-shrink-0">
             {/* Botão para abrir sidebar no mobile */}
             <div className="flex items-center justify-between mb-4">
@@ -710,7 +717,7 @@ const ProjectDocuments = ({ client }) => {
             />
             
             {/* Barra de Ferramentas */}
-              <div className="flex items-center gap-1 md:gap-2 p-2 border rounded-md mb-4 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
+              <div className="flex items-center gap-1 md:gap-2 p-2 border rounded-md mb-4 bg-gray-50 dark:bg-gray-800 overflow-x-auto flex-shrink-0">
               {/* Estilo de Texto */}
               <Select value={textStyle} onValueChange={changeTextStyle}>
                 <SelectTrigger className="w-[100px] md:w-[140px] h-8 text-xs">
@@ -1013,28 +1020,33 @@ const ProjectDocuments = ({ client }) => {
                 </Button>
               </div>
             </div>
-
-            {/* Editor de Texto Rico */}
-            <div className="flex-1 min-h-0 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <div
-                ref={editorRef}
-                contentEditable
-                onInput={handleEditorChange}
-                onBlur={handleEditorChange}
-                onKeyDown={handleKeyDown}
-                className="w-full rounded-md bg-background text-base leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                style={{ 
-                  paddingLeft: '1rem', 
-                  paddingRight: '1rem', 
-                  paddingTop: '1rem', 
-                  paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
-                  fontSize: `${fontSize}px`,
-                  minHeight: '100%'
-                }}
-                data-placeholder="Comece a escrever..."
-              />
-            </div>
           </div>
+
+          {/* Editor de Texto Rico */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+              <ScrollArea className="h-full">
+                <div
+                  ref={(el) => {
+                    editorRef.current = el;
+                  }}
+                  contentEditable
+                  onInput={handleEditorChange}
+                  onBlur={handleEditorChange}
+                  onKeyDown={handleKeyDown}
+                  className="w-full rounded-md bg-background text-base leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  style={{ 
+                    paddingLeft: '1rem', 
+                    paddingRight: '1rem', 
+                    paddingTop: '1rem', 
+                    paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))',
+                    fontSize: `${fontSize}px`,
+                    minHeight: 'fit-content',
+                    display: 'block'
+                  }}
+                  data-placeholder="Comece a escrever..."
+                />
+              </ScrollArea>
+            </div>
           
           <style>{`
             [contenteditable][data-placeholder]:empty:before {
