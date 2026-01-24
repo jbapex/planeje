@@ -458,11 +458,11 @@ const TrafficWeekly = () => {
           {/* Título da Página */}
           <header className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white flex items-center">
-                <FileText className="mr-3 h-8 w-8" />
+              <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
+                <FileText className="mr-2 h-6 w-6" />
                 Tráfego Semanal
               </h1>
-              <p className="text-muted-foreground dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted-foreground dark:text-gray-400 mt-1">
                 Registre os dados de tráfego pago por semana
               </p>
             </div>

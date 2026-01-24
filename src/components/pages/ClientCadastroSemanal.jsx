@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar as CalendarIcon, Loader2, FileText, List, Edit, Trash2, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Loader2, FileText, List, Edit, Trash2, X, ChevronDown } from 'lucide-react';
 
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -128,7 +128,6 @@ const ClientCadastroSemanal = () => {
     loadInitialData();
   }, [clienteId, toast]);
 
-  // Buscar todos os lançamentos do cliente para a lista
   const carregarTodosLancamentos = async () => {
     if (!clienteId) return;
     
@@ -165,25 +164,21 @@ const ClientCadastroSemanal = () => {
     }
   };
 
-  // Abrir modal de lista
   const handleAbrirLista = () => {
     setShowLista(true);
     carregarTodosLancamentos();
   };
 
-  // Função para formatar número monetário para exibição (com vírgula)
   const formatMonetaryForInput = (value) => {
     if (!value && value !== 0) return '';
     const num = typeof value === 'number' ? value : parseFloat(value) || 0;
     return num.toFixed(2).replace('.', ',');
   };
 
-  // Editar lançamento
   const handleEditar = (lancamento) => {
     setEditandoId(lancamento.id);
     setReferenceDate(new Date(lancamento.data_referencia));
     
-    // Preencher formulário
     setFormState({
       leads: lancamento.leads?.toString() || '',
       visitas_agendadas: lancamento.visitas_agendadas?.toString() || '',
@@ -194,12 +189,9 @@ const ClientCadastroSemanal = () => {
     });
     
     setShowLista(false);
-    
-    // Scroll para o formulário
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Excluir lançamento
   const handleExcluir = async () => {
     if (!excluindoId) return;
 
@@ -222,7 +214,6 @@ const ClientCadastroSemanal = () => {
           description: 'O lançamento foi excluído com sucesso.',
         });
         
-        // Recarregar listas
         carregarTodosLancamentos();
         const { data: historicoData } = await supabase
           .from('cliente_resultados_diarios')
@@ -248,31 +239,22 @@ const ClientCadastroSemanal = () => {
     }
   };
 
-  // Função para formatar valor monetário durante a digitação
   const formatMonetaryInput = (value) => {
-    // Remove tudo exceto números e vírgula
     let cleaned = value.replace(/[^\d,]/g, '');
-    
-    // Garante que há apenas uma vírgula
     const parts = cleaned.split(',');
     if (parts.length > 2) {
       cleaned = parts[0] + ',' + parts.slice(1).join('');
     }
-    
-    // Limita a 2 casas decimais após a vírgula
     if (parts.length === 2 && parts[1].length > 2) {
       cleaned = parts[0] + ',' + parts[1].substring(0, 2);
     }
-    
     return cleaned;
   };
 
   const handleChange = (field, value) => {
-    // Formatar campos monetários durante a digitação
     if (field === 'faturamento') {
       value = formatMonetaryInput(value);
     }
-    
     setFormState((prev) => ({
       ...prev,
       [field]: value,
@@ -285,7 +267,6 @@ const ClientCadastroSemanal = () => {
     setSaving(true);
 
     try {
-      // Se estiver editando, atualizar ao invés de inserir
       if (editandoId) {
         const { error: updateError } = await supabase
           .from('cliente_resultados_diarios')
@@ -323,7 +304,6 @@ const ClientCadastroSemanal = () => {
           description: 'Os dados do dia foram atualizados com sucesso.',
         });
 
-        // Limpar estado de edição
         setEditandoId(null);
         setReferenceDate(null);
         setFormState({
@@ -335,7 +315,6 @@ const ClientCadastroSemanal = () => {
           observacoes: '',
         });
 
-        // Recarregar histórico
         const { data: historicoData } = await supabase
           .from('cliente_resultados_diarios')
           .select(`
@@ -347,7 +326,6 @@ const ClientCadastroSemanal = () => {
           .limit(4);
         setHistorico(historicoData || []);
 
-        // Recarregar lista se estiver aberta
         if (showLista) {
           carregarTodosLancamentos();
         }
@@ -356,7 +334,6 @@ const ClientCadastroSemanal = () => {
         return;
       }
 
-      // Se não estiver editando, inserir novo registro
       const payload = {
         cliente_id: clienteId,
         data_referencia: format(referenceDate, 'yyyy-MM-dd'),
@@ -394,7 +371,6 @@ const ClientCadastroSemanal = () => {
         description: 'Os dados de tráfego do dia selecionado foram salvos com sucesso.',
       });
 
-      // Limpar formulário apenas se não estiver editando
       if (!editandoId) {
         setReferenceDate(null);
         setFormState({
@@ -423,7 +399,6 @@ const ClientCadastroSemanal = () => {
           setHistorico(diasAtualizados || []);
         }
 
-        // Recarregar lista se estiver aberta
         if (showLista) {
           carregarTodosLancamentos();
         }
@@ -443,282 +418,272 @@ const ClientCadastroSemanal = () => {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8 max-w-7xl mx-auto">
           {/* Título da Página */}
-          <header className="flex items-center justify-between">
+          <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white flex items-center">
-                <FileText className="mr-3 h-8 w-8" />
-                Cadastro Diário
-              </h1>
-              <p className="text-muted-foreground dark:text-gray-400 mt-1">
-                Preencha os dados referentes ao dia selecionado
+              <h1 className="text-3xl font-bold text-[#1e293b] tracking-tight">Cadastro Diário</h1>
+              <p className="text-slate-500 text-base mt-1 font-medium">
+                Preencha os dados referentes ao dia selecionado.
               </p>
             </div>
-            <Button
-              onClick={handleAbrirLista}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <List className="h-4 w-4" />
-              Ver Todos os Lançamentos
-            </Button>
+            <div className="relative">
+              <Button
+                onClick={handleAbrirLista}
+                variant="outline"
+                className="flex items-center gap-2 bg-white border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl h-10 px-5 shadow-sm font-semibold transition-all"
+              >
+                <span className="text-sm">Ver Todos os Lançamentos</span>
+                <ChevronDown className="h-4 w-4 text-slate-400" />
+              </Button>
+            </div>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)] gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Card Esquerdo - Formulário */}
-            <div className="relative rounded-lg p-[1px] bg-gradient-to-r from-orange-400/40 via-purple-500/40 to-orange-400/40 bg-[length:200%_100%] animate-gradient-shift h-fit">
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-orange-400/30 via-purple-500/30 to-orange-400/30 opacity-40 blur-sm animate-gradient-shift pointer-events-none"></div>
-              <Card className="relative bg-card border-0 shadow-sm rounded-lg">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg font-semibold text-card-foreground">Cadastrar Dados Diários</CardTitle>
-                <CardDescription className="text-sm text-muted-foreground mt-1">
-                  Preencha os dados referentes ao dia selecionado.
-                </CardDescription>
-              </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Parceiro */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Parceiro</label>
-                <Input
-                  value={partnerName}
-                  disabled
-                  className="h-10"
-                />
-              </div>
-
-              {/* Data referência */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Data referência</label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start h-10"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {referenceDate ? (
-                        <span className="text-sm">
-                          {format(referenceDate, 'dd/MM/yyyy', { locale: ptBR })}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">Selecione o dia que deseja preencher</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      initialFocus
-                      mode="single"
-                      numberOfMonths={1}
-                      selected={referenceDate}
-                      onSelect={setReferenceDate}
-                      locale={ptBR}
+            <div className="lg:col-span-7">
+              <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
+                <CardHeader className="p-8 pb-4">
+                  <CardTitle className="text-2xl font-bold text-[#1e293b] tracking-tight">Cadastrar Dados Diários</CardTitle>
+                  <CardDescription className="text-base text-slate-400 mt-1 font-medium">
+                    Preencha os dados referentes ao dia selecionado.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-8 pt-0 space-y-6">
+                  {/* Parceiro */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Parceiro</label>
+                    <Input
+                      value={partnerName}
+                      disabled
+                      className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-500 font-medium px-4 text-base transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                     />
-                  </PopoverContent>
-                </Popover>
-              </div>
+                  </div>
 
-              {/* Grid de campos numéricos */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Leads</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formState.leads}
-                    onChange={(e) => handleChange('leads', e.target.value)}
-                    className="h-10"
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">{funnelStep2Name}</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formState.visitas_agendadas}
-                    onChange={(e) => handleChange('visitas_agendadas', e.target.value)}
-                    className="h-10"
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">{funnelStep3Name}</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formState.visitas_realizadas}
-                    onChange={(e) => handleChange('visitas_realizadas', e.target.value)}
-                    className="h-10"
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Vendas</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formState.vendas}
-                    onChange={(e) => handleChange('vendas', e.target.value)}
-                    className="h-10"
-                    placeholder="0"
-                  />
-                </div>
-              </div>
+                  {/* Data referência */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Data referência</label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full justify-start h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-500 font-medium px-4 hover:bg-slate-100 transition-all group text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                        >
+                          <CalendarIcon className="mr-3 h-5 w-5 text-slate-400 group-hover:text-blue-500" />
+                          {referenceDate ? (
+                            <span className="text-slate-700">
+                              {format(referenceDate, 'dd/MM/yyyy', { locale: ptBR })}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Selecione o dia que deseja preencher</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 rounded-2xl border-none shadow-2xl" align="start">
+                        <Calendar
+                          initialFocus
+                          mode="single"
+                          numberOfMonths={1}
+                          selected={referenceDate}
+                          onSelect={setReferenceDate}
+                          locale={ptBR}
+                          className="rounded-2xl border-none p-4"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
 
-              {/* Faturamento */}
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Faturamento (R$)</label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={formState.faturamento}
-                    onChange={(e) => handleChange('faturamento', e.target.value)}
-                    className="h-10"
-                    placeholder="0,00"
-                  />
-                </div>
-              </div>
-
-              {/* Observações */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Observações</label>
-                <Textarea
-                  rows={3}
-                  value={formState.observacoes}
-                  onChange={(e) => handleChange('observacoes', e.target.value)}
-                  className="resize-none"
-                  placeholder="Adicione observações sobre este dia..."
-                />
-              </div>
-
-              {/* Botão Registrar/Atualizar */}
-              <div className="pt-2">
-                <Button
-                  onClick={handleRegister}
-                  disabled={!isFormValid || saving}
-                  className="w-full h-11 text-sm font-semibold bg-green-600 hover:bg-green-700 text-white"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {editandoId ? 'Atualizando...' : 'Registrando...'}
-                    </>
-                  ) : editandoId ? (
-                    <>
-                      <Edit className="h-4 w-4 mr-2" />
-                      Atualizar Lançamento
-                    </>
-                  ) : (
-                    'Registrar'
-                  )}
-                </Button>
-                {editandoId && (
-                  <Button
-                    onClick={() => {
-                      setEditandoId(null);
-                      setReferenceDate(null);
-                      setFormState({
-                        leads: '',
-                        visitas_agendadas: '',
-                        visitas_realizadas: '',
-                        vendas: '',
-                        faturamento: '',
-                        observacoes: '',
-                      });
-                    }}
-                    variant="outline"
-                    className="w-full h-11 text-sm font-semibold mt-2"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    Cancelar Edição
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          </div>
-
-            {/* Card Direito - Histórico */}
-            <Card className="bg-card border border-border shadow-sm flex flex-col h-full max-h-[calc(100vh-12rem)]">
-            <CardHeader className="pb-4 flex-shrink-0">
-              <CardTitle className="text-lg font-semibold text-card-foreground">Histórico Recente</CardTitle>
-              <CardDescription className="text-sm text-muted-foreground mt-1">
-                Últimos 4 dias cadastrados.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 min-h-0 p-0">
-              <ScrollArea className="h-full px-6 pb-6">
-                <div className="space-y-4 pr-4">
-                  {historico.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nenhum dia cadastrado ainda.</p>
-                  ) : (
-                    historico.map((dia) => (
-                  <div
-                    key={dia.id}
-                    className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3"
-                  >
-                    {/* Cabeçalho do card histórico */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 space-y-1">
-                        <p className="text-sm font-medium text-card-foreground">
-                          {format(new Date(dia.data_referencia), 'dd \'de\' MMMM \'de\' yyyy', { locale: ptBR })}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Cadastrado por: {dia.created_by_profile?.full_name || profile?.full_name || 'Sistema'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Observações: {dia.observacoes || 'Não informado'}
-                        </p>
-                      </div>
-                      <span className="inline-flex items-center rounded-full bg-gradient-to-r from-orange-400 to-purple-600 text-white px-2.5 py-0.5 text-xs font-medium">
-                        Administrador
-                      </span>
+                  {/* Grid de campos numéricos */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700 ml-1">Leads</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formState.leads}
+                        onChange={(e) => handleChange('leads', e.target.value)}
+                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                        placeholder="0"
+                      />
                     </div>
-
-                    {/* Grid de métricas */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">LEADS</span>
-                        <span className="text-base font-semibold text-card-foreground">{dia.leads ?? 0}</span>
-                      </div>
-                      <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{funnelStep2Name}</span>
-                        <span className="text-base font-semibold text-card-foreground">{dia.visitas_agendadas ?? 0}</span>
-                      </div>
-                      <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{funnelStep3Name}</span>
-                        <span className="text-base font-semibold text-card-foreground">{dia.visitas_realizadas ?? 0}</span>
-                      </div>
-                      <div className="rounded-lg bg-background border border-border p-3 flex flex-col">
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">VENDAS</span>
-                        <span className="text-base font-semibold text-card-foreground">{dia.vendas ?? 0}</span>
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700 ml-1">Respondeu</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formState.visitas_agendadas}
+                        onChange={(e) => handleChange('visitas_agendadas', e.target.value)}
+                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                        placeholder="0"
+                      />
                     </div>
-
-                    {/* Faturamento destacado */}
-                    <div className="grid grid-cols-1 gap-2">
-                      <div className="rounded-lg bg-green-100 border-2 border-green-400 p-3">
-                        <p className="text-xs font-semibold text-green-800 mb-1">Faturamento</p>
-                        <p className="text-lg font-bold text-green-700">
-                          {formatCurrency(dia.faturamento || 0)}
-                        </p>
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700 ml-1">Orçamento</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formState.visitas_realizadas}
+                        onChange={(e) => handleChange('visitas_realizadas', e.target.value)}
+                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700 ml-1">Vendas</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formState.vendas}
+                        onChange={(e) => handleChange('vendas', e.target.value)}
+                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                        placeholder="0"
+                      />
                     </div>
                   </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+
+                  {/* Faturamento */}
+                  <div className="space-y-2 pt-1">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Faturamento (R$)</label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={formState.faturamento}
+                      onChange={(e) => handleChange('faturamento', e.target.value)}
+                      className="h-12 bg-slate-50 border-slate-200 rounded-xl font-bold text-lg text-slate-800 px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                      placeholder="R$ 0,00"
+                    />
+                  </div>
+
+                  {/* Observações */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Observações</label>
+                    <Textarea
+                      rows={3}
+                      value={formState.observacoes}
+                      onChange={(e) => handleChange('observacoes', e.target.value)}
+                      className="bg-slate-50 border-slate-200 rounded-xl resize-none p-4 text-slate-700 font-medium focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                      placeholder="Adicione observações sobre este dia..."
+                    />
+                  </div>
+
+                  {/* Botão Registrar/Atualizar */}
+                  <div className="pt-4">
+                    <Button
+                      onClick={handleRegister}
+                      disabled={!isFormValid || saving}
+                      className="w-full h-12 text-base font-bold bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 tracking-tight"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-3 animate-spin" />
+                          {editandoId ? 'Atualizando...' : 'Registrando...'}
+                        </>
+                      ) : editandoId ? (
+                        'Atualizar Lançamento'
+                      ) : (
+                        'Registrar'
+                      )}
+                    </Button>
+                    {editandoId && (
+                      <Button
+                        onClick={() => {
+                          setEditandoId(null);
+                          setReferenceDate(null);
+                          setFormState({
+                            leads: '',
+                            visitas_agendadas: '',
+                            visitas_realizadas: '',
+                            vendas: '',
+                            faturamento: '',
+                            observacoes: '',
+                          });
+                        }}
+                        variant="ghost"
+                        className="w-full h-10 text-slate-400 font-bold mt-2 hover:bg-slate-50 rounded-xl transition-colors text-sm"
+                      >
+                        Cancelar Edição
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Card Direito - Histórico */}
+            <div className="lg:col-span-5 h-full">
+              <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] flex flex-col h-full overflow-hidden min-h-[500px]">
+                <CardHeader className="p-8 pb-4">
+                  <CardTitle className="text-2xl font-bold text-[#1e293b] tracking-tight">Histórico Recente</CardTitle>
+                  <CardDescription className="text-base text-slate-400 mt-1 font-medium">
+                    Últimos 4 dias cadastrados.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-8 pt-0 flex-1 flex flex-col min-h-0">
+                  <ScrollArea className="h-full pr-2">
+                    {historico.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full scale-125" />
+                          <div className="bg-white p-10 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] relative z-10 border border-slate-100">
+                            <img src="/placeholder-illustration.svg" alt="Sem dados" className="h-44 w-44 opacity-90" />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-lg font-bold text-slate-600">Nenhum dia cadastrado ainda.</p>
+                          <p className="text-sm text-slate-400 font-medium max-w-xs">
+                            Comece preenchendo os dados do dia no formulário ao lado.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 pt-2">
+                        {historico.map((dia) => (
+                          <div
+                            key={dia.id}
+                            className="p-6 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                            onClick={() => handleEditar(dia)}
+                          >
+                            <div className="flex items-center justify-between mb-4 relative z-10">
+                              <div>
+                                <p className="text-base font-bold text-[#1e293b]">
+                                  {format(new Date(dia.data_referencia), 'dd/MM/yyyy', { locale: ptBR })}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                                  {format(new Date(dia.data_referencia), "EEEE", { locale: ptBR })}
+                                </p>
+                              </div>
+                              <div className="h-9 w-9 rounded-lg bg-emerald-100 flex items-center justify-center shadow-sm group-hover:bg-emerald-200 group-hover:scale-105 transition-all">
+                                <Edit className="h-4 w-4 text-emerald-600" />
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-5 relative z-10 mb-4">
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Leads</p>
+                                <p className="text-2xl font-bold text-slate-900 tracking-tight leading-none">{dia.leads ?? 0}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Vendas</p>
+                                <p className="text-2xl font-bold text-slate-900 tracking-tight leading-none">{dia.vendas ?? 0}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="pt-4 border-t border-emerald-100 flex items-center justify-between relative z-10">
+                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Faturamento</span>
+                              <span className="text-lg font-bold text-emerald-600 tracking-tight leading-none">{formatCurrency(dia.faturamento || 0)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Dialog de Lista de Lançamentos */}
       <Dialog open={showLista} onOpenChange={setShowLista}>
         <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -800,7 +765,6 @@ const ClientCadastroSemanal = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de Confirmação de Exclusão */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -830,4 +794,3 @@ const ClientCadastroSemanal = () => {
 };
 
 export default ClientCadastroSemanal;
-

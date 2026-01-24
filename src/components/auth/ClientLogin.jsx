@@ -57,7 +57,7 @@ const ClientLogin = () => {
             <div className="w-16 h-16 bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4">
               <span className="text-white font-bold text-3xl">A</span>
             </div>
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
               Área do Cliente
             </h1>
             <p className="text-gray-500 dark:text-gray-400">

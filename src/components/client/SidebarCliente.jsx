@@ -111,7 +111,7 @@ const SidebarCliente = () => {
     const fetchClienteData = async () => {
       // Se for admin/colaborador, não buscar dados de cliente específico
       if (profile?.role !== 'cliente' || !profile?.cliente_id) {
-        setClienteData({ empresa: 'Área do Cliente', nome_contato: null, logo_urls: null });
+        setClienteData(null);
         return;
       }
 
@@ -123,6 +123,8 @@ const SidebarCliente = () => {
 
       if (!error && data) {
         setClienteData(data);
+      } else {
+        setClienteData(null);
       }
     };
 
@@ -165,7 +167,10 @@ const SidebarCliente = () => {
     }
   };
 
-  const clienteNome = clienteData?.empresa || clienteData?.nome_contato || profile?.full_name || 'Cliente';
+  // Verificar se é administrador acessando a área do cliente
+  const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
+  
+  const clienteNome = clienteData?.empresa || clienteData?.nome_contato || profile?.full_name || 'JB APEX';
   const clienteFoto = clienteData?.logo_urls && clienteData.logo_urls.length > 0 
     ? clienteData.logo_urls[0] 
     : null;
@@ -176,29 +181,49 @@ const SidebarCliente = () => {
     .toUpperCase()
     .slice(0, 2);
   
-  // Verificar se é administrador acessando a área do cliente
-  const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
+  // Nome a ser exibido no header
+  const displayName = isAdmin 
+    ? 'JB APEX' 
+    : (clienteData?.empresa || clienteData?.nome_contato || 'JB APEX');
 
   return (
-    <aside className="hidden md:flex flex-col w-64 border-r border-border flex-shrink-0 h-screen overflow-hidden md:block" style={{ backgroundColor: '#F9FAFB' }}>
-      <div className="h-16 flex items-center gap-3 px-6 border-b border-border flex-shrink-0">
-        <Avatar className="h-10 w-10 flex-shrink-0">
-          <AvatarImage src={clienteFoto} alt={clienteNome} />
-          <AvatarFallback className="bg-gradient-to-br from-orange-400 to-purple-600 text-white font-semibold">
-            {iniciais}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold tracking-tight text-card-foreground truncate">
-            {clienteNome}
-          </p>
-          <p className="text-xs text-muted-foreground truncate">
-            Área do Cliente
-          </p>
+    <aside className="hidden md:flex flex-col w-64 border-r border-white/5 flex-shrink-0 h-screen overflow-hidden md:block bg-[#0f172a] relative font-sans">
+      {/* Background Image Celestial */}
+      <div 
+        className="absolute inset-0 opacity-80 pointer-events-none bg-cover bg-center" 
+        style={{ backgroundImage: "url('/sidebar-bg.png')" }} 
+      />
+      
+      {/* Overlay para profundidade e legibilidade */}
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-950/40 via-transparent to-[#0f172a]/80 pointer-events-none" />
+      
+      <div className="h-24 flex flex-col justify-center px-6 flex-shrink-0 relative z-10">
+        <div className="flex items-center gap-3">
+          {clienteFoto ? (
+            <Avatar className="h-11 w-11 border-2 border-white/20 shadow-xl">
+              <AvatarImage src={clienteFoto} alt={clienteNome} />
+              <AvatarFallback className="bg-gradient-to-br from-blue-600 to-blue-400 text-white font-bold text-sm">
+                {iniciais}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <div className="h-11 w-11 bg-gradient-to-br from-blue-600 to-blue-400 rounded-full flex items-center justify-center shadow-2xl shadow-blue-500/40 border border-white/10">
+              <span className="text-white font-bold text-sm">{iniciais}</span>
+            </div>
+          )}
+          <div className="flex flex-col min-w-0 flex-1">
+            <span className="text-xl font-bold text-white tracking-tight leading-none truncate">
+              {displayName}
+            </span>
+            <span className="text-xs text-slate-300/80 mt-1 font-medium tracking-wide">
+              Área do Cliente
+            </span>
+          </div>
         </div>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4 min-h-0 custom-scrollbar">
-        <ul className="space-y-1 px-2">
+
+      <nav className="flex-1 overflow-y-auto py-4 min-h-0 custom-scrollbar relative z-10">
+        <ul className="space-y-2 px-3">
           {getMenuItems(profile).map((item) => {
             const isActive = location.pathname.startsWith(item.path);
             const Icon = item.icon;
@@ -215,19 +240,19 @@ const SidebarCliente = () => {
                   animate={clickedApexIA && isApexIA ? {
                     scale: [1, 1.05, 1],
                     boxShadow: [
-                      '0 0 0px rgba(210, 97, 42, 0)',
-                      '0 0 20px rgba(210, 97, 42, 0.6)',
-                      '0 0 0px rgba(210, 97, 42, 0)'
+                      '0 0 0px rgba(59, 130, 246, 0)',
+                      '0 0 20px rgba(59, 130, 246, 0.4)',
+                      '0 0 0px rgba(59, 130, 246, 0)'
                     ]
                   } : {}}
                   transition={{ duration: 0.2 }}
                   className={[
-                    'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-all relative',
+                    'flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-all duration-300 relative group',
                     isActive
-                      ? 'bg-gradient-to-br from-orange-400 to-purple-600 text-white shadow-sm'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-xl shadow-blue-600/30 font-semibold'
                       : isApexIA
-                      ? 'bg-gradient-to-r from-[#FFF5EB] to-white dark:from-orange-950/30 dark:to-orange-900/10 border border-orange-200/60 dark:border-orange-800/40 text-[#D2612A] dark:text-[#E67E3A] hover:from-[#FFE8D6] hover:to-[#FFF5EB] dark:hover:from-orange-950/40 dark:hover:to-orange-900/20 shadow-sm hover:shadow-md hover:-translate-y-0.5'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                      ? 'bg-white/5 border-2 border-orange-400/60 text-orange-400 hover:bg-white/10 hover:text-orange-300 hover:border-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.3)]'
+                      : 'text-slate-300 hover:bg-white/10 hover:text-white',
                     item.disabled ? 'opacity-50 cursor-not-allowed' : '',
                   ].join(' ')}
                 >
@@ -237,16 +262,17 @@ const SidebarCliente = () => {
                       scale: [1, 1.2, 1]
                     } : {}}
                     transition={{ duration: 0.3 }}
+                    className="relative z-10"
                   >
                     <Icon className={[
-                      'h-4 w-4',
-                      isApexIA && !isActive ? 'text-[#D2612A] dark:text-[#E67E3A]' : ''
+                      'h-5 w-5',
+                      isActive ? 'text-white' : (isApexIA ? 'text-orange-400' : 'text-slate-300 group-hover:text-white')
                     ].join(' ')} />
                   </motion.div>
-                  <span className="flex-1 text-left">{item.label}</span>
+                  <span className="flex-1 text-left tracking-wide relative z-10">{item.label}</span>
                   {isApexIA && !isActive && (
                     <motion.span 
-                      className="inline-flex items-center rounded-full bg-gradient-to-r from-orange-400 to-purple-600 text-white text-[10px] font-semibold px-1.5 py-0.5"
+                      className="inline-flex items-center rounded-full bg-orange-500/10 text-orange-500 text-[10px] font-bold px-1.5 py-0.5 border border-orange-500/20 relative z-10"
                       animate={clickedApexIA ? {
                         scale: [1, 1.3, 1],
                         opacity: [1, 0.8, 1]
@@ -258,6 +284,12 @@ const SidebarCliente = () => {
                     >
                       AI
                     </motion.span>
+                  )}
+                  {isActive && (
+                    <motion.div 
+                      layoutId="activeGlow"
+                      className="absolute inset-0 rounded-xl bg-white/10 mix-blend-overlay"
+                    />
                   )}
                 </motion.button>
               </TooltipCustom>
@@ -275,10 +307,18 @@ const SidebarCliente = () => {
           scrollbar-width: none;
           -ms-overflow-style: none;
         }
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
       `}</style>
 
       {/* Rodapé com botões inferiores */}
-      <div className="border-t border-border flex-shrink-0 p-4 space-y-2">
+      <div className="mt-auto border-t border-white/5 flex-shrink-0 p-6 space-y-4 relative z-10 bg-gradient-to-t from-[#0f172a]/80 to-transparent">
         {/* Mostrar "Meus Dados" e "Quem Somos" apenas para clientes */}
         {!isAdmin && (
           <>
@@ -286,10 +326,10 @@ const SidebarCliente = () => {
               <button
                 type="button"
                 onClick={() => navigate('/cliente/cadastros')}
-                className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
+                className="flex w-full items-center gap-3 text-sm text-slate-300 hover:text-white transition-all duration-200 group"
               >
-                <User className="h-4 w-4" />
-                <span>Meus Dados</span>
+                <User className="h-5 w-5 text-slate-400 group-hover:text-white transition-colors" />
+                <span className="tracking-wide">Meus Dados</span>
               </button>
             </TooltipCustom>
             
@@ -297,10 +337,10 @@ const SidebarCliente = () => {
               <button
                 type="button"
                 onClick={() => setShowQuemSomos(true)}
-                className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all"
+                className="flex w-full items-center gap-3 text-sm text-slate-300 hover:text-white transition-all duration-200 group"
               >
-                <Info className="h-4 w-4" />
-                <span>Quem Somos</span>
+                <Info className="h-5 w-5 text-slate-400 group-hover:text-white transition-colors" />
+                <span className="tracking-wide">Quem Somos</span>
               </button>
             </TooltipCustom>
           </>
@@ -311,10 +351,10 @@ const SidebarCliente = () => {
             <button
               type="button"
               onClick={() => navigate('/tasks/list')}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+              className="flex w-full items-center gap-3 text-sm text-blue-400 hover:text-white transition-all duration-200"
             >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Voltar ao menu do Planeje</span>
+              <ArrowLeft className="h-5 w-5" />
+              <span className="tracking-wide font-medium">Voltar ao Planeje</span>
             </button>
           </TooltipCustom>
         ) : (
@@ -322,10 +362,10 @@ const SidebarCliente = () => {
             <button
               type="button"
               onClick={signOut}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+              className="flex w-full items-center gap-3 text-sm text-slate-400 hover:text-rose-400 transition-all duration-200 pt-4 border-t border-white/5 group"
             >
-              <LogOut className="h-4 w-4" />
-              <span>Sair</span>
+              <LogOut className="h-5 w-5 text-slate-500 group-hover:text-rose-400 transition-colors" />
+              <span className="tracking-wide">Sair</span>
             </button>
           </TooltipCustom>
         )}
