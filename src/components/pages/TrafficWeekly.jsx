@@ -455,21 +455,20 @@ const TrafficWeekly = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Título da Página */}
+          {/* Header */}
           <header className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
-                <FileText className="mr-2 h-6 w-6" />
+              <h1 className="text-2xl font-bold text-[#1e293b] tracking-tight">
                 Tráfego Semanal
               </h1>
-              <p className="text-sm text-muted-foreground dark:text-gray-400 mt-1">
+              <p className="text-sm text-slate-500 mt-1 font-medium">
                 Registre os dados de tráfego pago por semana
               </p>
             </div>
             <Button
               onClick={handleAbrirLista}
               variant="outline"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 h-10 bg-white border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] hover:bg-slate-50"
             >
               <List className="h-4 w-4" />
               Ver Todos os Lançamentos
@@ -478,21 +477,19 @@ const TrafficWeekly = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)] gap-6">
             {/* Card Esquerdo - Formulário */}
-            <div className="relative rounded-lg p-[1px] bg-gradient-to-r from-orange-400/40 via-purple-500/40 to-orange-400/40 bg-[length:200%_100%] animate-gradient-shift">
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-orange-400/30 via-purple-500/30 to-orange-400/30 opacity-40 blur-sm animate-gradient-shift"></div>
-              <Card className="relative bg-card border-0 shadow-sm rounded-lg">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg font-semibold text-card-foreground">Cadastrar Dados Semanais</CardTitle>
-                  <CardDescription className="text-sm text-muted-foreground mt-1">
-                    Preencha os resultados de tráfego da semana selecionada.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5">
+            <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
+              <CardHeader className="p-6 pb-4">
+                <CardTitle className="text-lg font-bold text-slate-800">Cadastrar Dados Semanais</CardTitle>
+                <CardDescription className="text-sm text-slate-500 mt-1 font-medium">
+                  Preencha os resultados de tráfego da semana selecionada.
+                </CardDescription>
+              </CardHeader>
+                <CardContent className="p-6 pt-0 space-y-5">
                   {/* Cliente */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Cliente</label>
+                    <label className="text-sm font-medium text-slate-700">Cliente</label>
                     <Select value={clienteSelecionado} onValueChange={setClienteSelecionado}>
-                      <SelectTrigger className="h-10">
+                      <SelectTrigger className="h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
                         <SelectValue placeholder="Selecione o cliente" />
                       </SelectTrigger>
                       <SelectContent>
@@ -507,12 +504,12 @@ const TrafficWeekly = () => {
 
                   {/* Semana */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Semana</label>
+                    <label className="text-sm font-medium text-slate-700">Semana</label>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
                           variant="outline"
-                          className="w-full justify-start h-10"
+                          className="w-full justify-start h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] hover:bg-slate-50"
                         >
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {semanaInicio && semanaFim ? (
@@ -540,85 +537,85 @@ const TrafficWeekly = () => {
                   {/* Grid de campos numéricos */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">Impressões</label>
+                      <label className="text-sm font-medium text-slate-700">Impressões</label>
                       <Input
                         type="number"
                         min="0"
                         value={formState.impressoes}
                         onChange={(e) => handleChange('impressoes', e.target.value)}
-                        className="h-10"
+                        className="h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                         placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">Cliques</label>
+                      <label className="text-sm font-medium text-slate-700">Cliques</label>
                       <Input
                         type="number"
                         min="0"
                         value={formState.cliques}
                         onChange={(e) => handleChange('cliques', e.target.value)}
-                        className="h-10"
+                        className="h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                         placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">Leads</label>
+                      <label className="text-sm font-medium text-slate-700">Leads</label>
                       <Input
                         type="number"
                         min="0"
                         value={formState.leads}
                         onChange={(e) => handleChange('leads', e.target.value)}
-                        className="h-10"
+                        className="h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                         placeholder="0"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">Investimento (R$)</label>
+                      <label className="text-sm font-medium text-slate-700">Investimento (R$)</label>
                       <Input
                         type="text"
                         inputMode="decimal"
                         value={formState.investimento}
                         onChange={(e) => handleChange('investimento', e.target.value)}
-                        className="h-10"
+                        className="h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                         placeholder="0,00"
                       />
                     </div>
                   </div>
 
                   {/* CTR e CLP (calculados automaticamente) */}
-                  <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                        <MousePointerClick className="h-4 w-4" />
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <MousePointerClick className="h-4 w-4 text-blue-600" />
                         CTR (Calculado)
                       </label>
                       <Input
                         value={formatPercentage(ctr)}
                         disabled
-                        className="h-10 bg-muted"
+                        className="h-10 bg-slate-100 border-slate-200 rounded-xl"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4" />
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-emerald-600" />
                         CLP (Calculado)
                       </label>
                       <Input
                         value={formatCurrency(clp)}
                         disabled
-                        className="h-10 bg-muted"
+                        className="h-10 bg-slate-100 border-slate-200 rounded-xl"
                       />
                     </div>
                   </div>
 
                   {/* Observações */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Observações</label>
+                    <label className="text-sm font-medium text-slate-700">Observações</label>
                     <Textarea
                       rows={3}
                       value={formState.observacoes}
                       onChange={(e) => handleChange('observacoes', e.target.value)}
-                      className="resize-none"
+                      className="resize-none bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                       placeholder="Adicione observações sobre esta semana..."
                     />
                   </div>
@@ -628,7 +625,7 @@ const TrafficWeekly = () => {
                     <Button
                       onClick={handleRegister}
                       disabled={!isFormValid || saving}
-                      className="w-full h-11 text-sm font-semibold"
+                      className="w-full h-11 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-500/20"
                     >
                       {saving ? (
                         <>
@@ -660,7 +657,7 @@ const TrafficWeekly = () => {
                           });
                         }}
                         variant="outline"
-                        className="w-full h-11 text-sm font-semibold mt-2"
+                        className="w-full h-11 text-sm font-semibold mt-2 bg-white border-slate-200 rounded-xl hover:bg-slate-50"
                       >
                         <X className="h-4 w-4 mr-2" />
                         Cancelar Edição
@@ -668,20 +665,19 @@ const TrafficWeekly = () => {
                     )}
                   </div>
                 </CardContent>
-              </Card>
-            </div>
+            </Card>
 
             {/* Card Direito - Histórico */}
-            <Card className="bg-card border border-border shadow-sm">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg font-semibold text-card-foreground">Histórico Recente</CardTitle>
-                <CardDescription className="text-sm text-muted-foreground mt-1">
+            <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
+              <CardHeader className="p-6 pb-4">
+                <CardTitle className="text-lg font-bold text-slate-800">Histórico Recente</CardTitle>
+                <CardDescription className="text-sm text-slate-500 mt-1 font-medium">
                   Últimas 6 semanas cadastradas.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="p-6 pt-0 space-y-4">
                 {historico.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhuma semana cadastrada ainda.</p>
+                  <p className="text-sm text-slate-500 font-medium">Nenhuma semana cadastrada ainda.</p>
                 ) : (
                   historico.map((semana) => {
                     const ctrCalculado = semana.impressoes > 0 ? (semana.cliques / semana.impressoes) * 100 : 0;
@@ -690,38 +686,38 @@ const TrafficWeekly = () => {
                     return (
                       <div
                         key={semana.id}
-                        className="p-4 rounded-lg border border-border bg-muted/30 dark:bg-gray-800/50"
+                        className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <p className="font-semibold text-sm text-foreground">
+                            <p className="font-bold text-sm text-slate-800">
                               {format(new Date(semana.semana_inicio), 'dd/MM', { locale: ptBR })} - {format(new Date(semana.semana_fim), 'dd/MM', { locale: ptBR })}
                             </p>
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-xs text-slate-500 mt-1 font-medium">
                               {semana.clientes?.empresa || 'Cliente não encontrado'}
                             </p>
                           </div>
                         </div>
-                        <div className="space-y-1 text-xs text-muted-foreground">
+                        <div className="space-y-1 text-xs text-slate-600">
                           <p>
-                            <span className="font-medium">Impressões:</span> {semana.impressoes?.toLocaleString('pt-BR') || 0} -{' '}
-                            <span className="font-medium">Cliques:</span> {semana.cliques?.toLocaleString('pt-BR') || 0}
+                            <span className="font-semibold">Impressões:</span> {semana.impressoes?.toLocaleString('pt-BR') || 0} -{' '}
+                            <span className="font-semibold">Cliques:</span> {semana.cliques?.toLocaleString('pt-BR') || 0}
                           </p>
                           <p>
-                            <span className="font-medium">Leads:</span> {semana.leads?.toLocaleString('pt-BR') || 0} -{' '}
-                            <span className="font-medium">Investimento:</span> {formatCurrency(semana.investimento || 0)}
+                            <span className="font-semibold">Leads:</span> {semana.leads?.toLocaleString('pt-BR') || 0} -{' '}
+                            <span className="font-semibold">Investimento:</span> {formatCurrency(semana.investimento || 0)}
                           </p>
                           <p>
-                            <span className="font-medium">CTR:</span> {formatPercentage(ctrCalculado)} -{' '}
-                            <span className="font-medium">CLP:</span> {formatCurrency(clpCalculado)}
+                            <span className="font-semibold">CTR:</span> {formatPercentage(ctrCalculado)} -{' '}
+                            <span className="font-semibold">CLP:</span> {formatCurrency(clpCalculado)}
                           </p>
                           {semana.observacoes && (
-                            <p className="mt-2 text-xs italic">
+                            <p className="mt-2 text-xs italic text-slate-500">
                               {semana.observacoes}
                             </p>
                           )}
                           {semana.created_by_profile && (
-                            <p className="mt-1 text-xs">
+                            <p className="mt-1 text-xs text-slate-400">
                               Cadastrado por: {semana.created_by_profile.full_name}
                             </p>
                           )}
@@ -738,10 +734,10 @@ const TrafficWeekly = () => {
 
       {/* Dialog de Lista de Lançamentos */}
       <Dialog open={showLista} onOpenChange={setShowLista}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto bg-white rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">Todos os Lançamentos</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-2xl font-bold text-[#1e293b] tracking-tight">Todos os Lançamentos</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500 font-medium">
               Visualize, edite ou exclua lançamentos de tráfego semanal
             </DialogDescription>
           </DialogHeader>
@@ -751,24 +747,24 @@ const TrafficWeekly = () => {
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : todosLancamentos.length === 0 ? (
-              <p className="text-center py-8 text-muted-foreground">
+              <p className="text-center py-8 text-slate-500 font-medium">
                 Nenhum lançamento encontrado.
               </p>
             ) : (
-              <div className="border rounded-lg">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead>Semana</TableHead>
-                      <TableHead>Impressões</TableHead>
-                      <TableHead>Cliques</TableHead>
-                      <TableHead>Leads</TableHead>
-                      <TableHead>Investimento</TableHead>
-                      <TableHead>CTR</TableHead>
-                      <TableHead>CLP</TableHead>
-                      <TableHead>Cadastrado por</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-slate-700 font-semibold">Cliente</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Semana</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Impressões</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Cliques</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Leads</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Investimento</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">CTR</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">CLP</TableHead>
+                      <TableHead className="text-slate-700 font-semibold">Cadastrado por</TableHead>
+                      <TableHead className="text-right text-slate-700 font-semibold">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -777,20 +773,20 @@ const TrafficWeekly = () => {
                       const clp = lancamento.leads > 0 ? lancamento.investimento / lancamento.leads : 0;
                       
                       return (
-                        <TableRow key={lancamento.id}>
-                          <TableCell className="font-medium">
+                        <TableRow key={lancamento.id} className="hover:bg-slate-50">
+                          <TableCell className="font-semibold text-slate-800">
                             {lancamento.clientes?.empresa || 'N/A'}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-slate-700 font-medium">
                             {format(new Date(lancamento.semana_inicio), 'dd/MM/yyyy', { locale: ptBR })} - {format(new Date(lancamento.semana_fim), 'dd/MM/yyyy', { locale: ptBR })}
                           </TableCell>
-                          <TableCell>{lancamento.impressoes?.toLocaleString('pt-BR') || 0}</TableCell>
-                          <TableCell>{lancamento.cliques?.toLocaleString('pt-BR') || 0}</TableCell>
-                          <TableCell>{lancamento.leads?.toLocaleString('pt-BR') || 0}</TableCell>
-                          <TableCell>{formatCurrency(lancamento.investimento || 0)}</TableCell>
-                          <TableCell>{formatPercentage(ctr)}</TableCell>
-                          <TableCell>{formatCurrency(clp)}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
+                          <TableCell className="text-slate-700">{lancamento.impressoes?.toLocaleString('pt-BR') || 0}</TableCell>
+                          <TableCell className="text-slate-700">{lancamento.cliques?.toLocaleString('pt-BR') || 0}</TableCell>
+                          <TableCell className="text-slate-700">{lancamento.leads?.toLocaleString('pt-BR') || 0}</TableCell>
+                          <TableCell className="text-slate-700 font-semibold">{formatCurrency(lancamento.investimento || 0)}</TableCell>
+                          <TableCell className="text-slate-700">{formatPercentage(ctr)}</TableCell>
+                          <TableCell className="text-slate-700 font-semibold">{formatCurrency(clp)}</TableCell>
+                          <TableCell className="text-sm text-slate-600 font-medium">
                             {lancamento.created_by_profile?.full_name || 'N/A'}
                           </TableCell>
                           <TableCell className="text-right">
@@ -799,7 +795,7 @@ const TrafficWeekly = () => {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEditar(lancamento)}
-                                className="h-8 w-8 p-0"
+                                className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
