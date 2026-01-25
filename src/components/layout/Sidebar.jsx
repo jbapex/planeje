@@ -63,7 +63,7 @@ import {
                   to={item.to}
                   className={({ isActive }) =>
                     `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
-                      isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                      isActive ? 'bg-gradient-to-br from-blue-600 to-blue-400 text-white shadow-lg shadow-blue-500/50 dark:from-blue-500 dark:to-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
                     }`
                   }
                 >
@@ -84,7 +84,7 @@ import {
                 to="/settings"
                 className={({ isActive }) =>
                   `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
-                    isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                    isActive ? 'bg-gradient-to-br from-blue-600 to-blue-400 text-white shadow-lg shadow-blue-500/50 dark:from-blue-500 dark:to-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
                   }`
                 }
               >
@@ -98,7 +98,7 @@ import {
                   to="/super-admin"
                   className={({ isActive }) =>
                     `p-3 rounded-lg transition-colors duration-200 flex-shrink-0 ${
-                      isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                      isActive ? 'bg-gradient-to-br from-blue-600 to-blue-400 text-white shadow-lg shadow-blue-500/50 dark:from-blue-500 dark:to-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
                     }`
                   }
                 >

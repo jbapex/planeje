@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-    import { NavLink, useNavigate } from 'react-router-dom';
+    import { NavLink, useNavigate, useLocation } from 'react-router-dom';
     import { Home, Users, FolderKanban, ListTodo, MessageSquare, Megaphone, Rocket, BarChart2, ListChecks, MoreHorizontal, Bot, Activity } from 'lucide-react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
@@ -29,6 +29,7 @@ import React, { useState } from 'react';
       const { moduleSettings, loading } = useModuleSettings();
       const userRole = profile?.role;
       const navigate = useNavigate();
+      const location = useLocation();
       const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
       if (loading) {
@@ -50,20 +51,25 @@ import React, { useState } from 'react';
         <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-gray-800 border-t dark:border-gray-700 shadow-t-lg z-50">
           <div className="grid h-full max-w-lg grid-cols-5 mx-auto font-medium">
             {/* Primeiros 4 itens principais */}
-            {mainItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `inline-flex flex-col items-center justify-center px-2 hover:bg-gray-50 dark:hover:bg-gray-700 group ${
-                    isActive ? 'text-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-gray-400'
-                  }`
-                }
-              >
-                <item.icon className="w-6 h-6 mb-1" />
-                <span className="text-[10px]">{item.label}</span>
-              </NavLink>
-            ))}
+            {mainItems.map((item) => {
+              const isActive = location.pathname.startsWith(item.to);
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className="relative inline-flex flex-col items-center justify-center px-2 hover:bg-gray-50 dark:hover:bg-gray-700 group transition-all duration-200"
+                >
+                  {isActive && (
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-blue-400/20 rounded-lg" />
+                  )}
+                  <item.icon className={`w-6 h-6 mb-1 relative z-10 ${isActive ? 'text-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-gray-400'}`} />
+                  <span className={`text-[10px] relative z-10 ${isActive ? 'text-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-gray-400'}`}>{item.label}</span>
+                  {isActive && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-600 to-blue-400 rounded-t-full" />
+                  )}
+                </NavLink>
+              );
+            })}
             
             {/* Botão "Ver mais" com dropdown */}
             <DropdownMenu open={isMoreMenuOpen} onOpenChange={setIsMoreMenuOpen}>

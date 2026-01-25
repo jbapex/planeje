@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
-import { format, startOfMonth, endOfMonth, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, eachMonthOfInterval, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { motion } from 'framer-motion';
 import { 
   CheckCircle2, 
   Clock, 
@@ -17,7 +18,8 @@ import {
   Video,
   Image as ImageIcon,
   FileText,
-  Calendar
+  Calendar,
+  BarChart3
 } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -253,6 +255,89 @@ const ClientCampaignsStatus = () => {
   // Contar total de tarefas por status
   const getStatusCount = (status) => tasksByStatus[status]?.length || 0;
 
+  // Produção mensal (últimos 12 meses)
+  const producaoMensal = useMemo(() => {
+    const hoje = new Date();
+    const inicioPeriodo = startOfMonth(subMonths(hoje, 11));
+    const fimPeriodo = endOfMonth(hoje);
+    
+    // Gerar array com os últimos 12 meses (sempre retorna 12 meses, mesmo sem dados)
+    let meses = eachMonthOfInterval({ start: inicioPeriodo, end: fimPeriodo });
+    
+    // Garantir que sempre temos exatamente 12 meses
+    if (meses.length !== 12) {
+      // Se por algum motivo não tivermos 12 meses, criar manualmente
+      const mesesCorrigidos = [];
+      for (let i = 11; i >= 0; i--) {
+        mesesCorrigidos.push(startOfMonth(subMonths(hoje, i)));
+      }
+      meses = mesesCorrigidos;
+    }
+    
+    const resultado = meses.map(mes => {
+      const inicioMes = startOfDay(startOfMonth(mes));
+      const fimMes = endOfDay(endOfMonth(mes));
+      
+      // Contar tarefas produzidas (published ou completed) no mês
+      const tarefasMes = (tasks || []).filter(task => {
+        const taskDate = task.post_date || task.created_at;
+        if (!taskDate) return false;
+        
+        try {
+          const data = startOfDay(new Date(taskDate));
+          return data >= inicioMes && data <= fimMes && 
+                 (task.status === 'published' || task.status === 'completed');
+        } catch {
+          return false;
+        }
+      });
+      
+      return {
+        mes: format(mes, 'MMM/yyyy', { locale: ptBR }),
+        total: tarefasMes.length,
+        dataCompleta: mes
+      };
+    });
+    
+    // Garantir que sempre retornamos exatamente 12 meses
+    const resultadoFinal = resultado.length === 12 ? resultado : (() => {
+      const mesesCorrigidos = [];
+      for (let i = 11; i >= 0; i--) {
+        const mes = startOfMonth(subMonths(hoje, i));
+        const inicioMes = startOfDay(startOfMonth(mes));
+        const fimMes = endOfDay(endOfMonth(mes));
+        
+        const tarefasMes = (tasks || []).filter(task => {
+          const taskDate = task.post_date || task.created_at;
+          if (!taskDate) return false;
+          
+          try {
+            const data = startOfDay(new Date(taskDate));
+            return data >= inicioMes && data <= fimMes && 
+                   (task.status === 'published' || task.status === 'completed');
+          } catch {
+            return false;
+          }
+        });
+        
+        mesesCorrigidos.push({
+          mes: format(mes, 'MMM/yyyy', { locale: ptBR }),
+          total: tarefasMes.length,
+          dataCompleta: mes
+        });
+      }
+      return mesesCorrigidos;
+    })();
+    
+    console.log('📊 Produção Mensal calculada:', {
+      totalMeses: resultadoFinal.length,
+      mesesComDados: resultadoFinal.filter(m => m.total > 0).length,
+      dados: resultadoFinal
+    });
+    
+    return resultadoFinal;
+  }, [tasks]);
+
   // Formatar data
   const formatDate = (dateString) => {
     if (!dateString) return 'Não informado';
@@ -261,6 +346,144 @@ const ClientCampaignsStatus = () => {
     } catch {
       return 'Data inválida';
     }
+  };
+
+  // Componente de gráfico de barras
+  const BarChart = ({ data, dataKey, labelKey, color }) => {
+    const [hoveredBar, setHoveredBar] = useState(null);
+    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+    
+    // Validar dados
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-slate-400">
+          <BarChart3 className="h-12 w-12 mb-3 opacity-50" />
+          <p className="font-medium text-sm">Nenhum dado disponível</p>
+        </div>
+      );
+    }
+    
+    const valores = data.map(d => parseFloat(d[dataKey]) || 0);
+    const maxValue = Math.max(...valores, 0);
+    // Garantir que sempre temos um valor mínimo para o eixo Y, mesmo quando todos são zero
+    const niceMax = maxValue === 0 ? 1 : Math.max(Math.ceil(maxValue * 1.2), 1);
+    const alturaMaxima = 200;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+    const alturaGrafico = alturaMaxima - paddingTop - paddingBottom;
+    
+    const larguraTotal = data.length * 80;
+    const larguraBarraPx = (larguraTotal / data.length) * 0.5;
+    const espacamento = (larguraTotal / data.length) * 0.5;
+    
+    const valoresEixoY = [niceMax, 0];
+
+    return (
+      <div className="w-full">
+        <div className="relative" style={{ height: `${alturaMaxima}px` }}>
+          <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-2 py-[18px]" style={{ width: '50px' }}>
+            {valoresEixoY.map((valor, idx) => (
+              <span key={idx} className="text-[10px] font-medium text-slate-400">
+                {valor.toFixed(0)}
+              </span>
+            ))}
+          </div>
+
+          <div className="ml-14 relative" style={{ height: `${alturaMaxima}px` }}>
+            <svg 
+              className="w-full h-full overflow-visible" 
+              viewBox={`0 0 ${data.length * 80} ${alturaMaxima}`} 
+              preserveAspectRatio="none"
+            >
+              {data.map((item, index) => {
+                const valor = parseFloat(item[dataKey]) || 0;
+                // Sempre calcular altura, mesmo quando zero (para mostrar a barra mínima)
+                const altura = valor > 0 ? (valor / niceMax) * alturaGrafico : Math.max((1 / niceMax) * alturaGrafico, 2);
+                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
+                const yBase = paddingTop + alturaGrafico;
+                const yTop = valor > 0 ? yBase - altura : yBase - 2;
+                
+                return (
+                  <g key={index}>
+                    <rect
+                      x={xPos - 5}
+                      y={0}
+                      width={larguraBarraPx + 10}
+                      height={alturaMaxima}
+                      fill="transparent"
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={(e) => {
+                        setHoveredBar(index);
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const container = e.currentTarget.closest('.ml-14');
+                        if (container) {
+                          const containerRect = container.getBoundingClientRect();
+                          setTooltipPosition({
+                            x: rect.left - containerRect.left + rect.width / 2,
+                            y: rect.top - containerRect.top
+                          });
+                        }
+                      }}
+                      onMouseLeave={() => setHoveredBar(null)}
+                    />
+                    <motion.rect
+                      x={xPos}
+                      y={yTop}
+                      width={larguraBarraPx}
+                      height={valor > 0 ? altura : 2}
+                      fill={color}
+                      fillOpacity={valor > 0 ? (hoveredBar === index ? "1" : (index === data.length - 1 ? "1" : "0.4")) : "0.2"}
+                      rx="6"
+                      initial={{ height: 0, y: yBase }}
+                      animate={{ height: valor > 0 ? altura : 2, y: yTop }}
+                      transition={{ duration: 0.8, delay: index * 0.1 }}
+                      style={{ transition: 'fillOpacity 0.2s' }}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+            
+            {hoveredBar !== null && (
+              <div
+                className="absolute z-50 bg-slate-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none border border-slate-700"
+                style={{
+                  left: `${tooltipPosition.x}px`,
+                  top: `${tooltipPosition.y - 10}px`,
+                  transform: 'translate(-50%, -100%)'
+                }}
+              >
+                <div className="font-semibold mb-1 text-white">{data[hoveredBar][labelKey]}</div>
+                <div className="text-white">
+                  Produzido: {data[hoveredBar][dataKey]} tarefa{data[hoveredBar][dataKey] !== 1 ? 's' : ''}
+                </div>
+              </div>
+            )}
+            
+            <div className="absolute bottom-2 left-0 right-0 flex justify-between px-2">
+              {data.map((item, index) => {
+                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
+                const xPercent = (xPos / (data.length * 80)) * 100;
+                const mesAbreviado = item[labelKey].split('/')[0].toLowerCase();
+                return (
+                  <div 
+                    key={index} 
+                    className="absolute text-[10px] font-bold text-slate-400 uppercase tracking-tighter text-center"
+                    style={{ 
+                      left: `${xPercent}%`,
+                      transform: 'translateX(-50%)',
+                      width: '40px'
+                    }}
+                  >
+                    {mesAbreviado}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
@@ -412,6 +635,40 @@ const ClientCampaignsStatus = () => {
                 >
                   Mês Atual
                 </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico de Produção Mensal - Tudo que foi feito para o cliente mês a mês */}
+        <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
+          <CardHeader className="p-6 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-500 bg-opacity-10">
+                <BarChart3 className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-slate-800">Produção Mensal</CardTitle>
+                <p className="text-sm text-slate-500 mt-1 font-medium">
+                  Tudo que foi produzido para o cliente mês a mês (últimos 12 meses)
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6 pt-0">
+            <div className="h-64">
+              {producaoMensal && producaoMensal.length > 0 ? (
+                <BarChart
+                  data={producaoMensal}
+                  dataKey="total"
+                  labelKey="mes"
+                  color="#3b82f6"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                  <BarChart3 className="h-12 w-12 mb-3 opacity-50" />
+                  <p className="font-medium text-sm">Carregando dados de produção...</p>
+                </div>
               )}
             </div>
           </CardContent>

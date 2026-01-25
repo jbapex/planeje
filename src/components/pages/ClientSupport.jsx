@@ -21,8 +21,12 @@ import {
   User
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachWeekOfInterval, eachMonthOfInterval, subMonths, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachWeekOfInterval, eachMonthOfInterval, subMonths, startOfDay, endOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 
 // Função para formatar moeda
 const formatCurrency = (value) => {
@@ -50,6 +54,9 @@ const ClientSupport = () => {
   const [tasks, setTasks] = useState([]);
   const [resultadosDiarios, setResultadosDiarios] = useState([]);
   const [resultadosSemanais, setResultadosSemanais] = useState([]);
+  const [periodo, setPeriodo] = useState('mes_atual');
+  const [dateRange, setDateRange] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   
   const clienteId = profile?.cliente_id;
   const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !clienteId;
@@ -265,24 +272,51 @@ const ClientSupport = () => {
     fetchData();
   }, [clienteId, toast]);
 
-  // Dados do mês atual
-  const mesAtual = useMemo(() => {
+  // Calcular período baseado na seleção
+  const periodoCalculado = useMemo(() => {
     const hoje = new Date();
-    const inicioMes = startOfDay(startOfMonth(hoje));
-    const fimMes = endOfDay(endOfMonth(hoje));
+    let inicio, fim;
+
+    if (periodo === 'custom' && dateRange?.from && dateRange?.to) {
+      inicio = startOfDay(dateRange.from);
+      fim = endOfDay(dateRange.to);
+    } else if (periodo === '7') {
+      inicio = startOfDay(subDays(hoje, 7));
+      fim = endOfDay(hoje);
+    } else if (periodo === '15') {
+      inicio = startOfDay(subDays(hoje, 15));
+      fim = endOfDay(hoje);
+    } else if (periodo === '30') {
+      inicio = startOfDay(subDays(hoje, 30));
+      fim = endOfDay(hoje);
+    } else if (periodo === 'mes_anterior') {
+      const mesAnterior = subMonths(hoje, 1);
+      inicio = startOfDay(startOfMonth(mesAnterior));
+      fim = endOfDay(endOfMonth(mesAnterior));
+    } else { // mes_atual (padrão)
+      inicio = startOfDay(startOfMonth(hoje));
+      fim = endOfDay(endOfMonth(hoje));
+    }
+
+    return { inicio, fim };
+  }, [periodo, dateRange]);
+
+  // Dados do período selecionado
+  const mesAtual = useMemo(() => {
+    const { inicio, fim } = periodoCalculado;
     
-    // Filtrar dados diários do mês atual
+    // Filtrar dados diários do período selecionado
     const dadosMes = resultadosDiarios.filter(item => {
       const data = startOfDay(new Date(item.data_referencia));
-      return data >= inicioMes && data <= fimMes;
+      return data >= inicio && data <= fim;
     });
 
-    // Filtrar dados semanais (tráfego) que se intersectam com o mês atual
-    // Uma semana se intersecta se: semana_inicio <= fimMes E semana_fim >= inicioMes
+    // Filtrar dados semanais (tráfego) que se intersectam com o período
+    // Uma semana se intersecta se: semana_inicio <= fim E semana_fim >= inicio
     const dadosSemanaisMes = resultadosSemanais.filter(item => {
       const semanaInicio = startOfDay(new Date(item.semana_inicio));
       const semanaFim = endOfDay(new Date(item.semana_fim));
-      return semanaInicio <= fimMes && semanaFim >= inicioMes;
+      return semanaInicio <= fim && semanaFim >= inicio;
     });
 
     const totalVendas = dadosMes.reduce((sum, item) => sum + (item.vendas || 0), 0);
@@ -307,7 +341,7 @@ const ClientSupport = () => {
       ticketMedio,
       roi
     };
-  }, [resultadosDiarios, resultadosSemanais]);
+  }, [resultadosDiarios, resultadosSemanais, periodoCalculado]);
 
   // Separar vídeos e artes
   const videos = tasks.filter(task => task.type === 'video');
@@ -487,31 +521,29 @@ const ClientSupport = () => {
     });
   }, [resultadosDiarios]);
 
-  // CPL por semana do mês atual
+  // CPL por semana do período selecionado
   const cplSemanal = useMemo(() => {
-    const hoje = new Date();
-    const inicioMes = startOfDay(startOfMonth(hoje));
-    const fimMes = endOfDay(endOfMonth(hoje));
+    const { inicio, fim } = periodoCalculado;
     
-    // Filtrar resultados diários apenas do mês atual
+    // Filtrar resultados diários do período selecionado
     const resultadosMes = resultadosDiarios.filter(item => {
       const data = startOfDay(new Date(item.data_referencia));
-      return data >= inicioMes && data <= fimMes;
+      return data >= inicio && data <= fim;
     });
     
-    // Gerar semanas apenas dentro do mês
+    // Gerar semanas apenas dentro do período
     const semanas = eachWeekOfInterval(
-      { start: inicioMes, end: fimMes }, 
+      { start: inicio, end: fim }, 
       { weekStartsOn: 1 }
     );
     
     const dadosSemanas = semanas.map((semana, index) => {
-      // Garantir que a semana não ultrapasse os limites do mês
-      const inicioSemana = startOfDay(semana > inicioMes ? semana : inicioMes);
+      // Garantir que a semana não ultrapasse os limites do período
+      const inicioSemana = startOfDay(semana > inicio ? semana : inicio);
       const fimSemana = endOfDay(
-        endOfWeek(semana, { weekStartsOn: 1 }) < fimMes 
+        endOfWeek(semana, { weekStartsOn: 1 }) < fim 
           ? endOfWeek(semana, { weekStartsOn: 1 }) 
-          : fimMes
+          : fim
       );
       
       // Filtrar dados da semana com datas normalizadas
@@ -543,7 +575,7 @@ const ClientSupport = () => {
     });
     
     return dadosSemanas;
-  }, [resultadosDiarios]);
+  }, [resultadosDiarios, periodoCalculado]);
 
   // Função para criar curva suave (bezier)
   const createSmoothPath = (points) => {
@@ -1152,9 +1184,151 @@ const ClientSupport = () => {
             </p>
           </div>
           
-          <div className="flex items-center gap-2 bg-white border border-slate-100 rounded-lg px-4 py-2 shadow-sm self-start md:self-center cursor-pointer hover:bg-slate-50 transition-colors">
-            <span className="text-xs font-semibold text-slate-700">Últimos dias</span>
-            <ChevronDown className="h-3 w-3 text-slate-400" />
+          <div className="flex items-center gap-2 self-start md:self-center">
+            <Select 
+              value={periodo} 
+              onValueChange={(value) => {
+                setPeriodo(value);
+                if (value !== 'custom') {
+                  setShowDatePicker(false);
+                }
+              }}
+            >
+              <SelectTrigger className="w-40 h-10 text-sm bg-white border border-slate-100 rounded-lg shadow-sm hover:bg-slate-50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Últimos 7 dias</SelectItem>
+                <SelectItem value="15">Últimos 15 dias</SelectItem>
+                <SelectItem value="30">Últimos 30 dias</SelectItem>
+                <SelectItem value="mes_atual">Mês Atual</SelectItem>
+                <SelectItem value="mes_anterior">Mês Anterior</SelectItem>
+                <SelectItem value="custom">Intervalo Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            {periodo === 'custom' && (
+              <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-auto h-10 text-sm bg-white border border-slate-100 rounded-lg shadow-sm px-3"
+                  >
+                    {dateRange?.from && dateRange?.to ? (
+                      <span className="text-slate-700">
+                        {format(dateRange.from, 'dd/MM/yyyy', { locale: ptBR })} - {format(dateRange.to, 'dd/MM/yyyy', { locale: ptBR })}
+                      </span>
+                    ) : dateRange?.from ? (
+                      <span className="text-slate-700">
+                        {format(dateRange.from, 'dd/MM/yyyy', { locale: ptBR })} - ...
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">Selecione o intervalo</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                  <div className="flex">
+                    <div className="border-r p-3 space-y-1 w-[180px] bg-gray-50">
+                      <div className="text-xs font-semibold mb-2 text-gray-700 uppercase tracking-wide">
+                        Atalhos Rápidos
+                      </div>
+                      <div className="space-y-0.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const hoje = new Date();
+                            setDateRange({ from: startOfDay(hoje), to: endOfDay(hoje) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Hoje
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const ontem = subDays(new Date(), 1);
+                            setDateRange({ from: startOfDay(ontem), to: endOfDay(ontem) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Ontem
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const hoje = new Date();
+                            setDateRange({ from: startOfDay(subDays(hoje, 7)), to: endOfDay(hoje) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Últimos 7 dias
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const hoje = new Date();
+                            setDateRange({ from: startOfDay(subDays(hoje, 30)), to: endOfDay(hoje) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Últimos 30 dias
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const hoje = new Date();
+                            setDateRange({ from: startOfMonth(hoje), to: endOfMonth(hoje) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Mês atual
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-start text-left font-normal text-xs h-7 px-2"
+                          onClick={() => {
+                            const mesAnterior = subMonths(new Date(), 1);
+                            setDateRange({ from: startOfMonth(mesAnterior), to: endOfMonth(mesAnterior) });
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Mês anterior
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <Calendar
+                        initialFocus
+                        mode="range"
+                        defaultMonth={dateRange?.from || new Date()}
+                        selected={dateRange}
+                        onSelect={(range) => {
+                          const newRange = range || { from: null, to: null };
+                          setDateRange(newRange);
+                          if (newRange?.from && newRange?.to) {
+                            setShowDatePicker(false);
+                          }
+                        }}
+                        numberOfMonths={2}
+                        locale={ptBR}
+                      />
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
         </motion.div>
 
