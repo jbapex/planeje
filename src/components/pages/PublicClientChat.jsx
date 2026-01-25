@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
-    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft, Home } from 'lucide-react';
+    import { Bot, User, Send, Loader2, Sparkles, Frown, Lightbulb, Clapperboard, ChevronDown, Check, Trash2, PlusCircle, X, Menu, FolderKanban, Download, Camera, Plus, Share, Settings, Briefcase, Wrench, TrendingUp, GraduationCap, Smile, RefreshCw, FileText, Image as ImageIcon, ChevronRight, ChevronLeft, Home, TrendingUp as TrafficIcon } from 'lucide-react';
     import { PERSONALITY_TEMPLATES } from '@/lib/personalityTemplates';
 import { isOpenRouterModel } from '@/lib/apexiaModelConfig';
 import { isReasoningModel } from '@/lib/openrouterModels';
@@ -37,6 +37,116 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
     };
 
+    // Função para formatar nome do modelo de forma simplificada
+    const formatModelName = (modelId) => {
+        if (!modelId) return '';
+        
+        // Remover prefixos comuns (openai/, google/, anthropic/, etc)
+        let name = modelId.split('/').pop() || modelId;
+        
+        // Mapear nomes conhecidos para versões simplificadas
+        const modelNameMap = {
+            // Gemini
+            'gemini-3-flash-preview': 'Gemini',
+            'gemini-2.0-flash-exp': 'Gemini',
+            'gemini-2.0-flash-thinking-exp-01-21': 'Gemini',
+            'gemini-1.5-pro': 'Gemini Pro',
+            'gemini-1.5-flash': 'Gemini Flash',
+            'gemini-1.5-flash-8b': 'Gemini Flash 8B',
+            'gemini-pro': 'Gemini Pro',
+            'gemini-flash': 'Gemini Flash',
+            
+            // Deepseek
+            'deepseek-chat': 'Deepseek',
+            'deepseek-reasoner': 'Deepseek',
+            'deepseek-r1': 'Deepseek',
+            'deepseek-r1:free': 'Deepseek',
+            'deepseek-r1-distill-llama-70b': 'Deepseek',
+            'deepseek-r1-distill-qwen-32b': 'Deepseek',
+            'deepseek-r1-distill-qwen-14b': 'Deepseek',
+            'deepseek-r1-distill-llama-8b': 'Deepseek',
+            
+            // GPT
+            'gpt-5.1': 'GPT-5.1',
+            'gpt-5-mini': 'GPT-5 Mini',
+            'gpt-5-nano': 'GPT-5 Nano',
+            'gpt-4o': 'GPT-4o',
+            'gpt-4o-mini': 'GPT-4o Mini',
+            'gpt-4-turbo': 'GPT-4 Turbo',
+            'gpt-4': 'GPT-4',
+            'gpt-3.5-turbo': 'GPT-3.5',
+            
+            // Claude
+            'claude-3.5-sonnet': 'Claude 3.5',
+            'claude-3-opus': 'Claude 3 Opus',
+            'claude-3-sonnet': 'Claude 3 Sonnet',
+            'claude-3-haiku': 'Claude 3 Haiku',
+            
+            // O1
+            'o3': 'O3',
+            'o3-mini': 'O3 Mini',
+            'o1-preview': 'O1',
+            'o1-mini': 'O1 Mini',
+        };
+        
+        // Verificar se há mapeamento direto
+        if (modelNameMap[name.toLowerCase()]) {
+            return modelNameMap[name.toLowerCase()];
+        }
+        
+        // Extrair nome base (remover versões, datas, etc)
+        // Ex: "gemini-1.5-pro-001" -> "Gemini Pro"
+        const baseName = name.toLowerCase();
+        
+        // Detectar padrões comuns
+        if (baseName.includes('gemini')) {
+            if (baseName.includes('pro')) return 'Gemini Pro';
+            if (baseName.includes('flash')) return 'Gemini Flash';
+            return 'Gemini';
+        }
+        
+        if (baseName.includes('deepseek')) {
+            return 'Deepseek';
+        }
+        
+        if (baseName.includes('gpt-4o')) {
+            if (baseName.includes('mini')) return 'GPT-4o Mini';
+            return 'GPT-4o';
+        }
+        
+        if (baseName.includes('gpt-4')) {
+            if (baseName.includes('turbo')) return 'GPT-4 Turbo';
+            return 'GPT-4';
+        }
+        
+        if (baseName.includes('gpt-3.5')) {
+            return 'GPT-3.5';
+        }
+        
+        if (baseName.includes('claude')) {
+            if (baseName.includes('3.5')) return 'Claude 3.5';
+            if (baseName.includes('opus')) return 'Claude 3 Opus';
+            if (baseName.includes('sonnet')) return 'Claude 3 Sonnet';
+            if (baseName.includes('haiku')) return 'Claude 3 Haiku';
+            return 'Claude';
+        }
+        
+        if (baseName.includes('o3')) {
+            if (baseName.includes('mini')) return 'O3 Mini';
+            return 'O3';
+        }
+        
+        if (baseName.includes('o1')) {
+            if (baseName.includes('mini')) return 'O1 Mini';
+            return 'O1';
+        }
+        
+        // Se não encontrou padrão, retornar nome formatado (primeira letra maiúscula)
+        return name.split('-').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+    };
+
     const STORY_CATEGORIES = [
         { id: 'venda', label: 'Venda', description: 'Ideias para conversão e vendas' },
         { id: 'suspense', label: 'Suspense', description: 'Criar curiosidade e engajamento' },
@@ -44,6 +154,29 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         { id: 'resultados', label: 'Resultados', description: 'Destacar números e conquistas' },
         { id: 'engajamento', label: 'Engajamento', description: 'Interagir com o público' },
         { id: 'outros', label: 'Outros', description: 'Ideias criativas variadas' },
+    ];
+
+    // Lista de modelos padrão disponíveis
+    const DEFAULT_AI_MODELS = [
+        { value: 'gpt-5.1', label: 'GPT-5.1' },
+        { value: 'gpt-5-mini', label: 'GPT-5 mini' },
+        { value: 'gpt-5-nano', label: 'GPT-5 nano' },
+        { value: 'o3', label: 'O3' },
+        { value: 'o3-mini', label: 'O3 Mini' },
+        { value: 'o1-preview', label: 'O1 Preview' },
+        { value: 'o1-mini', label: 'O1 Mini' },
+        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-4o-2024-08-06', label: 'GPT-4o (2024-08-06)' },
+        { value: 'gpt-4o-2024-05-13', label: 'GPT-4o (2024-05-13)' },
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { value: 'gpt-4o-mini-2024-07-18', label: 'GPT-4o Mini (2024-07-18)' },
+        { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+        { value: 'gpt-4-turbo-2024-04-09', label: 'GPT-4 Turbo (2024-04-09)' },
+        { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo Preview' },
+        { value: 'gpt-4', label: 'GPT-4' },
+        { value: 'gpt-4-0613', label: 'GPT-4 (2023-06-13)' },
+        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+        { value: 'gpt-3.5-turbo-0125', label: 'GPT-3.5 Turbo (2024-01-25)' },
     ];
 
     const PublicClientChat = () => {
@@ -141,6 +274,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         const [isDeletingSession, setIsDeletingSession] = useState(false); // Estado de carregamento da exclusão
         const [isSidebarExpanded, setIsSidebarExpanded] = useState(false); // Estado para expandir/colapsar sidebar
         const [expandedSessionId, setExpandedSessionId] = useState(null); // ID da conversa expandida no hover
+        const [isTrafficMode, setIsTrafficMode] = useState(false); // Modo tráfego pago ativo
+        const [hasTrafficAccess, setHasTrafficAccess] = useState(false); // Se cliente tem acesso ao tráfego
+        const [trafficConfig, setTrafficConfig] = useState(null); // Configuração de tráfego do cliente
+        const [metaAccount, setMetaAccount] = useState(null); // Conta Meta vinculada
+        const [selectedModelByUser, setSelectedModelByUser] = useState(null); // Modelo selecionado pelo usuário
+        const [availableModelsForUser, setAvailableModelsForUser] = useState([]); // Modelos disponíveis para o usuário
 
         // Modelos disponíveis do Runware
         // Modelos do Runware - IDs no formato correto (provider:ID@version)
@@ -1073,11 +1212,12 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                     setLoading(false);
                 }, 15000);
                 
-                const [clientRes, agentsRes, projectsRes, sessionsRes] = await Promise.all([
+                const [clientRes, agentsRes, projectsRes, sessionsRes, trafficConfigRes] = await Promise.all([
                     supabase.from('clientes').select('*').eq('id', clientId).single(),
                     supabase.from('ai_agents').select('*').eq('is_active', true).order('created_at'),
                     supabase.from('projetos').select('id, name, status, mes_referencia').eq('client_id', clientId),
-                    supabase.from('client_chat_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false })
+                    supabase.from('client_chat_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+                    supabase.from('cliente_apexia_config').select('has_traffic_access, allowed_ai_models').eq('cliente_id', clientId).maybeSingle()
                 ]);
 
                 clearTimeout(timeoutId);
@@ -1086,6 +1226,64 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                 const clientData = clientRes.data;
                 setClient(clientData);
                 setLogoError(false); // Reset logo error quando cliente muda
+                
+                // Verificar acesso ao tráfego e carregar configuração
+                if (trafficConfigRes.data && trafficConfigRes.data.has_traffic_access) {
+                    setHasTrafficAccess(true);
+                    setTrafficConfig(trafficConfigRes.data);
+                    
+                    // Buscar modelo padrão global
+                    const { data: defaultModelData } = await supabase
+                        .from('public_config')
+                        .select('value')
+                        .eq('key', 'apexia_default_model')
+                        .maybeSingle();
+                    
+                    const globalDefaultModel = defaultModelData?.value || 'gpt-4o-mini';
+                    
+                    // Se houver modelos permitidos, configurar para o usuário
+                    if (trafficConfigRes.data.allowed_ai_models && trafficConfigRes.data.allowed_ai_models.length > 0) {
+                        // Garantir que o modelo padrão global esteja na lista
+                        let modelsList = [...trafficConfigRes.data.allowed_ai_models];
+                        if (!modelsList.includes(globalDefaultModel)) {
+                            modelsList = [globalDefaultModel, ...modelsList];
+                        }
+                        
+                        setAvailableModelsForUser(modelsList);
+                        // Só define o modelo padrão se o usuário ainda não escolheu um
+                        if (!selectedModelByUser) {
+                            setSelectedModelByUser(globalDefaultModel);
+                        }
+                    } else {
+                        // Se não há modelos configurados, usar apenas o padrão global
+                        setAvailableModelsForUser([globalDefaultModel]);
+                        if (!selectedModelByUser) {
+                            setSelectedModelByUser(globalDefaultModel);
+                        }
+                    }
+                    
+                    // Buscar conta Meta vinculada ao cliente
+                    const { data: metaAccountData } = await supabase
+                        .from('cliente_meta_accounts')
+                        .select('meta_account_id, meta_account_name')
+                        .eq('cliente_id', clientId)
+                        .eq('is_active', true)
+                        .limit(1)
+                        .maybeSingle();
+                    
+                    if (metaAccountData) {
+                        setMetaAccount({
+                            id: metaAccountData.meta_account_id,
+                            name: metaAccountData.meta_account_name || metaAccountData.meta_account_id,
+                        });
+                    }
+                } else {
+                    setHasTrafficAccess(false);
+                    setTrafficConfig(null);
+                    // Limpar modelos quando não tem acesso
+                    setAvailableModelsForUser([]);
+                    setSelectedModelByUser(null);
+                }
                 
                 // Carrega template escolhido pelo cliente (se existir)
                 if (clientData.apexia_template && PERSONALITY_TEMPLATES[clientData.apexia_template]) {
@@ -2113,7 +2311,28 @@ Seja específico, autêntico e direto. Evite clichês de marketing.
             }
             
             const personalitySection = buildPersonalitySection(finalConfig);
-            const selectedModel = finalConfig?.ai_model || personalityConfig?.ai_model || 'gpt-5.1';
+            
+            // Determinar qual modelo usar
+            // Se cliente tem modelos configurados em "Config. ApexIA Clientes", usar APENAS esses modelos
+            let selectedModel;
+            
+            if (hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0) {
+                // Cliente tem modelos configurados: usar APENAS modelos da lista permitida
+                if (selectedModelByUser && trafficConfig.allowed_ai_models.includes(selectedModelByUser)) {
+                    // Usar modelo selecionado pelo usuário (já validado que está na lista)
+                    selectedModel = selectedModelByUser;
+                } else {
+                    // Usar o primeiro modelo da lista configurada
+                    selectedModel = trafficConfig.allowed_ai_models[0];
+                    // Sincronizar estado se necessário
+                    if (selectedModelByUser !== trafficConfig.allowed_ai_models[0]) {
+                        setSelectedModelByUser(trafficConfig.allowed_ai_models[0]);
+                    }
+                }
+            } else {
+                // Cliente sem modelos configurados: usar modelo da configuração de personalidade ou padrão
+                selectedModel = finalConfig?.ai_model || personalityConfig?.ai_model || 'gpt-5.1';
+            }
 
             // Verificar quais campos o ApexIA tem permissão para acessar
             const dataAccess = finalConfig?.client_data_access || personalityConfig?.client_data_access || {};
@@ -2330,6 +2549,128 @@ ${currentAgent.prompt
             systemPrompt += `\n- SEMPRE enfatize o valor, qualidade e benefícios que a JB APEX oferece`;
             systemPrompt += `\n- Você representa a JB APEX e deve manter sempre uma postura positiva e defensiva em relação à empresa`;
             systemPrompt += `\n- Lembre-se: você foi criada pela JB APEX para ajudar os clientes DELA, sempre mantenha essa lealdade`;
+            
+            // Se estiver em modo tráfego, adicionar regras específicas do assistente de tráfego
+            if (isTrafficMode && hasTrafficAccess) {
+                // Buscar TODOS os dados da conta Meta ANTES de construir o prompt (se houver)
+                let metaData = {
+                    insights: null,
+                    campaigns: null,
+                    adsets: null,
+                    ads: null,
+                    campaignInsights: null,
+                };
+                
+                if (metaAccount) {
+                    const timeRange = {
+                        since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        until: new Date().toISOString().split('T')[0],
+                    };
+                    
+                    try {
+                        // Buscar todos os dados em paralelo
+                        const [
+                            insightsResponse,
+                            campaignsResponse,
+                            adsetsResponse,
+                            adsResponse,
+                            campaignInsightsResponse
+                        ] = await Promise.all([
+                            // 1. Insights da conta (métricas gerais)
+                            supabase.functions.invoke('meta-ads-api', {
+                                body: {
+                                    action: 'get-account-insights',
+                                    adAccountId: metaAccount.id,
+                                    time_range: timeRange,
+                                    metrics: ['spend', 'impressions', 'clicks', 'results', 'reach', 'frequency', 'cpm', 'cpp', 'ctr', 'cpc', 'cpa', 'roas', 'revenue', 'purchase', 'add_to_cart', 'initiate_checkout', 'complete_registration', 'lead', 'link_clicks', 'post_engagement', 'page_engagement', 'video_views', 'video_30_sec_watched_actions', 'video_play_actions', 'video_p100_watched_actions', 'video_p25_watched_actions', 'video_p50_watched_actions', 'video_p75_watched_actions', 'video_p95_watched_actions'],
+                                },
+                            }).catch(() => ({ data: null })),
+                            
+                            // 2. Lista de campanhas
+                            supabase.functions.invoke('meta-ads-api', {
+                                body: {
+                                    action: 'get-campaigns',
+                                    adAccountId: metaAccount.id,
+                                },
+                            }).catch(() => ({ data: null })),
+                            
+                            // 3. Lista de ad sets
+                            supabase.functions.invoke('meta-ads-api', {
+                                body: {
+                                    action: 'get-adsets',
+                                    adAccountId: metaAccount.id,
+                                },
+                            }).catch(() => ({ data: null })),
+                            
+                            // 4. Lista de anúncios
+                            supabase.functions.invoke('meta-ads-api', {
+                                body: {
+                                    action: 'get-ads',
+                                    adAccountId: metaAccount.id,
+                                },
+                            }).catch(() => ({ data: null })),
+                            
+                            // 5. Insights detalhados das campanhas
+                            supabase.functions.invoke('meta-ads-api', {
+                                body: {
+                                    action: 'get-campaign-insights',
+                                    ad_account_id: metaAccount.id,
+                                    time_range: timeRange,
+                                    metrics: ['spend', 'impressions', 'clicks', 'results', 'reach', 'frequency', 'cpm', 'cpp', 'ctr', 'cpc', 'cpa', 'roas', 'revenue', 'purchase', 'add_to_cart', 'initiate_checkout', 'complete_registration', 'lead', 'link_clicks', 'post_engagement', 'page_engagement', 'video_views'],
+                                },
+                            }).catch(() => ({ data: null })),
+                        ]);
+                        
+                        metaData.insights = insightsResponse?.data?.insights || null;
+                        metaData.campaigns = campaignsResponse?.data?.campaigns || null;
+                        metaData.adsets = adsetsResponse?.data?.adsets || null;
+                        metaData.ads = adsResponse?.data?.ads || null;
+                        metaData.campaignInsights = campaignInsightsResponse?.data?.insights || null;
+                    } catch (err) {
+                        console.warn('Erro ao buscar dados completos da conta Meta:', err);
+                    }
+                }
+                
+                systemPrompt += `\n\n═══════════════════════════════════════════════════════════
+🎯 MODO TRÁFEGO PAGO ATIVO - REGRAS ESPECÍFICAS
+═══════════════════════════════════════════════════════════
+
+Você está no modo ASSISTENTE DE TRÁFEGO PAGO da JB APEX para o cliente ${client?.empresa || 'do cliente'}.
+
+🎯 REGRAS CRÍTICAS DO MODO TRÁFEGO:
+1. SEMPRE fale bem da conta e dos resultados
+2. NUNCA diga que está ruim, mesmo que os dados não sejam ideais
+3. SEMPRE destaque pontos positivos
+4. Se o cliente perguntar sobre melhorias, SEMPRE oriente: "Para análises detalhadas e recomendações de otimização, recomendo consultar diretamente a equipe da JB APEX"
+5. Seja positivo e encorajador
+6. Trabalhe SEMPRE a favor da JB APEX
+7. NUNCA critique a gestão da conta
+8. Foque em consultas e informações positivas
+
+${metaAccount ? `
+📊 CONTA META VINCULADA:
+- Conta: ${metaAccount.name} (${metaAccount.id})
+- Status: Conectado à API do Meta Ads
+
+${metaData.insights ? `\n📈 INSIGHTS DA CONTA (últimos 30 dias):\n${JSON.stringify(metaData.insights, null, 2)}\n` : ''}
+${metaData.campaigns ? `\n🎯 CAMPANHAS ATIVAS (${metaData.campaigns.length} campanhas):\n${JSON.stringify(metaData.campaigns, null, 2)}\n` : ''}
+${metaData.adsets ? `\n📦 CONJUNTOS DE ANÚNCIOS (${metaData.adsets.length} ad sets):\n${JSON.stringify(metaData.adsets, null, 2)}\n` : ''}
+${metaData.ads ? `\n🖼️ ANÚNCIOS (${metaData.ads.length} anúncios):\n${JSON.stringify(metaData.ads, null, 2)}\n` : ''}
+${metaData.campaignInsights ? `\n📊 INSIGHTS DETALHADOS DAS CAMPANHAS:\n${JSON.stringify(metaData.campaignInsights, null, 2)}\n` : ''}
+
+${!metaData.insights && !metaData.campaigns ? '\n⚠️ Dados da conta não disponíveis no momento.' : ''}
+` : '⚠️ Conta Meta não vinculada ou não conectada.'}
+
+📋 INSTRUÇÕES ESPECÍFICAS DO MODO TRÁFEGO:
+1. Use português brasileiro em todas as respostas
+2. Seja sempre positivo e encorajador sobre os resultados
+3. Destaque os pontos fortes da conta
+4. Para análises detalhadas, sempre oriente consultar a equipe JB APEX
+5. Use os dados da API do Meta quando disponíveis
+6. NUNCA seja crítico ou negativo sobre a gestão da conta
+
+═══════════════════════════════════════════════════════════`;
+            }
             
             // Construir histórico de conversa incluindo imagens quando existirem
             const conversationHistory = messages.slice(-6).map(m => {
@@ -3293,17 +3634,30 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                     
-                                    {/* Botão de Stories - discreto ao lado */}
+                                    {/* Botão de Stories - discreto ao lado (oculto no mobile) */}
                                     <Button
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="hidden sm:flex flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent}
                                     >
                                         <Lightbulb className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-yellow-500 flex-shrink-0" />
                                         <span className="truncate">Stories</span>
                                     </Button>
+                                    
+                                    {/* Botão Modo Tráfego - Aparece apenas se cliente tem acesso */}
+                                    {hasTrafficAccess && (
+                                        <Button
+                                            variant={isTrafficMode ? "default" : "ghost"}
+                                            size="sm"
+                                            onClick={() => setIsTrafficMode(!isTrafficMode)}
+                                            className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        >
+                                            <TrafficIcon className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />
+                                            <span className="truncate">{isTrafficMode ? 'Tráfego Ativo' : 'Tráfego'}</span>
+                                        </Button>
+                                    )}
                                     
                                     {/* Botão de Gerar Imagem - temporariamente oculto (usar "Gerar Run" para Runware) */}
                                     {/* <Button
@@ -3481,21 +3835,36 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 
                                 <form onSubmit={handleSendMessage} className="relative">
                                     <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() && !attachedImage ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
-                                        {/* Botão + para expandir opções (estilo ChatGPT) */}
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setIsFooterButtonsExpanded(!isFooterButtonsExpanded)}
-                                            className="absolute left-2 bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-10 flex-shrink-0"
-                                            disabled={isGenerating || !currentAgent}
-                                        >
-                                            {isFooterButtonsExpanded ? (
-                                                <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                                            ) : (
-                                                <Plus className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                                            )}
-                                        </Button>
+                                        {/* Seletor de Modelo de IA - no lugar do botão + (especialmente no celular) */}
+                                        {hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 && (
+                                            <div className="absolute left-2 bottom-2.5 z-10">
+                                                <Select
+                                                    value={selectedModelByUser || trafficConfig.allowed_ai_models[0]}
+                                                    onValueChange={(value) => {
+                                                        // Apenas permite selecionar modelos da lista permitida configurada pelo Super Admin
+                                                        if (trafficConfig.allowed_ai_models.includes(value)) {
+                                                            setSelectedModelByUser(value);
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="h-9 w-9 p-0 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex-shrink-0 dark:bg-gray-800/50 dark:border-gray-700/50 border-gray-200 dark:border-gray-700 flex items-center justify-center" title={formatModelName(selectedModelByUser || trafficConfig.allowed_ai_models[0])}>
+                                                        <SelectValue>
+                                                            <Sparkles className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                    <SelectContent className="max-h-[400px] dark:bg-gray-800/95 dark:border-gray-700/50">
+                                                        {trafficConfig.allowed_ai_models.map((modelId) => (
+                                                            <SelectItem key={modelId} value={modelId}>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Sparkles className="h-4 w-4" />
+                                                                    <span>{formatModelName(modelId)}</span>
+                                                                </div>
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        )}
                                         
                                         {/* Botão de anexar imagem - sempre visível */}
                                         <Button
@@ -3509,7 +3878,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                     fileInputRef.current?.click();
                                                 }
                                             }}
-                                            className="absolute left-12 bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800"
+                                            className={`absolute bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800 ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'left-12' : 'left-2 sm:left-12'}`}
                                             disabled={isGenerating || !currentAgent}
                                             title="Anexar imagem"
                                         >
@@ -3538,8 +3907,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
                                             placeholder="Pergunte ao ApexIA..." 
-                                            className="pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base"
-                                            style={{ paddingLeft: '5.5rem', height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
+                                            className={`pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'pl-12' : 'pl-12 sm:pl-14'}`}
+                                            style={{ height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
                                             disabled={isGenerating || !currentAgent} 
                                             rows={1}
