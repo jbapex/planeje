@@ -402,63 +402,87 @@ const ClientSupport = () => {
     });
   }, [artes]);
 
-  // Dados combinados de vídeos e artes por mês (para gráfico agrupado)
+  // Dados combinados de vídeos e artes por mês (últimos 12 meses)
   const videosArtesAgrupados = useMemo(() => {
-    const mesesMap = {};
+    const hoje = new Date();
+    const inicioPeriodo = startOfMonth(subMonths(hoje, 11));
+    const fimPeriodo = endOfMonth(hoje);
     
-    // Inicializar todos os meses de 2026 com valores zerados
-    const anoAtual = 2026;
-    for (let mes = 0; mes < 12; mes++) {
-      const data = new Date(anoAtual, mes, 1);
-      const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
+    // Gerar array com os últimos 12 meses
+    const meses = eachMonthOfInterval({ start: inicioPeriodo, end: fimPeriodo });
+    
+    // Garantir que sempre temos exatamente 12 meses
+    const mesesCompletos = meses.length === 12 ? meses : (() => {
+      const mesesCorrigidos = [];
+      for (let i = 11; i >= 0; i--) {
+        mesesCorrigidos.push(startOfMonth(subMonths(hoje, i)));
+      }
+      return mesesCorrigidos;
+    })();
+    
+    // Inicializar mapa com os últimos 12 meses
+    const mesesMap = {};
+    mesesCompletos.forEach(mes => {
+      const mesAno = format(mes, 'MMM/yyyy', { locale: ptBR });
       mesesMap[mesAno] = {
         mes: mesAno,
         videos: 0,
         artes: 0,
-        dataCompleta: data,
+        dataCompleta: mes,
         titulosVideos: [],
         titulosArtes: []
       };
-    }
+    });
     
-    // Preencher com dados reais de vídeos e artes
-    // Somar todos os vídeos (published + scheduled) na mesma coluna
+    // Preencher com dados reais de vídeos e artes dos últimos 12 meses
     [...videos, ...artes].forEach(task => {
       // Usar post_date se disponível (para agendados), senão usar created_at
       const dataReferencia = task.post_date || task.created_at;
       if (dataReferencia) {
-        const data = new Date(dataReferencia);
-        const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
-        
-        if (mesesMap[mesAno]) {
-          if (task.type === 'video') {
-            // Somar todos os vídeos (published e scheduled) na mesma coluna
-            mesesMap[mesAno].videos += 1;
-            if (task.title) {
-              mesesMap[mesAno].titulosVideos.push(task.title);
-            }
-          } else if (task.type === 'arte') {
-            // Somar todas as artes (published e scheduled) na mesma coluna
-            mesesMap[mesAno].artes += 1;
-            if (task.title) {
-              mesesMap[mesAno].titulosArtes.push(task.title);
+        try {
+          const data = new Date(dataReferencia);
+          const dataInicio = startOfDay(startOfMonth(data));
+          const dataFim = endOfDay(endOfMonth(data));
+          
+          // Verificar se a data está dentro do período dos últimos 12 meses
+          if (dataInicio >= inicioPeriodo && dataFim <= fimPeriodo) {
+            const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
+            
+            if (mesesMap[mesAno]) {
+              if (task.type === 'video') {
+                mesesMap[mesAno].videos += 1;
+                if (task.title) {
+                  mesesMap[mesAno].titulosVideos.push(task.title);
+                }
+              } else if (task.type === 'arte') {
+                mesesMap[mesAno].artes += 1;
+                if (task.title) {
+                  mesesMap[mesAno].titulosArtes.push(task.title);
+                }
+              }
             }
           }
+        } catch (error) {
+          console.error('Erro ao processar data da tarefa:', error);
         }
       }
     });
 
+    // Ordenar do mais recente para o mais antigo (último mês primeiro)
     return Object.values(mesesMap).sort((a, b) => {
-      return a.dataCompleta - b.dataCompleta;
+      return b.dataCompleta - a.dataCompleta;
     });
   }, [videos, artes]);
 
-  // Dados mensais de faturamento e ticket médio (com todos os meses de 2026)
+  // Dados mensais de faturamento e ticket médio (com todos os meses do ano atual)
   const dadosMensaisFaturamento = useMemo(() => {
     const mesesMap = {};
     
-    // Inicializar todos os meses de 2026
-    const anoAtual = 2026;
+    // Usar o ano atual dinamicamente
+    const hoje = new Date();
+    const anoAtual = hoje.getFullYear();
+    
+    // Inicializar todos os meses do ano atual
     for (let mes = 0; mes < 12; mes++) {
       const data = new Date(anoAtual, mes, 1);
       const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
@@ -471,16 +495,24 @@ const ClientSupport = () => {
       };
     }
     
-    // Preencher com dados reais
+    // Filtrar apenas dados do ano atual
+    const anoAtualInicio = new Date(anoAtual, 0, 1);
+    const anoAtualFim = new Date(anoAtual, 11, 31, 23, 59, 59);
+    
+    // Preencher com dados reais do ano atual
     resultadosDiarios.forEach(item => {
       const data = new Date(item.data_referencia);
-      const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
       
-      if (mesesMap[mesAno]) {
-        const faturamento = parseFloat(item.faturamento || 0);
-        mesesMap[mesAno].faturamento += faturamento;
-        mesesMap[mesAno].vendas += item.vendas || 0;
-        mesesMap[mesAno].investimento += parseFloat(item.investimento || 0);
+      // Filtrar apenas dados do ano atual
+      if (data >= anoAtualInicio && data <= anoAtualFim) {
+        const mesAno = format(data, 'MMM/yyyy', { locale: ptBR });
+        
+        if (mesesMap[mesAno]) {
+          const faturamento = parseFloat(item.faturamento || 0);
+          mesesMap[mesAno].faturamento += faturamento;
+          mesesMap[mesAno].vendas += item.vendas || 0;
+          mesesMap[mesAno].investimento += parseFloat(item.investimento || 0);
+        }
       }
     });
 
@@ -503,7 +535,6 @@ const ClientSupport = () => {
 
     // Calcular acumulado: só soma meses com dados reais, meses futuros mantêm último valor conhecido
     let ultimoAcumulado = 0;
-    const hoje = new Date();
     const mesAtual = hoje.getMonth();
     const anoAtualHoje = hoje.getFullYear();
     

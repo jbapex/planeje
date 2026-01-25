@@ -133,17 +133,17 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
           const allowedPaths = ['/apexia', '/chat', '/login-cliente', '/cliente'];
           const isAllowedPath = allowedPaths.some(path => currentPath.startsWith(path));
           
-          // Se não está em uma rota permitida, redirecionar para /apexia
+          // Se não está em uma rota permitida, redirecionar para o Dashboard
           if (!isAllowedPath && currentPath && currentPath !== '/') {
-            console.log('🔄 App: Cliente em rota interna (' + currentPath + '), redirecionando para /apexia');
-            navigate('/apexia', { replace: true });
+            console.log('🔄 App: Cliente em rota interna (' + currentPath + '), redirecionando para /cliente/support');
+            navigate('/cliente/support', { replace: true });
             return;
           }
           
-          // Se estiver na raiz ou em /tasks/list, redirecionar para /apexia
+          // Se estiver na raiz ou em /tasks/list, redirecionar para o Dashboard
           if (currentPath === '/' || currentPath === '' || currentPath === '/tasks/list' || currentPath === '/tasks') {
-            console.log('🔄 App: Cliente na raiz ou rota padrão (' + currentPath + '), redirecionando para /apexia');
-            navigate('/apexia', { replace: true });
+            console.log('🔄 App: Cliente na raiz ou rota padrão (' + currentPath + '), redirecionando para /cliente/support');
+            navigate('/cliente/support', { replace: true });
           }
         }
       }, [session, profile, authLoading, navigate]);
@@ -176,13 +176,14 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                   <Route path="/apexia" element={<ProtectedClientRoute><ProtectedClientPageRoute pageKey="apexia"><ApexIAAuthenticated /></ProtectedClientPageRoute></ProtectedClientRoute>} />
                   <Route path="/apexia/:sessionId" element={<ProtectedClientRoute><ProtectedClientPageRoute pageKey="apexia"><ApexIAAuthenticated /></ProtectedClientPageRoute></ProtectedClientRoute>} />
                   <Route path="/cliente" element={<ProtectedClientRoute><MainLayoutCliente /></ProtectedClientRoute>}>
+                    <Route index element={<Navigate to="/cliente/support" replace />} />
                     <Route path="support" element={<ProtectedClientPageRoute pageKey="dashboard"><ClientSupport /></ProtectedClientPageRoute>} />
                     <Route path="trafego" element={<ProtectedClientPageRoute pageKey="trafego"><ClientCadastroSemanal /></ProtectedClientPageRoute>} />
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ProtectedClientPageRoute pageKey="campaigns-status"><ClientCampaignsStatus /></ProtectedClientPageRoute>} />
                     <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
                   </Route>
-                  <Route path="*" element={<Navigate to="/apexia" replace />} />
+                  <Route path="*" element={<Navigate to="/cliente/support" replace />} />
                 </>
               ) : (
                 <>

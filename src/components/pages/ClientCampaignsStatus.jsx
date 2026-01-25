@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 
@@ -102,6 +103,8 @@ const ClientCampaignsStatus = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
+  const [selectedMonthTasks, setSelectedMonthTasks] = useState(null);
+  const [showTasksDialog, setShowTasksDialog] = useState(false);
   const [projects, setProjects] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -255,23 +258,15 @@ const ClientCampaignsStatus = () => {
   // Contar total de tarefas por status
   const getStatusCount = (status) => tasksByStatus[status]?.length || 0;
 
-  // Produção mensal (últimos 12 meses)
+  // Produção mensal (Janeiro a Dezembro do ano atual)
   const producaoMensal = useMemo(() => {
     const hoje = new Date();
-    const inicioPeriodo = startOfMonth(subMonths(hoje, 11));
-    const fimPeriodo = endOfMonth(hoje);
+    const anoAtual = hoje.getFullYear();
     
-    // Gerar array com os últimos 12 meses (sempre retorna 12 meses, mesmo sem dados)
-    let meses = eachMonthOfInterval({ start: inicioPeriodo, end: fimPeriodo });
-    
-    // Garantir que sempre temos exatamente 12 meses
-    if (meses.length !== 12) {
-      // Se por algum motivo não tivermos 12 meses, criar manualmente
-      const mesesCorrigidos = [];
-      for (let i = 11; i >= 0; i--) {
-        mesesCorrigidos.push(startOfMonth(subMonths(hoje, i)));
-      }
-      meses = mesesCorrigidos;
+    // Gerar os 12 meses de Janeiro a Dezembro do ano atual
+    const meses = [];
+    for (let mes = 0; mes < 12; mes++) {
+      meses.push(new Date(anoAtual, mes, 1));
     }
     
     const resultado = meses.map(mes => {
@@ -293,49 +288,28 @@ const ClientCampaignsStatus = () => {
       });
       
       return {
-        mes: format(mes, 'MMM/yyyy', { locale: ptBR }),
+        mes: format(mes, 'MMM', { locale: ptBR }),
+        mesCompleto: format(mes, 'MMM/yyyy', { locale: ptBR }),
         total: tarefasMes.length,
-        dataCompleta: mes
+        dataCompleta: mes,
+        tarefas: tarefasMes // Incluir as tarefas do mês
       };
     });
     
-    // Garantir que sempre retornamos exatamente 12 meses
-    const resultadoFinal = resultado.length === 12 ? resultado : (() => {
-      const mesesCorrigidos = [];
-      for (let i = 11; i >= 0; i--) {
-        const mes = startOfMonth(subMonths(hoje, i));
-        const inicioMes = startOfDay(startOfMonth(mes));
-        const fimMes = endOfDay(endOfMonth(mes));
-        
-        const tarefasMes = (tasks || []).filter(task => {
-          const taskDate = task.post_date || task.created_at;
-          if (!taskDate) return false;
-          
-          try {
-            const data = startOfDay(new Date(taskDate));
-            return data >= inicioMes && data <= fimMes && 
-                   (task.status === 'published' || task.status === 'completed');
-          } catch {
-            return false;
-          }
-        });
-        
-        mesesCorrigidos.push({
-          mes: format(mes, 'MMM/yyyy', { locale: ptBR }),
-          total: tarefasMes.length,
-          dataCompleta: mes
-        });
-      }
-      return mesesCorrigidos;
-    })();
+    // Validar que temos exatamente 12 meses
+    if (resultado.length !== 12) {
+      console.warn('⚠️ Produção Mensal: Esperado 12 meses, recebido:', resultado.length);
+      return [];
+    }
     
-    console.log('📊 Produção Mensal calculada:', {
-      totalMeses: resultadoFinal.length,
-      mesesComDados: resultadoFinal.filter(m => m.total > 0).length,
-      dados: resultadoFinal
+    console.log('📊 Produção Mensal (Jan a Dez):', {
+      totalMeses: resultado.length,
+      mesesComDados: resultado.filter(m => m.total > 0).length,
+      ordem: resultado.map(m => m.mes),
+      dados: resultado.map(m => ({ mes: m.mes, total: m.total }))
     });
     
-    return resultadoFinal;
+    return resultado;
   }, [tasks]);
 
   // Formatar data
@@ -348,10 +322,10 @@ const ClientCampaignsStatus = () => {
     }
   };
 
-  // Componente de gráfico de barras
-  const BarChart = ({ data, dataKey, labelKey, color }) => {
+  // Componente de gráfico de barras (estilo similar ao PGMPanel)
+  const BarChart = ({ data, dataKey, labelKey, color, onBarClick }) => {
     const [hoveredBar, setHoveredBar] = useState(null);
-    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+    const [tooltipData, setTooltipData] = useState({ x: 0, y: 0, mes: '' });
     
     // Validar dados
     if (!data || !Array.isArray(data) || data.length === 0) {
@@ -363,116 +337,221 @@ const ClientCampaignsStatus = () => {
       );
     }
     
+    // Validar que temos exatamente 12 meses
+    if (data.length !== 12) {
+      console.warn('⚠️ BarChart: Esperado 12 meses, recebido:', data.length);
+    }
+    
     const valores = data.map(d => parseFloat(d[dataKey]) || 0);
     const maxValue = Math.max(...valores, 0);
-    // Garantir que sempre temos um valor mínimo para o eixo Y, mesmo quando todos são zero
-    const niceMax = maxValue === 0 ? 1 : Math.max(Math.ceil(maxValue * 1.2), 1);
-    const alturaMaxima = 200;
-    const paddingTop = 20;
-    const paddingBottom = 30;
-    const alturaGrafico = alturaMaxima - paddingTop - paddingBottom;
     
-    const larguraTotal = data.length * 80;
-    const larguraBarraPx = (larguraTotal / data.length) * 0.5;
-    const espacamento = (larguraTotal / data.length) * 0.5;
+    // Calcular valor máximo "bonito" para o eixo Y
+    let maxValueFinal = 1;
+    if (maxValue > 0) {
+      const potencia = Math.pow(10, Math.floor(Math.log10(maxValue)));
+      maxValueFinal = Math.ceil(maxValue / potencia) * potencia;
+    }
     
-    const valoresEixoY = [niceMax, 0];
+    const alturaMaxima = 300;
+    const numIntervalos = 5;
+    const intervaloValor = maxValueFinal / numIntervalos;
+    const valoresEixoY = Array.from({ length: numIntervalos + 1 }, (_, i) => i * intervaloValor);
 
     return (
       <div className="w-full">
-        <div className="relative" style={{ height: `${alturaMaxima}px` }}>
-          <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-2 py-[18px]" style={{ width: '50px' }}>
-            {valoresEixoY.map((valor, idx) => (
-              <span key={idx} className="text-[10px] font-medium text-slate-400">
-                {valor.toFixed(0)}
-              </span>
-            ))}
+        <div className="relative w-full">
+          {/* Eixo Y e Grid Lines */}
+          <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between pr-2">
+            {valoresEixoY.slice().reverse().map((value, index) => {
+              // Formatar valores de forma compacta
+              const formattedValue = value >= 1000000 
+                ? `${(value / 1000000).toFixed(1)}M`
+                : value >= 1000
+                ? `${(value / 1000).toFixed(0)}K`
+                : value.toFixed(0);
+              
+              return (
+                <div key={index} className="flex items-center justify-end">
+                  <span className="text-xs text-slate-400 font-medium">{formattedValue}</span>
+                </div>
+              );
+            })}
           </div>
 
-          <div className="ml-14 relative" style={{ height: `${alturaMaxima}px` }}>
-            <svg 
-              className="w-full h-full overflow-visible" 
-              viewBox={`0 0 ${data.length * 80} ${alturaMaxima}`} 
-              preserveAspectRatio="none"
-            >
-              {data.map((item, index) => {
-                const valor = parseFloat(item[dataKey]) || 0;
-                // Sempre calcular altura, mesmo quando zero (para mostrar a barra mínima)
-                const altura = valor > 0 ? (valor / niceMax) * alturaGrafico : Math.max((1 / niceMax) * alturaGrafico, 2);
-                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
-                const yBase = paddingTop + alturaGrafico;
-                const yTop = valor > 0 ? yBase - altura : yBase - 2;
-                
+          {/* Área do gráfico */}
+          <div className="ml-12 pr-4 relative" style={{ paddingBottom: '30px' }}>
+            {/* Grid Lines */}
+            <div className="relative" style={{ height: `${alturaMaxima}px` }}>
+              {valoresEixoY.map((value, index) => {
+                const yPosition = alturaMaxima - (value / maxValueFinal) * alturaMaxima;
                 return (
-                  <g key={index}>
-                    <rect
-                      x={xPos - 5}
-                      y={0}
-                      width={larguraBarraPx + 10}
-                      height={alturaMaxima}
-                      fill="transparent"
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={(e) => {
-                        setHoveredBar(index);
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const container = e.currentTarget.closest('.ml-14');
-                        if (container) {
-                          const containerRect = container.getBoundingClientRect();
-                          setTooltipPosition({
-                            x: rect.left - containerRect.left + rect.width / 2,
-                            y: rect.top - containerRect.top
-                          });
-                        }
-                      }}
-                      onMouseLeave={() => setHoveredBar(null)}
-                    />
-                    <motion.rect
-                      x={xPos}
-                      y={yTop}
-                      width={larguraBarraPx}
-                      height={valor > 0 ? altura : 2}
-                      fill={color}
-                      fillOpacity={valor > 0 ? (hoveredBar === index ? "1" : (index === data.length - 1 ? "1" : "0.4")) : "0.2"}
-                      rx="6"
-                      initial={{ height: 0, y: yBase }}
-                      animate={{ height: valor > 0 ? altura : 2, y: yTop }}
-                      transition={{ duration: 0.8, delay: index * 0.1 }}
-                      style={{ transition: 'fillOpacity 0.2s' }}
-                    />
-                  </g>
+                  <div
+                    key={index}
+                    className="absolute left-0 right-0 border-t border-slate-200"
+                    style={{ top: `${yPosition}px` }}
+                  />
                 );
               })}
-            </svg>
+
+              {/* SVG para barras */}
+              <svg 
+                className="absolute inset-0 w-full h-full" 
+                viewBox={`0 0 1200 ${alturaMaxima}`}
+                preserveAspectRatio="none"
+                style={{ overflow: 'visible' }}
+              >
+                <defs>
+                  {/* Gradiente azul para as barras */}
+                  <linearGradient id="barGradient-producao" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.7" />
+                  </linearGradient>
+                </defs>
+
+                {/* Barras de Produção */}
+                {data.map((item, index) => {
+                  const valor = parseFloat(item[dataKey]) || 0;
+                  const larguraViewBox = 1200;
+                  const numMeses = 12;
+                  const larguraMes = larguraViewBox / numMeses;
+                  const xCentro = (index * larguraMes) + (larguraMes / 2);
+                  const larguraBarra = larguraMes * 0.6; // 60% da largura do mês
+                  const alturaBarra = (valor / maxValueFinal) * alturaMaxima;
+                  const xBarra = xCentro - (larguraBarra / 2);
+                  const yBarra = alturaMaxima - alturaBarra;
+                  const isHovered = hoveredBar === index;
+
+                  return (
+                    <g key={index}>
+                      {valor > 0 && (
+                        <>
+                          <rect
+                            x={xBarra}
+                            y={yBarra}
+                            width={larguraBarra}
+                            height={alturaBarra}
+                            fill="url(#barGradient-producao)"
+                            rx="4"
+                            ry="4"
+                            style={{
+                              cursor: 'pointer',
+                              opacity: isHovered ? 0.8 : 1,
+                              transition: 'opacity 0.2s'
+                            }}
+                            onClick={() => {
+                              if (onBarClick && item.tarefas) {
+                                onBarClick(item);
+                              }
+                            }}
+                            onMouseEnter={(e) => {
+                              setHoveredBar(index);
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const graphContainer = e.currentTarget.closest('.ml-12');
+                              if (graphContainer) {
+                                const containerRect = graphContainer.getBoundingClientRect();
+                                setTooltipData({
+                                  x: rect.left - containerRect.left + rect.width / 2,
+                                  y: rect.top - containerRect.top - 10,
+                                  mes: item.mes
+                                });
+                              }
+                            }}
+                            onMouseMove={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const graphContainer = e.currentTarget.closest('.ml-12');
+                              if (graphContainer) {
+                                const containerRect = graphContainer.getBoundingClientRect();
+                                setTooltipData({
+                                  x: rect.left - containerRect.left + rect.width / 2,
+                                  y: rect.top - containerRect.top - 10,
+                                  mes: item.mes
+                                });
+                              }
+                            }}
+                            onMouseLeave={() => setHoveredBar(null)}
+                          />
+                          {/* Número dentro da barra */}
+                          <text
+                            x={xCentro}
+                            y={yBarra + (alturaBarra / 2) + 4}
+                            textAnchor="middle"
+                            className="text-xs font-bold fill-white"
+                            style={{ fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}
+                          >
+                            {valor}
+                          </text>
+                        </>
+                      )}
+                      {/* Área invisível para hover mesmo quando valor é zero */}
+                      <rect
+                        x={xCentro - (larguraMes / 2)}
+                        y={0}
+                        width={larguraMes}
+                        height={alturaMaxima}
+                        fill="transparent"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => {
+                          if (onBarClick && item.tarefas) {
+                            onBarClick(item);
+                          }
+                        }}
+                        onMouseEnter={(e) => {
+                          setHoveredBar(index);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const graphContainer = e.currentTarget.closest('.ml-12');
+                          if (graphContainer) {
+                            const containerRect = graphContainer.getBoundingClientRect();
+                            setTooltipData({
+                              x: rect.left - containerRect.left + rect.width / 2,
+                              y: rect.top - containerRect.top - 10,
+                              mes: item.mes
+                            });
+                          }
+                        }}
+                        onMouseLeave={() => setHoveredBar(null)}
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
+              
+            </div>
             
+            {/* Tooltip */}
             {hoveredBar !== null && (
               <div
                 className="absolute z-50 bg-slate-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none border border-slate-700"
                 style={{
-                  left: `${tooltipPosition.x}px`,
-                  top: `${tooltipPosition.y - 10}px`,
+                  left: `${tooltipData.x}px`,
+                  top: `${tooltipData.y}px`,
                   transform: 'translate(-50%, -100%)'
                 }}
               >
-                <div className="font-semibold mb-1 text-white">{data[hoveredBar][labelKey]}</div>
+                <div className="font-semibold mb-1 text-white">{data[hoveredBar].mesCompleto || data[hoveredBar][labelKey]}</div>
                 <div className="text-white">
-                  Produzido: {data[hoveredBar][dataKey]} tarefa{data[hoveredBar][dataKey] !== 1 ? 's' : ''}
+                  {data[hoveredBar][dataKey]} tarefa{data[hoveredBar][dataKey] !== 1 ? 's' : ''} produzida{data[hoveredBar][dataKey] !== 1 ? 's' : ''}
                 </div>
               </div>
             )}
             
-            <div className="absolute bottom-2 left-0 right-0 flex justify-between px-2">
+            {/* Labels dos meses */}
+            <div className="absolute bottom-0 left-0 right-0 flex justify-between" style={{ height: '25px', zIndex: 10 }}>
               {data.map((item, index) => {
-                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
-                const xPercent = (xPos / (data.length * 80)) * 100;
-                const mesAbreviado = item[labelKey].split('/')[0].toLowerCase();
+                const larguraViewBox = 1200;
+                const numMeses = 12;
+                const larguraMes = larguraViewBox / numMeses;
+                const xCentro = (index * larguraMes) + (larguraMes / 2);
+                const xPercent = (xCentro / larguraViewBox) * 100;
+                const mesAbreviado = (item.mes || item[labelKey]?.split('/')[0] || '').toUpperCase();
+                
                 return (
                   <div 
                     key={index} 
-                    className="absolute text-[10px] font-bold text-slate-400 uppercase tracking-tighter text-center"
+                    className="absolute text-xs font-medium text-slate-600 dark:text-slate-400 uppercase text-center pointer-events-none"
                     style={{ 
                       left: `${xPercent}%`,
                       transform: 'translateX(-50%)',
-                      width: '40px'
+                      bottom: '2px'
                     }}
                   >
                     {mesAbreviado}
@@ -656,13 +735,17 @@ const ClientCampaignsStatus = () => {
             </div>
           </CardHeader>
           <CardContent className="p-6 pt-0">
-            <div className="h-64">
+            <div className="h-80">
               {producaoMensal && producaoMensal.length > 0 ? (
                 <BarChart
                   data={producaoMensal}
                   dataKey="total"
                   labelKey="mes"
                   color="#3b82f6"
+                  onBarClick={(monthData) => {
+                    setSelectedMonthTasks(monthData);
+                    setShowTasksDialog(true);
+                  }}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-slate-400">
@@ -766,6 +849,78 @@ const ClientCampaignsStatus = () => {
           })}
         </div>
       </div>
+
+      {/* Dialog para exibir tarefas do mês */}
+      <Dialog open={showTasksDialog} onOpenChange={setShowTasksDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              Tarefas de {selectedMonthTasks?.mesCompleto || selectedMonthTasks?.mes}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedMonthTasks?.total || 0} tarefa{selectedMonthTasks?.total !== 1 ? 's' : ''} produzida{selectedMonthTasks?.total !== 1 ? 's' : ''} neste mês
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto mt-4">
+            {selectedMonthTasks?.tarefas && selectedMonthTasks.tarefas.length > 0 ? (
+              <div className="space-y-3">
+                {selectedMonthTasks.tarefas.map((task) => {
+                  const getTypeIcon = () => {
+                    if (task.type === 'video') return <Video className="h-4 w-4" />;
+                    if (task.type === 'arte') return <ImageIcon className="h-4 w-4" />;
+                    return <FileText className="h-4 w-4" />;
+                  };
+
+                  const getStatusColor = () => {
+                    if (task.status === 'published') return 'bg-green-100 text-green-700 border-green-200';
+                    if (task.status === 'completed') return 'bg-blue-100 text-blue-700 border-blue-200';
+                    return 'bg-gray-100 text-gray-700 border-gray-200';
+                  };
+
+                  return (
+                    <div
+                      key={task.id}
+                      className="p-4 rounded-lg border bg-white hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className={`p-2 rounded-lg ${getStatusColor()}`}>
+                            {getTypeIcon()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-slate-800 truncate">{task.title || 'Sem título'}</h4>
+                            <div className="flex items-center gap-4 mt-2 flex-wrap">
+                              <span className="text-xs text-slate-500 font-medium">
+                                Tipo: {task.type === 'video' ? 'Vídeo' : task.type === 'arte' ? 'Arte' : task.type}
+                              </span>
+                              <span className="text-xs text-slate-500 font-medium">
+                                Status: {task.status === 'published' ? 'Publicado' : task.status === 'completed' ? 'Concluído' : task.status}
+                              </span>
+                              {task.post_date && (
+                                <span className="text-xs text-slate-500 font-medium">
+                                  Data: {formatDate(task.post_date)}
+                                </span>
+                              )}
+                            </div>
+                            {task.description && (
+                              <p className="text-sm text-slate-600 mt-2 line-clamp-2">{task.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-400">
+                <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="font-medium">Nenhuma tarefa encontrada para este mês</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
