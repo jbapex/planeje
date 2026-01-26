@@ -102,8 +102,14 @@ const getMenuItems = (profile) => {
 const BottomNavCliente = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const auth = useAuth();
+  const { profile } = auth || {};
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // Se não houver profile, não renderizar o componente
+  if (!auth || !profile) {
+    return null;
+  }
 
   const menuItems = getMenuItems(profile);
   const visibleItems = menuItems.filter(item => !item.disabled);

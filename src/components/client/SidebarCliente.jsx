@@ -102,10 +102,16 @@ const getMenuItems = (profile) => {
 const SidebarCliente = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const auth = useAuth();
+  const { profile, signOut } = auth || {};
   const [clienteData, setClienteData] = useState(null);
   const [showQuemSomos, setShowQuemSomos] = useState(false);
   const [companyInfo, setCompanyInfo] = useState('');
+
+  // Se não houver profile, não renderizar o componente
+  if (!auth || !profile) {
+    return null;
+  }
 
   useEffect(() => {
     const fetchClienteData = async () => {

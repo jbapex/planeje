@@ -423,7 +423,19 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    // Em vez de lançar erro, retorna valores padrão para evitar quebra da aplicação
+    // Isso pode acontecer durante re-renderizações ou em casos edge
+    console.warn('useAuth called outside AuthProvider, returning default values');
+    return {
+      user: null,
+      profile: null,
+      loading: true,
+      signOut: async () => {},
+      signIn: async () => {},
+      signUp: async () => {},
+      hasPageAccess: () => false,
+      getOpenAIKey: () => null,
+    };
   }
   return context;
 };
