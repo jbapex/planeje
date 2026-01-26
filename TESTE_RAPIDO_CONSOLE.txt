@@ -1,0 +1,48 @@
+// =====================================================
+// TESTE RÁPIDO: Ver Quais Contas Estão Aparecendo
+// =====================================================
+// COLE ESTE CÓDIGO NO CONSOLE DO NAVEGADOR (F12)
+// =====================================================
+
+(async () => {
+  try {
+    console.log('🔍 Testando busca de contas Meta...');
+    
+    const { data, error } = await supabase.functions.invoke('meta-ads-api', {
+      body: { action: 'get-ad-accounts' }
+    });
+    
+    if (error) {
+      console.error('❌ Erro:', error);
+      return;
+    }
+    
+    if (data?.error) {
+      console.error('❌ Erro da API:', data.error);
+      return;
+    }
+    
+    const total = data.adAccounts?.length || 0;
+    console.log('\n📊 ============================================');
+    console.log(`✅ Total de contas encontradas: ${total}`);
+    console.log('📊 ============================================\n');
+    
+    if (total > 0) {
+      console.log('📋 Lista de contas:');
+      console.table(data.adAccounts.map(acc => ({
+        ID: acc.id,
+        Nome: acc.name || 'Sem nome',
+        'Account ID': acc.account_id || 'N/A'
+      })));
+      
+      console.log('\n📋 IDs das contas:');
+      console.log(data.adAccounts.map(acc => acc.id).join(', '));
+    } else {
+      console.warn('⚠️ Nenhuma conta encontrada!');
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('❌ Erro:', err);
+  }
+})();

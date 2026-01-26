@@ -5,7 +5,7 @@
 import { supabase } from './customSupabaseClient';
 
 const CONFIG_KEY = 'assistant_project_model_config';
-const DEFAULT_MODEL = 'openai/gpt-4o';
+const DEFAULT_MODEL = 'deepseek/deepseek-r1-0528';
 const DEFAULT_MODELS = [DEFAULT_MODEL];
 
 /**

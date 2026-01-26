@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
     import { motion } from 'framer-motion';
-    import { Calendar, CheckCircle, Clock, User, Users } from 'lucide-react';
+    import { Calendar, CheckCircle, Clock, User, Users, Building2 } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
     import CalendarView from '@/components/tasks/CalendarView';
     import TaskDetail from '@/components/tasks/TaskDetail';
     import ClientOverview from '@/components/social/ClientOverview';
+    import MetaBusinessInsights from '@/components/social/MetaBusinessInsights';
 
     const SocialMedia = () => {
       const [clients, setClients] = useState([]);
@@ -24,7 +25,9 @@ import React, { useState, useEffect, useCallback } from 'react';
       const [selectedTask, setSelectedTask] = useState(null);
 
       const { toast } = useToast();
-      const { user } = useAuth();
+      const { user, profile } = useAuth();
+      const [metaConnectionStatus, setMetaConnectionStatus] = useState('disconnected');
+      const [isCheckingConnection, setIsCheckingConnection] = useState(true);
 
       const fetchData = useCallback(async () => {
         setLoading(true);
@@ -50,6 +53,36 @@ import React, { useState, useEffect, useCallback } from 'react';
         }
         setLoading(false);
       }, [toast]);
+
+      const checkConnectionStatus = useCallback(async () => {
+        setIsCheckingConnection(true);
+        try {
+          const { data, error } = await supabase.functions.invoke('meta-ads-api', {
+            body: { action: 'check-connection' },
+          });
+          if (error || data?.error || !data?.connected) {
+            setMetaConnectionStatus('disconnected');
+            if (profile?.role === 'superadmin') {
+                toast({
+                    title: "Conexão com Meta Business inativa",
+                    description: "O token de acesso do System User não foi configurado ou é inválido. Configure-o no Vault.",
+                    variant: "destructive",
+                });
+            }
+          } else {
+            setMetaConnectionStatus('connected');
+          }
+        } catch (error) {
+            setMetaConnectionStatus('disconnected');
+        } finally {
+            setIsCheckingConnection(false);
+        }
+      }, [profile?.role, toast]);
+
+      useEffect(() => {
+        checkConnectionStatus();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
 
       useEffect(() => {
         if (user) {
@@ -157,6 +190,7 @@ import React, { useState, useEffect, useCallback } from 'react';
                 <TabsTrigger value="calendar" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white"><Calendar className="mr-2 h-4 w-4" />Calendário</TabsTrigger>
                 <TabsTrigger value="scheduled" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white"><Clock className="mr-2 h-4 w-4" />Agendados</TabsTrigger>
                 <TabsTrigger value="completed" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white"><CheckCircle className="mr-2 h-4 w-4" />Concluídos</TabsTrigger>
+                <TabsTrigger value="meta-business" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white" disabled={isCheckingConnection || metaConnectionStatus !== 'connected'}><Building2 className="mr-2 h-4 w-4" />Meta Business</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
                 <ClientOverview 
@@ -184,6 +218,15 @@ import React, { useState, useEffect, useCallback } from 'react';
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {completedTasks.length > 0 ? completedTasks.map(task => <TaskCard key={task.id} task={task} />) : <p className="col-span-full text-center py-10 dark:text-gray-400">Nenhum post concluído.</p>}
                 </div>
+              </TabsContent>
+              <TabsContent value="meta-business">
+                {isCheckingConnection ? (
+                  <p className="text-center py-10 dark:text-gray-400">Verificando conexão com o Meta...</p>
+                ) : metaConnectionStatus === 'connected' ? (
+                  <MetaBusinessInsights />
+                ) : (
+                  <p className="text-center py-10 dark:text-gray-400">A conexão com o Meta Business não está ativa. Por favor, peça a um Super Admin para configurar o token de acesso.</p>
+                )}
               </TabsContent>
             </Tabs>
           )}
