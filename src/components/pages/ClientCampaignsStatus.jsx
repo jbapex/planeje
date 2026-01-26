@@ -579,24 +579,24 @@ const ClientCampaignsStatus = () => {
         <title>Status das Campanhas - JB APEX</title>
       </Helmet>
 
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
         <header>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-[#1e293b] tracking-tight">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between items-center gap-3 sm:gap-4 text-center sm:text-left">
+            <div className="w-full sm:w-auto">
+              <h1 className="text-2xl sm:text-3xl font-bold text-[#1e293b] tracking-tight">
                 Status das Campanhas
               </h1>
-              <p className="text-sm text-slate-500 mt-1 font-medium">
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
                 {isAdmin 
                   ? 'Acompanhe o status de todas as campanhas e tarefas do sistema'
                   : 'Acompanhe o status de todas as suas campanhas e tarefas em produção'
                 }
               </p>
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 border border-blue-200">
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 justify-center sm:justify-start w-full sm:w-auto">
               <Calendar className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-semibold text-blue-700">
+              <span className="text-xs sm:text-sm font-semibold text-blue-700">
                 {format(new Date(selectedYear, selectedMonth - 1, 1), "MMMM 'de' yyyy", { locale: ptBR })}
               </span>
             </div>
@@ -604,9 +604,9 @@ const ClientCampaignsStatus = () => {
         </header>
 
         {/* Filtros */}
-        <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row gap-4">
+        <Card className="bg-white border-none shadow-sm sm:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-xl sm:rounded-[1.5rem] overflow-hidden">
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex flex-col md:flex-row gap-3 sm:gap-4">
               <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -614,12 +614,12 @@ const ClientCampaignsStatus = () => {
                     placeholder="Buscar por título ou descrição..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                    className="pl-10 h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base"
                   />
                 </div>
               </div>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-full md:w-[200px] h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <SelectTrigger className="w-full md:w-[200px] h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base">
                   <SelectValue placeholder="Todos os tipos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -632,7 +632,7 @@ const ClientCampaignsStatus = () => {
                 </SelectContent>
               </Select>
               <Select value={projectFilter} onValueChange={setProjectFilter}>
-                <SelectTrigger className="w-full md:w-[200px] h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <SelectTrigger className="w-full md:w-[200px] h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base">
                   <SelectValue placeholder="Todos os projetos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -646,7 +646,7 @@ const ClientCampaignsStatus = () => {
               </Select>
               {isAdmin && (
                 <Select value={clientFilter} onValueChange={setClientFilter}>
-                  <SelectTrigger className="w-full md:w-[200px] h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                  <SelectTrigger className="w-full md:w-[200px] h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base">
                     <SelectValue placeholder="Todos os clientes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -664,7 +664,7 @@ const ClientCampaignsStatus = () => {
                 value={selectedMonth.toString()} 
                 onValueChange={(value) => setSelectedMonth(parseInt(value))}
               >
-                <SelectTrigger className="w-full md:w-[160px] h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <SelectTrigger className="w-full md:w-[160px] h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base">
                   <SelectValue placeholder="Mês" />
                 </SelectTrigger>
                 <SelectContent>
@@ -686,7 +686,7 @@ const ClientCampaignsStatus = () => {
                 value={selectedYear.toString()} 
                 onValueChange={(value) => setSelectedYear(parseInt(value))}
               >
-                <SelectTrigger className="w-full md:w-[120px] h-10 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <SelectTrigger className="w-full md:w-[120px] h-10 sm:h-11 bg-slate-50 border-slate-200 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base">
                   <SelectValue placeholder="Ano" />
                 </SelectTrigger>
                 <SelectContent>
@@ -710,7 +710,7 @@ const ClientCampaignsStatus = () => {
                     setSelectedYear(hoje.getFullYear());
                   }}
                   variant="outline"
-                  className="h-10 px-4 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                  className="h-10 sm:h-11 px-3 sm:px-4 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] text-sm sm:text-base"
                 >
                   Mês Atual
                 </Button>
@@ -720,22 +720,22 @@ const ClientCampaignsStatus = () => {
         </Card>
 
         {/* Gráfico de Produção Mensal - Tudo que foi feito para o cliente mês a mês */}
-        <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
-          <CardHeader className="p-6 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-blue-500 bg-opacity-10">
-                <BarChart3 className="h-5 w-5 text-blue-600" />
+        <Card className="bg-white border-none shadow-sm sm:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-xl sm:rounded-[1.5rem] overflow-hidden">
+          <CardHeader className="p-4 sm:p-6 pb-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="p-2 sm:p-2.5 rounded-xl bg-blue-500 bg-opacity-10">
+                <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
               </div>
               <div>
-                <CardTitle className="text-lg font-bold text-slate-800">Produção Mensal</CardTitle>
-                <p className="text-sm text-slate-500 mt-1 font-medium">
+                <CardTitle className="text-base sm:text-lg font-bold text-slate-800">Produção Mensal</CardTitle>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
                   Tudo que foi produzido para o cliente mês a mês (últimos 12 meses)
                 </p>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-6 pt-0">
-            <div className="h-80">
+          <CardContent className="p-4 sm:p-6 pt-0">
+            <div className="h-64 sm:h-80">
               {producaoMensal && producaoMensal.length > 0 ? (
                 <BarChart
                   data={producaoMensal}
@@ -758,7 +758,7 @@ const ClientCampaignsStatus = () => {
         </Card>
 
         {/* Cards de Status */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {Object.entries(STATUS_INFO).map(([status, info]) => {
             const statusTasks = tasksByStatus[status] || [];
             const Icon = info.icon;
@@ -767,25 +767,25 @@ const ClientCampaignsStatus = () => {
             return (
               <Card
                 key={status}
-                className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden flex flex-col h-full max-h-[600px] hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] transition-shadow duration-200"
+                className="bg-white border-none shadow-sm sm:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-xl sm:rounded-[1.5rem] overflow-hidden flex flex-col h-full max-h-[500px] sm:max-h-[600px] hover:shadow-md sm:hover:shadow-[0_12px_40px_rgb(0,0,0,0.06)] transition-shadow duration-200"
               >
-                <CardHeader className="pb-4 flex-shrink-0 p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2.5 rounded-xl ${info.color} bg-opacity-10`}>
-                        <Icon className={`h-5 w-5 ${info.color.replace('bg-', 'text-')}`} />
+                <CardHeader className="pb-3 sm:pb-4 flex-shrink-0 p-4 sm:p-6">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                      <div className={`p-2 sm:p-2.5 rounded-xl ${info.color} bg-opacity-10 flex-shrink-0`}>
+                        <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${info.color.replace('bg-', 'text-')}`} />
                       </div>
-                      <div>
-                        <CardTitle className="text-lg font-bold text-[#1e293b] tracking-tight">
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="text-base sm:text-lg font-bold text-[#1e293b] tracking-tight truncate">
                           {info.label}
                         </CardTitle>
-                        <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                        <p className="text-xs text-slate-400 mt-0.5 font-medium line-clamp-1">
                           {info.description}
                         </p>
                       </div>
                     </div>
                     <Badge
-                      className={`${info.color} text-white text-sm font-semibold px-2.5 py-1 rounded-lg`}
+                      className={`${info.color} text-white text-xs sm:text-sm font-semibold px-2 sm:px-2.5 py-1 rounded-lg flex-shrink-0`}
                     >
                       {count}
                     </Badge>
@@ -793,12 +793,12 @@ const ClientCampaignsStatus = () => {
                 </CardHeader>
                 <CardContent className="flex-1 min-h-0 p-0">
                   {count === 0 ? (
-                    <div className="p-6 text-center text-sm text-slate-400 font-medium">
+                    <div className="p-4 sm:p-6 text-center text-xs sm:text-sm text-slate-400 font-medium">
                       Nenhuma tarefa neste status
                     </div>
                   ) : (
-                    <ScrollArea className="h-full px-6 pb-6">
-                      <div className="space-y-3">
+                    <ScrollArea className="h-full px-4 sm:px-6 pb-4 sm:pb-6">
+                      <div className="space-y-2 sm:space-y-3">
                         {statusTasks.map((task) => {
                           const typeInfo = TYPE_INFO[task.type] || { label: task.type, icon: FileText, color: 'text-slate-600' };
                           const TypeIcon = typeInfo.icon;
@@ -806,17 +806,17 @@ const ClientCampaignsStatus = () => {
                           return (
                             <div
                               key={task.id}
-                              className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                              className="p-3 sm:p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <TypeIcon className={`h-4 w-4 ${typeInfo.color} flex-shrink-0`} />
-                                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                  <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
+                                    <TypeIcon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${typeInfo.color} flex-shrink-0`} />
+                                    <span className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wide">
                                       {typeInfo.label}
                                     </span>
                                   </div>
-                                  <h4 className="text-sm font-bold text-slate-800 line-clamp-2 mb-2">
+                                  <h4 className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-2 mb-1.5 sm:mb-2">
                                     {task.title || 'Sem título'}
                                   </h4>
                                   {isAdmin && task.clientes?.empresa && (

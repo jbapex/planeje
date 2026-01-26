@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
@@ -840,7 +840,27 @@ const PGMPanel = () => {
   // Componente de gráfico de performance mensal
   const MonthlyPerformanceChart = ({ data }) => {
     const [hoveredBar, setHoveredBar] = useState(null);
-    const [tooltipData, setTooltipData] = useState({ x: 0, y: 0, mes: '' });
+    const [hoveredPoint, setHoveredPoint] = useState(null);
+    const [clickedPoint, setClickedPoint] = useState(null);
+    const [tooltipData, setTooltipData] = useState({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+    const chartRef = useRef(null);
+    
+    // Fechar tooltip ao clicar fora do gráfico
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (chartRef.current && !chartRef.current.contains(event.target)) {
+          setClickedPoint(null);
+          setTooltipData({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+        }
+      };
+      
+      if (clickedPoint !== null) {
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+          document.removeEventListener('mousedown', handleClickOutside);
+        };
+      }
+    }, [clickedPoint]);
     
     // Sempre mostrar todos os meses do ano atual
     const anoAtual = new Date().getFullYear();
@@ -888,7 +908,7 @@ const PGMPanel = () => {
     const alturaMaxima = 300; // Altura máxima do gráfico em pixels
 
     return (
-      <div className="w-full">
+      <div className="w-full" ref={chartRef}>
         {/* Legenda */}
         <div className="flex items-center justify-center gap-6 mb-6">
           <div className="flex items-center gap-2">
@@ -969,6 +989,8 @@ const PGMPanel = () => {
                   const yBarra = alturaMaxima - alturaFaturamento;
                   const isHovered = hoveredBar === index;
 
+                  const isClicked = clickedPoint === index;
+                  
                   return (
                     <g key={index}>
                       <rect
@@ -981,8 +1003,11 @@ const PGMPanel = () => {
                         ry="4"
                         style={{
                           cursor: 'pointer',
-                          opacity: isHovered ? 0.8 : 1,
-                          transition: 'opacity 0.2s'
+                          opacity: isHovered || isClicked ? 0.9 : 1,
+                          transition: 'opacity 0.2s',
+                          filter: isClicked ? 'drop-shadow(0 2px 6px rgba(16, 185, 129, 0.4))' : 'none',
+                          stroke: isClicked ? '#10B981' : 'none',
+                          strokeWidth: isClicked ? '2' : '0'
                         }}
                         onMouseEnter={(e) => {
                           setHoveredBar(index);
@@ -993,7 +1018,9 @@ const PGMPanel = () => {
                             setTooltipData({
                               x: rect.left - containerRect.left + rect.width / 2,
                               y: rect.top - containerRect.top - 10,
-                              mes: item.mes
+                              mes: item.mes,
+                              investimento: item.investimento,
+                              faturamento: item.faturamento
                             });
                           }
                         }}
@@ -1005,12 +1032,54 @@ const PGMPanel = () => {
                             setTooltipData({
                               x: rect.left - containerRect.left + rect.width / 2,
                               y: rect.top - containerRect.top - 10,
-                              mes: item.mes
+                              mes: item.mes,
+                              investimento: item.investimento,
+                              faturamento: item.faturamento
                             });
                           }
                         }}
-                        onMouseLeave={() => setHoveredBar(null)}
+                        onMouseLeave={() => {
+                          setHoveredBar(null);
+                          if (clickedPoint !== index && hoveredPoint !== index) {
+                            setTooltipData({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+                          }
+                        }}
+                        onClick={(e) => {
+                          setClickedPoint(clickedPoint === index ? null : index);
+                          if (clickedPoint !== index) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const graphContainer = e.currentTarget.closest('.ml-12');
+                            if (graphContainer) {
+                              const containerRect = graphContainer.getBoundingClientRect();
+                              setTooltipData({
+                                x: rect.left - containerRect.left + rect.width / 2,
+                                y: rect.top - containerRect.top - 10,
+                                mes: item.mes,
+                                investimento: item.investimento,
+                                faturamento: item.faturamento
+                              });
+                            }
+                          } else {
+                            setTooltipData({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+                          }
+                        }}
                       />
+                      {/* Label com valor do Faturamento */}
+                      {item.faturamento > 0 && (
+                        <text
+                          x={xCentro}
+                          y={yBarra - 8}
+                          textAnchor="middle"
+                          className="text-[10px] font-semibold fill-emerald-700"
+                          style={{ fontSize: '10px', fontWeight: 600 }}
+                        >
+                          {item.faturamento >= 1000000 
+                            ? `${(item.faturamento / 1000000).toFixed(1)}M`
+                            : item.faturamento >= 1000
+                            ? `${(item.faturamento / 1000).toFixed(0)}K`
+                            : item.faturamento.toFixed(0)}
+                        </text>
+                      )}
                     </g>
                   );
                 })}
@@ -1062,17 +1131,99 @@ const PGMPanel = () => {
                         strokeLinejoin="round"
                       />
                       {/* Pontos na linha de Investimento - bolinha branca com borda azul */}
-                      {pontos.map((ponto, idx) => (
-                        <circle
-                          key={idx}
-                          cx={ponto.x}
-                          cy={ponto.y}
-                          r="6"
-                          fill="white"
-                          stroke="#60A5FA"
-                          strokeWidth="2.5"
-                        />
-                      ))}
+                      {pontos.map((ponto, idx) => {
+                        const isHovered = hoveredPoint === idx;
+                        const isClicked = clickedPoint === idx;
+                        const item = mesesCompletos[idx];
+                        
+                        return (
+                          <g key={idx}>
+                            <circle
+                              cx={ponto.x}
+                              cy={ponto.y}
+                              r={isHovered || isClicked ? "8" : "6"}
+                              fill="white"
+                              stroke={isHovered || isClicked ? "#3B82F6" : "#60A5FA"}
+                              strokeWidth={isHovered || isClicked ? "3" : "2.5"}
+                              style={{
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                filter: isHovered || isClicked ? 'drop-shadow(0 2px 4px rgba(59, 130, 246, 0.4))' : 'none'
+                              }}
+                              onMouseEnter={(e) => {
+                                setHoveredPoint(idx);
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const graphContainer = e.currentTarget.closest('.ml-12');
+                                if (graphContainer) {
+                                  const containerRect = graphContainer.getBoundingClientRect();
+                                  setTooltipData({
+                                    x: rect.left - containerRect.left + rect.width / 2,
+                                    y: rect.top - containerRect.top - 10,
+                                    mes: item.mes,
+                                    investimento: item.investimento,
+                                    faturamento: item.faturamento
+                                  });
+                                }
+                              }}
+                              onMouseMove={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const graphContainer = e.currentTarget.closest('.ml-12');
+                                if (graphContainer) {
+                                  const containerRect = graphContainer.getBoundingClientRect();
+                                  setTooltipData({
+                                    x: rect.left - containerRect.left + rect.width / 2,
+                                    y: rect.top - containerRect.top - 10,
+                                    mes: item.mes,
+                                    investimento: item.investimento,
+                                    faturamento: item.faturamento
+                                  });
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                setHoveredPoint(null);
+                                if (clickedPoint !== idx) {
+                                  setTooltipData({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+                                }
+                              }}
+                              onClick={(e) => {
+                                setClickedPoint(clickedPoint === idx ? null : idx);
+                                if (clickedPoint !== idx) {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const graphContainer = e.currentTarget.closest('.ml-12');
+                                  if (graphContainer) {
+                                    const containerRect = graphContainer.getBoundingClientRect();
+                                    setTooltipData({
+                                      x: rect.left - containerRect.left + rect.width / 2,
+                                      y: rect.top - containerRect.top - 10,
+                                      mes: item.mes,
+                                      investimento: item.investimento,
+                                      faturamento: item.faturamento
+                                    });
+                                  }
+                                } else {
+                                  setTooltipData({ x: 0, y: 0, mes: '', investimento: 0, faturamento: 0 });
+                                }
+                              }}
+                            />
+                            {/* Label com valor do Investimento */}
+                            {ponto.value > 0 && (
+                              <text
+                                x={ponto.x}
+                                y={ponto.y - 12}
+                                textAnchor="middle"
+                                className="text-[10px] font-semibold fill-slate-700"
+                                style={{ fontSize: '10px', fontWeight: 600 }}
+                              >
+                                {ponto.value >= 1000000 
+                                  ? `${(ponto.value / 1000000).toFixed(1)}M`
+                                  : ponto.value >= 1000
+                                  ? `${(ponto.value / 1000).toFixed(0)}K`
+                                  : ponto.value.toFixed(0)}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
                     </>
                   );
                 })()}
@@ -1081,7 +1232,7 @@ const PGMPanel = () => {
             </div>
             
             {/* Tooltip */}
-            {hoveredBar !== null && (
+            {(hoveredBar !== null || hoveredPoint !== null || clickedPoint !== null) && tooltipData.mes && (
               <div
                 className="absolute z-50 bg-slate-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none border border-slate-700"
                 style={{
@@ -1090,17 +1241,22 @@ const PGMPanel = () => {
                   transform: 'translate(-50%, -100%)'
                 }}
               >
-                <div className="font-semibold mb-1 text-white">{tooltipData.mes}</div>
-                <div className="space-y-1">
+                <div className="font-semibold mb-1.5 text-white">{tooltipData.mes}</div>
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded" style={{ backgroundColor: '#60A5FA' }}></div>
-                    <span className="text-white">Investimento: {formatCurrency(mesesCompletos[hoveredBar].investimento)}</span>
+                    <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: '#60A5FA' }}></div>
+                    <span className="text-white font-medium">Investimento: <span className="font-bold">{formatCurrency(tooltipData.investimento)}</span></span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded bg-gradient-to-b from-emerald-600 to-emerald-400"></div>
-                    <span className="text-white">Faturamento: {formatCurrency(mesesCompletos[hoveredBar].faturamento)}</span>
+                    <div className="w-2.5 h-2.5 rounded bg-gradient-to-b from-emerald-600 to-emerald-400"></div>
+                    <span className="text-white font-medium">Faturamento: <span className="font-bold">{formatCurrency(tooltipData.faturamento)}</span></span>
                   </div>
                 </div>
+                {clickedPoint !== null && (
+                  <div className="mt-2 pt-2 border-t border-slate-600 text-[10px] text-slate-300">
+                    Clique novamente para fechar
+                  </div>
+                )}
               </div>
             )}
 

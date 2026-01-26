@@ -418,64 +418,65 @@ const ClientCadastroSemanal = () => {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="space-y-8 max-w-7xl mx-auto">
+        <div className="space-y-4 sm:space-y-8 max-w-7xl mx-auto px-2 sm:px-0">
           {/* Título da Página */}
-          <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
-            <div>
-              <h1 className="text-3xl font-bold text-[#1e293b] tracking-tight">Cadastro Diário</h1>
-              <p className="text-slate-500 text-base mt-1 font-medium">
+          <header className="flex flex-col md:flex-row md:items-center md:justify-between items-center gap-2 sm:gap-4 text-center md:text-left">
+            <div className="w-full md:w-auto">
+              <h1 className="text-xl sm:text-3xl font-bold text-[#1e293b] tracking-tight">Cadastro Diário</h1>
+              <p className="text-slate-500 text-xs sm:text-base mt-0.5 sm:mt-1 font-medium hidden sm:block">
                 Preencha os dados referentes ao dia selecionado.
               </p>
             </div>
-            <div className="relative">
+            <div className="relative w-full md:w-auto flex justify-center md:justify-end">
               <Button
                 onClick={handleAbrirLista}
                 variant="outline"
-                className="flex items-center gap-2 bg-white border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl h-10 px-5 shadow-sm font-semibold transition-all"
+                className="flex items-center gap-2 bg-white border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg sm:rounded-xl h-9 sm:h-10 px-3 sm:px-5 shadow-sm font-semibold transition-all text-xs sm:text-sm"
               >
-                <span className="text-sm">Ver Todos os Lançamentos</span>
-                <ChevronDown className="h-4 w-4 text-slate-400" />
+                <span className="hidden sm:inline">Ver Todos os Lançamentos</span>
+                <span className="sm:hidden">Ver Todos</span>
+                <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-slate-400" />
               </Button>
             </div>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-8 items-start">
             {/* Card Esquerdo - Formulário */}
             <div className="lg:col-span-7">
-              <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] overflow-hidden">
-                <CardHeader className="p-8 pb-4">
-                  <CardTitle className="text-2xl font-bold text-[#1e293b] tracking-tight">Cadastrar Dados Diários</CardTitle>
-                  <CardDescription className="text-base text-slate-400 mt-1 font-medium">
+              <Card className="bg-white border-none shadow-sm sm:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-lg sm:rounded-[1.5rem] overflow-hidden">
+                <CardHeader className="p-4 sm:p-8 pb-3 sm:pb-4">
+                  <CardTitle className="text-lg sm:text-2xl font-bold text-[#1e293b] tracking-tight">Cadastrar Dados Diários</CardTitle>
+                  <CardDescription className="text-xs sm:text-base text-slate-400 mt-0.5 sm:mt-1 font-medium hidden sm:block">
                     Preencha os dados referentes ao dia selecionado.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="p-8 pt-0 space-y-6">
+                <CardContent className="p-4 sm:p-8 pt-0 space-y-3 sm:space-y-6">
                   {/* Parceiro */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700 ml-1">Parceiro</label>
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Parceiro</label>
                     <Input
                       value={partnerName}
                       disabled
-                      className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-500 font-medium px-4 text-base transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                      className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-500 font-medium px-3 sm:px-4 text-xs sm:text-base transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                     />
                   </div>
 
                   {/* Data referência */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700 ml-1">Data referência</label>
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Data referência</label>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
                           variant="outline"
-                          className="w-full justify-start h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-500 font-medium px-4 hover:bg-slate-100 transition-all group text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                          className="w-full justify-start h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-500 font-medium px-3 sm:px-4 hover:bg-slate-100 transition-all group text-xs sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
                         >
-                          <CalendarIcon className="mr-3 h-5 w-5 text-slate-400 group-hover:text-blue-500" />
+                          <CalendarIcon className="mr-2 sm:mr-3 h-4 w-4 sm:h-5 sm:w-5 text-slate-400 group-hover:text-blue-500" />
                           {referenceDate ? (
                             <span className="text-slate-700">
                               {format(referenceDate, 'dd/MM/yyyy', { locale: ptBR })}
                             </span>
                           ) : (
-                            <span className="text-slate-400">Selecione o dia que deseja preencher</span>
+                            <span className="text-slate-400 text-xs sm:text-base">Selecione o dia</span>
                           )}
                         </Button>
                       </PopoverTrigger>
@@ -494,89 +495,94 @@ const ClientCadastroSemanal = () => {
                   </div>
 
                   {/* Grid de campos numéricos */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 ml-1">Leads</label>
+                  <div className="grid grid-cols-2 md:grid-cols-2 gap-x-2 sm:gap-x-6 gap-y-3 sm:gap-y-6">
+                    <div className="space-y-1 sm:space-y-2">
+                      <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Leads</label>
+                      <p className="text-[10px] sm:text-xs text-slate-500 ml-1 -mt-0.5 sm:-mt-1 hidden sm:block">Total de contatos que demonstraram interesse</p>
                       <Input
                         type="number"
                         min="0"
                         value={formState.leads}
                         onChange={(e) => handleChange('leads', e.target.value)}
-                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                        placeholder="0"
+                        className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-800 font-semibold px-3 sm:px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-sm sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs"
+                        placeholder="Ex: 25"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 ml-1">Respondeu</label>
+                    <div className="space-y-1 sm:space-y-2">
+                      <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">{funnelStep2Name || 'Visitas Agendadas'}</label>
+                      <p className="text-[10px] sm:text-xs text-slate-500 ml-1 -mt-0.5 sm:-mt-1 hidden sm:block">Contatos que agendaram uma visita ou reunião</p>
                       <Input
                         type="number"
                         min="0"
                         value={formState.visitas_agendadas}
                         onChange={(e) => handleChange('visitas_agendadas', e.target.value)}
-                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                        placeholder="0"
+                        className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-800 font-semibold px-3 sm:px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-sm sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs"
+                        placeholder="Ex: 10"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 ml-1">Orçamento</label>
+                    <div className="space-y-1 sm:space-y-2">
+                      <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">{funnelStep3Name || 'Visitas Realizadas'}</label>
+                      <p className="text-[10px] sm:text-xs text-slate-500 ml-1 -mt-0.5 sm:-mt-1 hidden sm:block">Visitas ou reuniões que foram efetivamente realizadas</p>
                       <Input
                         type="number"
                         min="0"
                         value={formState.visitas_realizadas}
                         onChange={(e) => handleChange('visitas_realizadas', e.target.value)}
-                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                        placeholder="0"
+                        className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-800 font-semibold px-3 sm:px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-sm sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs"
+                        placeholder="Ex: 8"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 ml-1">Vendas</label>
+                    <div className="space-y-1 sm:space-y-2">
+                      <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Vendas</label>
+                      <p className="text-[10px] sm:text-xs text-slate-500 ml-1 -mt-0.5 sm:-mt-1 hidden sm:block">Total de vendas efetivamente concluídas</p>
                       <Input
                         type="number"
                         min="0"
                         value={formState.vendas}
                         onChange={(e) => handleChange('vendas', e.target.value)}
-                        className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-800 font-bold px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                        placeholder="0"
+                        className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl text-slate-800 font-semibold px-3 sm:px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-sm sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs"
+                        placeholder="Ex: 3"
                       />
                     </div>
                   </div>
 
                   {/* Faturamento */}
-                  <div className="space-y-2 pt-1">
-                    <label className="text-sm font-semibold text-slate-700 ml-1">Faturamento (R$)</label>
+                  <div className="space-y-1.5 sm:space-y-2 pt-0.5 sm:pt-1">
+                    <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Faturamento Total (R$)</label>
+                    <p className="text-[10px] sm:text-xs text-slate-500 ml-1 -mt-0.5 sm:-mt-1 hidden sm:block">Valor total faturado no dia (receita bruta)</p>
                     <Input
                       type="text"
                       inputMode="decimal"
                       value={formState.faturamento}
                       onChange={(e) => handleChange('faturamento', e.target.value)}
-                      className="h-12 bg-slate-50 border-slate-200 rounded-xl font-bold text-lg text-slate-800 px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                      placeholder="R$ 0,00"
+                      className="h-10 sm:h-12 bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl font-semibold text-sm sm:text-lg text-slate-800 px-3 sm:px-4 focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs sm:placeholder:text-sm"
+                      placeholder="Ex: 15.000,00"
                     />
                   </div>
 
                   {/* Observações */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700 ml-1">Observações</label>
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <label className="text-xs sm:text-sm font-medium text-slate-700 ml-1">Observações</label>
                     <Textarea
-                      rows={3}
+                      rows={2}
                       value={formState.observacoes}
                       onChange={(e) => handleChange('observacoes', e.target.value)}
-                      className="bg-slate-50 border-slate-200 rounded-xl resize-none p-4 text-slate-700 font-medium focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-                      placeholder="Adicione observações sobre este dia..."
+                      className="bg-slate-50 border-slate-200 rounded-lg sm:rounded-xl resize-none p-3 sm:p-4 text-slate-700 font-medium focus:bg-white focus:border-blue-300 focus:shadow-[0_0_0_3px_rgba(59,130,246,0.1)] transition-all text-xs sm:text-base shadow-[0_1px_3px_rgba(0,0,0,0.05)] placeholder:text-slate-400 placeholder:font-normal placeholder:text-xs"
+                      placeholder="Adicione observações relevantes sobre este dia (opcional)..."
                     />
                   </div>
 
                   {/* Botão Registrar/Atualizar */}
-                  <div className="pt-4">
+                  <div className="pt-2 sm:pt-4">
                     <Button
                       onClick={handleRegister}
                       disabled={!isFormValid || saving}
-                      className="w-full h-12 text-base font-bold bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 tracking-tight"
+                      className="w-full h-10 sm:h-12 text-xs sm:text-base font-bold bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-500 hover:to-teal-400 text-white rounded-lg sm:rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 tracking-tight"
                     >
                       {saving ? (
                         <>
-                          <Loader2 className="h-5 w-5 mr-3 animate-spin" />
-                          {editandoId ? 'Atualizando...' : 'Registrando...'}
+                          <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 animate-spin" />
+                          <span className="text-xs sm:text-base">{editandoId ? 'Atualizando...' : 'Registrando...'}</span>
                         </>
                       ) : editandoId ? (
                         'Atualizar Lançamento'
@@ -599,7 +605,7 @@ const ClientCadastroSemanal = () => {
                           });
                         }}
                         variant="ghost"
-                        className="w-full h-10 text-slate-400 font-bold mt-2 hover:bg-slate-50 rounded-xl transition-colors text-sm"
+                        className="w-full h-9 sm:h-10 text-slate-400 font-bold mt-2 hover:bg-slate-50 rounded-lg sm:rounded-xl transition-colors text-xs sm:text-sm"
                       >
                         Cancelar Edição
                       </Button>
@@ -610,15 +616,15 @@ const ClientCadastroSemanal = () => {
             </div>
 
             {/* Card Direito - Histórico */}
-            <div className="lg:col-span-5 h-full">
-              <Card className="bg-white border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[1.5rem] flex flex-col h-full overflow-hidden min-h-[500px]">
-                <CardHeader className="p-8 pb-4">
-                  <CardTitle className="text-2xl font-bold text-[#1e293b] tracking-tight">Histórico Recente</CardTitle>
-                  <CardDescription className="text-base text-slate-400 mt-1 font-medium">
+            <div className="lg:col-span-5 h-full hidden lg:block">
+              <Card className="bg-white border-none shadow-sm sm:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-xl sm:rounded-[1.5rem] flex flex-col h-full overflow-hidden min-h-[400px] sm:min-h-[500px]">
+                <CardHeader className="p-5 sm:p-8 pb-4">
+                  <CardTitle className="text-xl sm:text-2xl font-bold text-[#1e293b] tracking-tight">Histórico Recente</CardTitle>
+                  <CardDescription className="text-sm sm:text-base text-slate-400 mt-1 font-medium">
                     Últimos 4 dias cadastrados.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="p-8 pt-0 flex-1 flex flex-col min-h-0">
+                <CardContent className="p-5 sm:p-8 pt-0 flex-1 flex flex-col min-h-0">
                   <ScrollArea className="h-full pr-2">
                     {historico.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">

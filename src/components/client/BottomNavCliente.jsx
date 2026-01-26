@@ -127,41 +127,93 @@ const BottomNavCliente = () => {
 
   return (
     <div 
-      className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-t-lg z-50"
+      className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-50"
       style={{ 
         paddingBottom: 'env(safe-area-inset-bottom, 0px)'
       }}
     >
-      <div className="grid h-16 max-w-lg grid-cols-5 mx-auto font-medium">
+      <div className="grid h-20 max-w-lg grid-cols-5 mx-auto font-medium">
         {/* Primeiros 4 itens principais */}
         {mainItems.map((item) => {
-          const isActive = location.pathname.startsWith(item.path);
+          // Para ApexIA, também considerar rotas /chat/ como ativas
+          const isActive = item.key === 'apexia' 
+            ? (location.pathname.startsWith(item.path) || location.pathname.startsWith('/chat/'))
+            : location.pathname.startsWith(item.path);
           const Icon = item.icon;
+          const isApexIA = item.key === 'apexia';
 
           return (
             <motion.button
               key={item.key}
               onClick={() => handleNavigate(item)}
               disabled={item.disabled}
-              whileTap={{ scale: 0.95 }}
+              whileTap={{ scale: 0.92 }}
               className={`
-                relative inline-flex flex-col items-center justify-center px-2 
-                hover:bg-gray-50 dark:hover:bg-gray-800 group
-                transition-colors duration-200
+                relative inline-flex flex-col items-center justify-center px-2 py-2
+                group transition-all duration-300
                 ${isActive 
-                  ? 'text-orange-600 dark:text-orange-400' 
-                  : 'text-gray-500 dark:text-gray-400'
+                  ? 'text-blue-600' 
+                  : isApexIA
+                  ? 'text-orange-500'
+                  : 'text-slate-500 hover:text-slate-700'
                 }
                 ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}
               `}
             >
-              <Icon className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <div className={`
+                relative p-2 rounded-xl transition-all duration-300
+                ${isActive 
+                  ? 'bg-blue-50 shadow-sm' 
+                  : isApexIA
+                  ? 'bg-orange-50/80 border-2 border-orange-400/60 shadow-[0_0_8px_rgba(251,146,60,0.25)]'
+                  : 'group-hover:bg-slate-50'
+                }
+              `}>
+                <Icon className={`
+                  w-5 h-5 transition-all duration-300
+                  ${isActive ? 'scale-110' : isApexIA ? 'scale-105' : ''}
+                `} />
+                {isActive && (
+                  <motion.div
+                    className="absolute -top-1 -right-1 h-2 w-2 bg-blue-600 rounded-full"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                  />
+                )}
+                {isApexIA && !isActive && (
+                  <motion.div
+                    className="absolute -top-1 -right-1 h-2 w-2 bg-orange-500 rounded-full"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                  />
+                )}
+              </div>
+              <span className={`
+                text-[10px] font-semibold mt-1 transition-colors duration-300
+                ${isActive 
+                  ? 'text-blue-600' 
+                  : isApexIA 
+                  ? 'text-orange-500' 
+                  : 'text-slate-500'
+                }
+              `}>
+                {item.label}
+              </span>
               {isActive && (
                 <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-400 to-purple-600"
-                  layoutId="activeTab"
+                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-blue-600 rounded-t-full"
+                  layoutId="activeIndicator"
                   transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                />
+              )}
+              {isApexIA && !isActive && (
+                <motion.div
+                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-orange-400 rounded-t-full opacity-60"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 25 }}
                 />
               )}
             </motion.button>
@@ -172,19 +224,28 @@ const BottomNavCliente = () => {
         {moreItems.length > 0 && (
           <DropdownMenu open={isMoreMenuOpen} onOpenChange={setIsMoreMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex flex-col items-center justify-center px-2 hover:bg-gray-50 dark:hover:bg-gray-800 group text-gray-500 dark:text-gray-400">
-                <MoreHorizontal className="w-5 h-5 mb-1" />
-                <span className="text-[10px] font-medium">Mais</span>
-              </button>
+              <motion.button 
+                whileTap={{ scale: 0.92 }}
+                className="inline-flex flex-col items-center justify-center px-2 py-2 group text-slate-500 hover:text-slate-700 transition-colors duration-300"
+              >
+                <div className="relative p-2 rounded-xl group-hover:bg-slate-50 transition-all duration-300">
+                  <MoreHorizontal className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-semibold mt-1">Mais</span>
+              </motion.button>
             </DropdownMenuTrigger>
             <DropdownMenuContent 
               side="top" 
               align="end"
-              className="mb-2 w-56 max-h-[60vh] overflow-y-auto dark:bg-gray-800 dark:border-gray-700"
+              className="mb-3 w-56 max-h-[60vh] overflow-y-auto bg-white/95 backdrop-blur-lg border border-slate-200/80 shadow-xl rounded-2xl"
             >
               {moreItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname.startsWith(item.path);
+                // Para ApexIA, também considerar rotas /chat/ como ativas
+                const isActive = item.key === 'apexia' 
+                  ? (location.pathname.startsWith(item.path) || location.pathname.startsWith('/chat/'))
+                  : location.pathname.startsWith(item.path);
+                const isApexIA = item.key === 'apexia';
                 
                 return (
                   <DropdownMenuItem
@@ -192,12 +253,23 @@ const BottomNavCliente = () => {
                     onClick={() => handleNavigate(item)}
                     disabled={item.disabled}
                     className={`
-                      flex items-center gap-3 cursor-pointer
-                      ${isActive ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400' : ''}
+                      flex items-center gap-3 cursor-pointer rounded-xl mx-1 my-0.5
+                      ${isActive 
+                        ? 'bg-blue-50 text-blue-600 font-semibold' 
+                        : isApexIA
+                        ? 'bg-orange-50/80 border border-orange-400/40 text-orange-600 hover:bg-orange-100/80'
+                        : 'hover:bg-slate-50 text-slate-700'
+                      }
+                      transition-colors duration-200
                     `}
                   >
                     <Icon className="w-5 h-5" />
                     <span>{item.label}</span>
+                    {isApexIA && !isActive && (
+                      <span className="ml-auto inline-flex items-center rounded-full bg-orange-500/10 text-orange-500 text-[9px] font-bold px-1.5 py-0.5 border border-orange-500/20">
+                        AI
+                      </span>
+                    )}
                   </DropdownMenuItem>
                 );
               })}

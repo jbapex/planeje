@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
+import { TooltipCustom } from '@/components/ui/tooltip-custom';
 
 // Função para formatar moeda
 const formatCurrency = (value) => {
@@ -1201,21 +1202,21 @@ const ClientSupport = () => {
         <title>Dashboard - JB APEX</title>
       </Helmet>
 
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <motion.div 
-          className="flex flex-col md:flex-row md:items-center justify-between gap-4"
+          className="flex flex-col md:flex-row md:items-center md:justify-between items-center gap-4 text-center md:text-left"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          <div>
-            <h1 className="text-2xl font-bold text-[#1e293b]">Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-1">
+          <div className="w-full md:w-auto">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#1e293b]">Dashboard</h1>
+            <p className="text-sm sm:text-base text-slate-500 mt-1">
               Bem-vindo, {profile?.full_name || 'Cliente'}! Acompanhe seus resultados e métricas.
             </p>
           </div>
           
-          <div className="flex items-center gap-2 self-start md:self-center">
+          <div className="flex items-center gap-2 justify-center md:justify-end w-full md:w-auto">
             <Select 
               value={periodo} 
               onValueChange={(value) => {
@@ -1363,16 +1364,16 @@ const ClientSupport = () => {
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Coluna da Esquerda (2/3) */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             {/* Card Faturamento Estilizado (Hero KPI) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.1 }}
             >
-              <div className="rounded-2xl bg-gradient-to-br from-[#0f172a] via-[#1e3a8a] to-[#3b82f6] p-5 relative overflow-hidden shadow-xl shadow-blue-900/10 border border-white/10">
+              <div className="rounded-xl sm:rounded-2xl bg-gradient-to-br from-[#0f172a] via-[#1e3a8a] to-[#3b82f6] p-4 sm:p-5 relative overflow-hidden shadow-sm sm:shadow-xl shadow-blue-900/10 border border-white/10">
                 {/* Imagem de fundo celestial com ondas de luz e estrelas */}
                 <div 
                   className="absolute inset-0 opacity-60 mix-blend-screen pointer-events-none bg-cover bg-center scale-105" 
@@ -1382,66 +1383,81 @@ const ClientSupport = () => {
                 {/* Overlay adicional para profundidade */}
                 <div className="absolute inset-0 bg-blue-950/20 pointer-events-none" />
                 
-                <div className="relative z-10 space-y-4">
+                <div className="relative z-10 space-y-3 sm:space-y-4">
                   <div className="px-2">
-                    <p className="text-white text-lg font-normal tracking-tight leading-tight">Faturamento</p>
-                    <h2 className="text-3xl font-black text-[#A7F3D0] mt-1 tracking-tighter leading-none drop-shadow-sm">
+                    <p className="text-white text-base sm:text-lg font-normal tracking-tight leading-tight">Faturamento Total</p>
+                    <h2 className="text-2xl sm:text-3xl font-black text-[#A7F3D0] mt-1 tracking-tighter leading-none drop-shadow-sm">
                       {formatCurrency(mesAtual.totalFaturamento)}
                     </h2>
                   </div>
 
                   {/* Sub-card branco translúcido para KPIs secundários */}
-                  <div className="bg-white/95 backdrop-blur-md rounded-xl p-5 shadow-lg">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-0 relative">
+                  <div className="bg-white/95 backdrop-blur-md rounded-xl p-4 sm:p-5 shadow-lg">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 md:gap-0 relative">
                       {/* Leads */}
-                      <div className="flex flex-col md:pr-4 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-2xl font-bold text-slate-800 tracking-tighter">
-                            {formatNumber(mesAtual.totalLeads)}
-                          </span>
-                          <User className="h-4 w-4 text-emerald-500/80" />
+                      <TooltipCustom
+                        content="Total de leads gerados no período selecionado. Leads são contatos potenciais que demonstraram interesse no seu produto ou serviço."
+                        side="top"
+                      >
+                        <div className="flex flex-col md:pr-4 relative cursor-help">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
+                              {formatNumber(mesAtual.totalLeads)}
+                            </span>
+                            <User className="h-4 w-4 text-emerald-500/80" />
+                          </div>
+                          <div className="mt-0.5">
+                            <p className="text-xs font-bold text-slate-600 leading-tight">Leads Gerados</p>
+                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
+                          </div>
                         </div>
-                        <div className="mt-0.5">
-                          <p className="text-xs font-bold text-slate-600 leading-tight">Leads</p>
-                          <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
-                        </div>
-                      </div>
+                      </TooltipCustom>
                       
                       {/* Divisor Vertical */}
                       <div className="hidden md:block absolute left-[33.33%] top-0 bottom-0 w-[1px] bg-slate-100" />
 
                       {/* Vendas */}
-                      <div className="flex flex-col md:px-4 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-2xl font-bold text-slate-800 tracking-tighter">
-                            {formatNumber(mesAtual.totalVendas)}
-                          </span>
-                          <ShoppingCart className="h-4 w-4 text-slate-300" />
+                      <TooltipCustom
+                        content="Total de vendas fechadas no período selecionado. Representa o número de conversões efetivas de leads em clientes."
+                        side="top"
+                      >
+                        <div className="flex flex-col md:px-4 relative cursor-help">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
+                              {formatNumber(mesAtual.totalVendas)}
+                            </span>
+                            <ShoppingCart className="h-4 w-4 text-slate-300" />
+                          </div>
+                          <div className="mt-0.5">
+                            <p className="text-xs font-bold text-slate-600 leading-tight">Vendas Fechadas</p>
+                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
+                          </div>
                         </div>
-                        <div className="mt-0.5">
-                          <p className="text-xs font-bold text-slate-600 leading-tight">Vendas</p>
-                          <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
-                        </div>
-                      </div>
+                      </TooltipCustom>
 
                       {/* Divisor Vertical */}
                       <div className="hidden md:block absolute left-[66.66%] top-0 bottom-0 w-[1px] bg-slate-100" />
 
                       {/* Taxa de Conversão */}
-                      <div className="flex flex-col md:pl-4 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-2xl font-bold text-slate-800 tracking-tighter">
-                            {formatPercentage(mesAtual.taxaConversao)}
-                          </span>
-                          <div className="p-0.5 rounded-md bg-purple-50/50">
-                            <TrendingUp className="h-4 w-4 text-purple-500/80" />
+                      <TooltipCustom
+                        content="Percentual de leads que se converteram em vendas. Calculado como: (Vendas ÷ Leads) × 100. Quanto maior, melhor a eficiência do funil."
+                        side="top"
+                      >
+                        <div className="flex flex-col md:pl-4 relative cursor-help">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
+                              {formatPercentage(mesAtual.taxaConversao)}
+                            </span>
+                            <div className="p-0.5 rounded-md bg-purple-50/50">
+                              <TrendingUp className="h-4 w-4 text-purple-500/80" />
+                            </div>
+                          </div>
+                          <div className="mt-0.5">
+                            <p className="text-xs font-bold text-slate-600 leading-tight">Taxa de Conversão</p>
+                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Leads → Vendas</p>
                           </div>
                         </div>
-                        <div className="mt-0.5">
-                          <p className="text-xs font-bold text-slate-600 leading-tight">Taxa de Conversão</p>
-                          <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
-                        </div>
-                      </div>
+                      </TooltipCustom>
                     </div>
                   </div>
                 </div>
@@ -1454,50 +1470,65 @@ const ClientSupport = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.15 }}
             >
-              <Card className="border-none shadow-sm bg-white p-8 rounded-2xl">
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-slate-800">ROI - Retorno sobre Investimento</h3>
-                  <p className="text-sm text-slate-400 font-semibold mt-1">Análise financeira do mês atual</p>
+              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-800">ROI - Retorno sobre Investimento</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Análise financeira do período selecionado</p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                   {/* Investimento */}
-                  <div className="flex flex-col p-6 rounded-xl bg-gradient-to-br from-orange-50 to-red-50 border border-orange-100">
-                    <div className="flex items-center justify-end mb-3">
-                      <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide">Investido</span>
+                  <TooltipCustom
+                    content="Total de recursos investidos em marketing e publicidade no período selecionado. Inclui investimentos em tráfego pago e campanhas."
+                    side="top"
+                  >
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-orange-50 to-red-50 border border-orange-100 cursor-help">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide">Investido</span>
+                      </div>
+                      <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                        {formatCurrency(mesAtual.totalInvestimento)}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">Total investido no período</p>
                     </div>
-                    <h4 className="text-2xl font-black text-slate-800 tracking-tight">
-                      {formatCurrency(mesAtual.totalInvestimento)}
-                    </h4>
-                    <p className="text-xs text-slate-500 font-medium mt-2">Total investido no mês</p>
-                  </div>
+                  </TooltipCustom>
 
                   {/* Faturamento */}
-                  <div className="flex flex-col p-6 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
-                    <div className="flex items-center justify-end mb-3">
-                      <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Faturado</span>
+                  <TooltipCustom
+                    content="Receita total gerada pelas vendas no período selecionado. Representa o faturamento bruto antes de descontos e impostos."
+                    side="top"
+                  >
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 cursor-help">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Faturado</span>
+                      </div>
+                      <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                        {formatCurrency(mesAtual.totalFaturamento)}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">Total faturado no período</p>
                     </div>
-                    <h4 className="text-2xl font-black text-slate-800 tracking-tight">
-                      {formatCurrency(mesAtual.totalFaturamento)}
-                    </h4>
-                    <p className="text-xs text-slate-500 font-medium mt-2">Total faturado no mês</p>
-                  </div>
+                  </TooltipCustom>
 
                   {/* ROI */}
-                  <div className="flex flex-col p-6 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100">
-                    <div className="flex items-center justify-end mb-3">
-                      <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide">ROI</span>
+                  <TooltipCustom
+                    content="Retorno sobre Investimento (ROI) mostra a eficiência do investimento em marketing. Calculado como: ((Faturamento - Investimento) ÷ Investimento) × 100. Valores positivos indicam lucro."
+                    side="top"
+                  >
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 cursor-help">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide">ROI</span>
+                      </div>
+                      <h4 className={`text-xl sm:text-2xl font-black tracking-tight ${
+                        mesAtual.roi >= 0 ? 'text-emerald-600' : 'text-red-600'
+                      }`}>
+                        {mesAtual.totalInvestimento > 0 ? `${mesAtual.roi >= 0 ? '+' : ''}${Math.round(mesAtual.roi)}%` : '0%'}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">
+                        {mesAtual.totalInvestimento > 0 
+                          ? `Retorno líquido: ${formatCurrency(mesAtual.totalFaturamento - mesAtual.totalInvestimento)}`
+                          : 'Sem investimento registrado'}
+                      </p>
                     </div>
-                    <h4 className={`text-2xl font-black tracking-tight ${
-                      mesAtual.roi >= 0 ? 'text-emerald-600' : 'text-red-600'
-                    }`}>
-                      {mesAtual.totalInvestimento > 0 ? `${mesAtual.roi >= 0 ? '+' : ''}${Math.round(mesAtual.roi)}%` : '0%'}
-                    </h4>
-                    <p className="text-xs text-slate-500 font-medium mt-2">
-                      {mesAtual.totalInvestimento > 0 
-                        ? `Retorno de ${formatCurrency(mesAtual.totalFaturamento - mesAtual.totalInvestimento)}`
-                        : 'Sem investimento registrado'}
-                    </p>
-                  </div>
+                  </TooltipCustom>
                 </div>
               </Card>
             </motion.div>
@@ -1508,12 +1539,12 @@ const ClientSupport = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.2 }}
             >
-              <Card className="border-none shadow-sm bg-white p-8 rounded-2xl">
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-slate-800">Evolução de Faturamento</h3>
-                  <p className="text-sm text-slate-400 font-semibold mt-1">Taxa de conversão</p>
+              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução de Faturamento</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Faturamento mensal ao longo do ano</p>
                 </div>
-                <div className="h-64">
+                <div className="h-48 sm:h-64">
                   {dadosMensaisFaturamento.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-slate-300 font-medium text-sm">Nenhum dado disponível</div>
                   ) : (
@@ -1534,12 +1565,12 @@ const ClientSupport = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.25 }}
             >
-              <Card className="border-none shadow-sm bg-white p-8 rounded-2xl">
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-slate-800">Evolução do Ticket Médio</h3>
-                  <p className="text-sm text-slate-400 font-semibold mt-1">Valor médio por venda</p>
+              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução do Ticket Médio</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Valor médio por venda ao longo do ano</p>
                 </div>
-                <div className="h-64">
+                <div className="h-48 sm:h-64">
                   {dadosMensaisFaturamento.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-slate-300 font-medium text-sm">Nenhum dado disponível</div>
                   ) : (
@@ -1556,14 +1587,14 @@ const ClientSupport = () => {
           </div>
 
           {/* Coluna da Direita (1/3) */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Histórico Recente */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.3 }}
             >
-              <Card className="border-none shadow-sm bg-white rounded-2xl h-[500px] flex flex-col overflow-hidden">
+              <Card className="border-none shadow-sm sm:shadow-md bg-white rounded-xl sm:rounded-2xl h-[400px] sm:h-[500px] flex flex-col overflow-hidden">
                 <CardHeader className="p-6 pb-4 border-b border-slate-100">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1685,9 +1716,10 @@ const ClientSupport = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.4 }}
             >
-              <Card className="border-none shadow-sm bg-white p-8 rounded-2xl overflow-hidden group flex flex-col">
-                <div className="mb-4">
-                  <h3 className="text-lg font-bold text-slate-800">Evolução de CPL</h3>
+              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl overflow-hidden group flex flex-col">
+                <div className="mb-3 sm:mb-4">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução de CPL</h3>
+                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Custo por Lead semanal</p>
                 </div>
                 <div className="h-40">
                   {cplSemanal.length === 0 ? (

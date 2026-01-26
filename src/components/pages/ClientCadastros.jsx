@@ -15,11 +15,11 @@ const SECTIONS = [
     title: 'Informações Básicas',
     description: 'Dados principais da sua empresa para o time da JB APEX te conhecer melhor.',
     fields: [
-      { key: 'empresa', label: 'Nome da Empresa', icon: Building, type: 'text' },
-      { key: 'nome_contato', label: 'Nome do Contato', icon: User, type: 'text' },
-      { key: 'nicho', label: 'Nicho de Mercado', icon: Target, type: 'text' },
-      { key: 'publico_alvo', label: 'Público-Alvo', icon: Target, type: 'textarea' },
-      { key: 'tom_de_voz', label: 'Tom de Voz', icon: Target, type: 'textarea' },
+      { key: 'empresa', label: 'Nome da Empresa', icon: Building, type: 'text', placeholder: 'Ex: Minha Empresa Ltda' },
+      { key: 'nome_contato', label: 'Nome do Contato', icon: User, type: 'text', placeholder: 'Ex: João Silva' },
+      { key: 'nicho', label: 'Nicho de Atuação', icon: Target, type: 'text', placeholder: 'Ex: Marketing Digital para Pequenas Empresas' },
+      { key: 'publico_alvo', label: 'Público-Alvo e Persona', icon: Target, type: 'textarea', placeholder: 'Descreva o perfil do seu público ideal, incluindo características demográficas, comportamentais e necessidades...' },
+      { key: 'tom_de_voz', label: 'Tom de Comunicação', icon: Target, type: 'textarea', placeholder: 'Descreva como sua marca se comunica: formal, descontraído, técnico, amigável, etc...' },
     ],
   },
   {
@@ -27,9 +27,9 @@ const SECTIONS = [
     title: 'Informações da Empresa',
     description: 'Contexto que ajuda o ApexIA a produzir mensagens alinhadas ao seu negócio.',
     fields: [
-      { key: 'sobre_empresa', label: 'Sobre a Empresa', icon: Info, type: 'textarea' },
-      { key: 'produtos_servicos', label: 'Produtos / Serviços', icon: Info, type: 'textarea' },
-      { key: 'avaliacao_treinamento', label: 'Avaliação / Treinamento', icon: Info, type: 'textarea' },
+      { key: 'sobre_empresa', label: 'Sobre a Empresa', icon: Info, type: 'textarea', placeholder: 'Conte a história da sua empresa, missão, valores e o que a torna única no mercado...' },
+      { key: 'produtos_servicos', label: 'Produtos / Serviços', icon: Info, type: 'textarea', placeholder: 'Descreva os principais produtos ou serviços oferecidos, suas características e benefícios...' },
+      { key: 'avaliacao_treinamento', label: 'Avaliação / Treinamento', icon: Info, type: 'textarea', placeholder: 'Informe sobre processos de avaliação, treinamento ou onboarding de clientes...' },
     ],
   },
   {
@@ -197,18 +197,19 @@ const ClientCadastros = () => {
         <title>Cadastros do Cliente - JB APEX</title>
       </Helmet>
 
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-foreground">Cadastros do Cliente</h1>
-            <p className="text-sm md:text-base text-muted-foreground mt-1">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between items-center gap-3 sm:gap-4 text-center md:text-left">
+          <div className="w-full md:w-auto">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Cadastros do Cliente</h1>
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
               Revise e mantenha atualizadas as informações que usamos nas suas estratégias e no ApexIA.
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full md:w-auto justify-center md:justify-end">
             <Button
               variant="outline"
               onClick={handleToggleEdit}
+              className="h-11 sm:h-10 text-sm sm:text-base"
             >
               {editing ? 'Cancelar' : 'Editar informações'}
             </Button>
@@ -216,7 +217,7 @@ const ClientCadastros = () => {
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                className="bg-emerald-500 hover:bg-emerald-600 text-white h-11 sm:h-10 text-sm sm:text-base"
               >
                 {saving ? (
                   <>
@@ -236,25 +237,25 @@ const ClientCadastros = () => {
             <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {SECTIONS.map((section) => (
               <Card
                 key={section.id}
-                className="dark:bg-gray-800/50 dark:border-gray-700/50 border border-gray-200/50 shadow-sm"
+                className="dark:bg-gray-800/50 dark:border-gray-700/50 border border-gray-200/50 shadow-sm sm:shadow-md rounded-xl sm:rounded-2xl"
               >
-                <CardHeader>
-                  <CardTitle className="text-base md:text-lg dark:text-white">{section.title}</CardTitle>
-                  <CardDescription className="text-xs md:text-sm text-muted-foreground dark:text-gray-400">
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="text-base sm:text-lg dark:text-white">{section.title}</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm text-muted-foreground dark:text-gray-400 mt-1">
                     {section.description}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-3 sm:space-y-4 p-4 sm:p-6 pt-0">
                   {section.fields.map((field) => {
                     const Icon = field.icon;
                     return (
-                      <div key={field.key} className="space-y-1">
-                        <div className="flex items-center gap-2 text-xs font-medium text-foreground dark:text-gray-300">
-                          <Icon className="h-3 w-3" />
+                      <div key={field.key} className="space-y-1.5 sm:space-y-2">
+                        <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-foreground dark:text-gray-300">
+                          <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                           <span>{field.label}</span>
                         </div>
                         {editing ? (
@@ -263,20 +264,20 @@ const ClientCadastros = () => {
                               rows={3}
                               value={formState[field.key] ?? ''}
                               onChange={(e) => handleChange(field.key, e.target.value)}
-                              className="dark:bg-gray-900/50 dark:border-gray-700 dark:text-gray-100 placeholder:text-muted-foreground"
-                              placeholder="Preencha aqui..."
+                              className="dark:bg-gray-900/50 dark:border-gray-700 dark:text-gray-100 placeholder:text-muted-foreground text-sm sm:text-base h-11 sm:h-auto"
+                              placeholder={field.placeholder || "Preencha aqui..."}
                             />
                           ) : (
                             <Input
                               type={field.type}
                               value={formState[field.key] ?? ''}
                               onChange={(e) => handleChange(field.key, e.target.value)}
-                              className="dark:bg-gray-900/50 dark:border-gray-700 dark:text-gray-100 placeholder:text-muted-foreground"
-                              placeholder="Preencha aqui..."
+                              className="dark:bg-gray-900/50 dark:border-gray-700 dark:text-gray-100 placeholder:text-muted-foreground h-11 sm:h-10 text-sm sm:text-base"
+                              placeholder={field.placeholder || "Preencha aqui..."}
                             />
                           )
                         ) : (
-                          <div className="rounded-md border border-border bg-muted/50 px-3 py-2">
+                          <div className="rounded-md border border-border bg-muted/50 px-3 py-2 min-h-[2.75rem] sm:min-h-[2.5rem] flex items-center">
                             {renderFieldValue(field)}
                           </div>
                         )}
