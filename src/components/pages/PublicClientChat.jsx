@@ -37,6 +37,21 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
       Bot, Sparkles, Lightbulb, Clapperboard, Default: Bot,
     };
 
+    // Função para detectar o tipo de modelo (Gemini, Deepseek, GPT, etc)
+    const getModelType = (modelId) => {
+        if (!modelId) return 'default';
+        
+        const name = modelId.split('/').pop() || modelId;
+        const baseName = name.toLowerCase();
+        
+        if (baseName.includes('gemini')) return 'gemini';
+        if (baseName.includes('deepseek')) return 'deepseek';
+        if (baseName.includes('gpt') || baseName.includes('o1') || baseName.includes('o3')) return 'openai';
+        if (baseName.includes('claude')) return 'anthropic';
+        
+        return 'default';
+    };
+
     // Função para formatar nome do modelo de forma simplificada
     const formatModelName = (modelId) => {
         if (!modelId) return '';
@@ -862,6 +877,43 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
                 return () => clearTimeout(timer);
             }
         }, [isEntering]);
+
+        // Efeito para mudar modelo quando alternar entre modo tráfego e chat normal
+        useEffect(() => {
+            if (!hasTrafficAccess || !trafficConfig?.allowed_ai_models?.length) return;
+            
+            const updateModelForMode = async () => {
+                const { data: defaultModelData } = await supabase
+                    .from('public_config')
+                    .select('value')
+                    .eq('key', 'apexia_default_model')
+                    .maybeSingle();
+                
+                const globalDefaultModel = defaultModelData?.value || 'gpt-4o-mini';
+                
+                let modelToUse;
+                if (isTrafficMode && trafficConfig.default_model_traffic) {
+                    // Modo tráfego: usar default_model_traffic
+                    modelToUse = trafficConfig.default_model_traffic;
+                } else if (!isTrafficMode && trafficConfig.default_model_chat) {
+                    // Chat normal: usar default_model_chat
+                    modelToUse = trafficConfig.default_model_chat;
+                } else {
+                    // Usar padrão global
+                    modelToUse = globalDefaultModel;
+                }
+                
+                // Garantir que o modelo está na lista permitida
+                if (trafficConfig.allowed_ai_models.includes(modelToUse)) {
+                    setSelectedModelByUser(modelToUse);
+                } else if (trafficConfig.allowed_ai_models.length > 0) {
+                    // Se não estiver, usar o primeiro da lista
+                    setSelectedModelByUser(trafficConfig.allowed_ai_models[0]);
+                }
+            };
+            
+            updateModelForMode();
+        }, [isTrafficMode, hasTrafficAccess, trafficConfig]);
     
         const handleInstallClick = async () => {
             if (!installPrompt) return;
@@ -1217,7 +1269,7 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                     supabase.from('ai_agents').select('*').eq('is_active', true).order('created_at'),
                     supabase.from('projetos').select('id, name, status, mes_referencia').eq('client_id', clientId),
                     supabase.from('client_chat_sessions').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
-                    supabase.from('cliente_apexia_config').select('has_traffic_access, allowed_ai_models').eq('cliente_id', clientId).maybeSingle()
+                    supabase.from('cliente_apexia_config').select('has_traffic_access, allowed_ai_models, default_model_chat, default_model_traffic').eq('cliente_id', clientId).maybeSingle()
                 ]);
 
                 clearTimeout(timeoutId);
@@ -1241,24 +1293,31 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                     
                     const globalDefaultModel = defaultModelData?.value || 'gpt-4o-mini';
                     
+                    // Determinar modelo padrão inicial baseado no contexto
+                    // Por padrão, começa no chat normal (não tráfego), então usa default_model_chat se existir
+                    let initialDefaultModel = globalDefaultModel;
+                    if (trafficConfigRes.data.default_model_chat) {
+                        initialDefaultModel = trafficConfigRes.data.default_model_chat;
+                    }
+                    
                     // Se houver modelos permitidos, configurar para o usuário
                     if (trafficConfigRes.data.allowed_ai_models && trafficConfigRes.data.allowed_ai_models.length > 0) {
-                        // Garantir que o modelo padrão global esteja na lista
+                        // Garantir que o modelo padrão esteja na lista
                         let modelsList = [...trafficConfigRes.data.allowed_ai_models];
-                        if (!modelsList.includes(globalDefaultModel)) {
-                            modelsList = [globalDefaultModel, ...modelsList];
+                        if (!modelsList.includes(initialDefaultModel)) {
+                            modelsList = [initialDefaultModel, ...modelsList];
                         }
                         
                         setAvailableModelsForUser(modelsList);
                         // Só define o modelo padrão se o usuário ainda não escolheu um
                         if (!selectedModelByUser) {
-                            setSelectedModelByUser(globalDefaultModel);
+                            setSelectedModelByUser(initialDefaultModel);
                         }
                     } else {
-                        // Se não há modelos configurados, usar apenas o padrão global
-                        setAvailableModelsForUser([globalDefaultModel]);
+                        // Se não há modelos configurados, usar apenas o padrão
+                        setAvailableModelsForUser([initialDefaultModel]);
                         if (!selectedModelByUser) {
-                            setSelectedModelByUser(globalDefaultModel);
+                            setSelectedModelByUser(initialDefaultModel);
                         }
                     }
                     
@@ -2322,11 +2381,36 @@ Seja específico, autêntico e direto. Evite clichês de marketing.
                     // Usar modelo selecionado pelo usuário (já validado que está na lista)
                     selectedModel = selectedModelByUser;
                 } else {
-                    // Usar o primeiro modelo da lista configurada
-                    selectedModel = trafficConfig.allowed_ai_models[0];
+                    // Determinar modelo padrão baseado no contexto (tráfego pago ou chat normal)
+                    let defaultModelToUse;
+                    
+                    if (isTrafficMode && trafficConfig.default_model_traffic) {
+                        // Modo tráfego pago: usar default_model_traffic se configurado
+                        defaultModelToUse = trafficConfig.default_model_traffic;
+                    } else if (!isTrafficMode && trafficConfig.default_model_chat) {
+                        // Chat normal: usar default_model_chat se configurado
+                        defaultModelToUse = trafficConfig.default_model_chat;
+                    } else {
+                        // Buscar modelo padrão global
+                        const { data: defaultModelData } = await supabase
+                            .from('public_config')
+                            .select('value')
+                            .eq('key', 'apexia_default_model')
+                            .maybeSingle();
+                        defaultModelToUse = defaultModelData?.value || 'gpt-4o-mini';
+                    }
+                    
+                    // Garantir que o modelo padrão está na lista permitida
+                    if (trafficConfig.allowed_ai_models.includes(defaultModelToUse)) {
+                        selectedModel = defaultModelToUse;
+                    } else {
+                        // Se não estiver, usar o primeiro da lista
+                        selectedModel = trafficConfig.allowed_ai_models[0];
+                    }
+                    
                     // Sincronizar estado se necessário
-                    if (selectedModelByUser !== trafficConfig.allowed_ai_models[0]) {
-                        setSelectedModelByUser(trafficConfig.allowed_ai_models[0]);
+                    if (selectedModelByUser !== selectedModel) {
+                        setSelectedModelByUser(selectedModel);
                     }
                 }
             } else {
@@ -3870,54 +3954,135 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                 <form onSubmit={handleSendMessage} className="relative">
                                     <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() && !attachedImage ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
                                         {/* Seletor de Modelo de IA - no lugar do botão + (especialmente no celular) */}
-                                        {hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 && (
-                                            <div className="absolute left-2 bottom-2.5 z-10">
-                                                <Select
-                                                    value={selectedModelByUser || trafficConfig.allowed_ai_models[0]}
-                                                    onValueChange={(value) => {
-                                                        // Apenas permite selecionar modelos da lista permitida configurada pelo Super Admin
-                                                        if (trafficConfig.allowed_ai_models.includes(value)) {
-                                                            setSelectedModelByUser(value);
-                                                        }
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-9 w-9 p-0 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex-shrink-0 dark:bg-gray-800/50 dark:border-gray-700/50 border-gray-200 dark:border-gray-700 flex items-center justify-center" title={formatModelName(selectedModelByUser || trafficConfig.allowed_ai_models[0])}>
-                                                        <SelectValue>
-                                                            <Sparkles className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                                                        </SelectValue>
-                                                    </SelectTrigger>
-                                                    <SelectContent className="max-h-[400px] dark:bg-gray-800/95 dark:border-gray-700/50">
-                                                        {trafficConfig.allowed_ai_models.map((modelId) => (
-                                                            <SelectItem key={modelId} value={modelId}>
-                                                                <div className="flex items-center gap-2">
-                                                                    <Sparkles className="h-4 w-4" />
-                                                                    <span>{formatModelName(modelId)}</span>
-                                                                </div>
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Botão de anexar imagem - sempre visível */}
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => {
-                                                if (isMobile && !isIOS) {
-                                                    cameraInputRef.current?.click();
-                                                } else {
-                                                    fileInputRef.current?.click();
+                                        {hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 && (() => {
+                                            const currentModel = selectedModelByUser || trafficConfig.allowed_ai_models[0];
+                                            const modelType = getModelType(currentModel);
+                                            
+                                            // Componente para logo do modelo
+                                            const ModelIcon = ({ modelId, size = 16, className = "" }) => {
+                                                const type = getModelType(modelId);
+                                                
+                                                // Tentar carregar logo da pasta public/logos
+                                                const getLogoPath = (modelType) => {
+                                                    const logoMap = {
+                                                        'gemini': '/logos/gemini.png',
+                                                        'deepseek': '/logos/deepseek.png',
+                                                        'openai': '/logos/openai.png',
+                                                        'anthropic': '/logos/anthropic.png'
+                                                    };
+                                                    return logoMap[modelType] || null;
+                                                };
+                                                
+                                                const logoPath = getLogoPath(type);
+                                                
+                                                // Se existe logo na pasta, usar imagem
+                                                if (logoPath) {
+                                                    return (
+                                                        <img 
+                                                            src={logoPath} 
+                                                            alt={formatModelName(modelId)}
+                                                            className={className}
+                                                            style={{ 
+                                                                width: size, 
+                                                                height: size,
+                                                                objectFit: 'contain'
+                                                            }}
+                                                            onError={(e) => {
+                                                                // Se a imagem não existir, usar fallback SVG
+                                                                e.target.style.display = 'none';
+                                                                const fallback = e.target.nextSibling;
+                                                                if (fallback) fallback.style.display = 'block';
+                                                            }}
+                                                        />
+                                                    );
                                                 }
-                                            }}
-                                            className={`absolute bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800 ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'left-12' : 'left-2 sm:left-12'}`}
-                                            disabled={isGenerating || !currentAgent}
-                                            title="Anexar imagem"
-                                        >
-                                            <Camera className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                                        </Button>
+                                                
+                                                // Fallback para SVGs caso as imagens não existam
+                                                if (type === 'gemini') {
+                                                    return (
+                                                        <div className={`flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
+                                                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                                                                <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="#4285F4"/>
+                                                                <path d="M12 6L13.5 10.5L18 12L13.5 13.5L12 18L10.5 13.5L6 12L10.5 10.5L12 6Z" fill="#34A853"/>
+                                                                <circle cx="12" cy="12" r="2" fill="#FBBC04"/>
+                                                            </svg>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                if (type === 'deepseek') {
+                                                    return (
+                                                        <div className={`flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
+                                                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                                                                <ellipse cx="14" cy="12" rx="7" ry="5" fill="#4285F4"/>
+                                                                <path d="M7 10C7 10 6 8 4 9C2 10 2 12 4 13C6 14 7 12 7 12" fill="#4285F4"/>
+                                                                <ellipse cx="14" cy="13" rx="4.5" ry="2.5" fill="white"/>
+                                                                <circle cx="11" cy="10.5" r="1.2" fill="white"/>
+                                                            </svg>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                return <Sparkles className="text-gray-600 dark:text-gray-400" style={{ width: size, height: size }} />;
+                                            };
+                                            
+                                            return (
+                                                <div className="absolute left-2 bottom-2.5 z-10">
+                                                    <Select
+                                                        value={currentModel}
+                                                        onValueChange={(value) => {
+                                                            // Apenas permite selecionar modelos da lista permitida configurada pelo Super Admin
+                                                            if (trafficConfig.allowed_ai_models.includes(value)) {
+                                                                setSelectedModelByUser(value);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <SelectTrigger 
+                                                            className="h-9 w-9 p-0 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex-shrink-0 dark:bg-gray-800/50 dark:border-gray-700/50 border-gray-200 dark:border-gray-700 flex items-center justify-center shadow-sm hover:shadow-md [&>svg]:hidden" 
+                                                            title={formatModelName(currentModel)}
+                                                        >
+                                                            <SelectValue>
+                                                                <ModelIcon modelId={currentModel} size={18} />
+                                                            </SelectValue>
+                                                        </SelectTrigger>
+                                                        <SelectContent className="max-h-[400px] dark:bg-gray-800/95 dark:border-gray-700/50">
+                                                            {trafficConfig.allowed_ai_models.map((modelId) => {
+                                                                const itemModelType = getModelType(modelId);
+                                                                return (
+                                                                    <SelectItem key={modelId} value={modelId} className="cursor-pointer">
+                                                                        <div className="flex items-center gap-3 py-1">
+                                                                            <ModelIcon modelId={modelId} size={20} />
+                                                                            <span className="font-medium">{formatModelName(modelId)}</span>
+                                                                        </div>
+                                                                    </SelectItem>
+                                                                );
+                                                            })}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            );
+                                        })()}
+                                        
+                                        {/* Botão de anexar imagem - ocultar quando houver texto */}
+                                        {!input.trim() && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => {
+                                                    if (isMobile && !isIOS) {
+                                                        cameraInputRef.current?.click();
+                                                    } else {
+                                                        fileInputRef.current?.click();
+                                                    }
+                                                }}
+                                                className={`absolute bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800 ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'left-12' : 'left-2 sm:left-12'}`}
+                                                disabled={isGenerating || !currentAgent}
+                                                title="Anexar imagem"
+                                            >
+                                                <Camera className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                                            </Button>
+                                        )}
                                         
                                         {/* Inputs de arquivo (ocultos) */}
                                         <input

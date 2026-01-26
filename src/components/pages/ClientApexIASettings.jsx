@@ -50,6 +50,107 @@ const AI_MODELS = [
   { value: 'gpt-3.5-turbo-0125', label: 'GPT-3.5 Turbo (2024-01-25)', description: 'Versão específica do GPT-3.5 Turbo de janeiro 2024' }
 ];
 
+// Função para formatar nome do modelo de forma simplificada
+const formatModelName = (modelId) => {
+  if (!modelId) return '';
+  
+  // Remover prefixos comuns (openai/, google/, anthropic/, etc)
+  let name = modelId.split('/').pop() || modelId;
+  
+  // Mapear nomes conhecidos para versões simplificadas
+  const modelNameMap = {
+    // Gemini
+    'gemini-3-flash-preview': 'Gemini',
+    'gemini-2.0-flash-exp': 'Gemini',
+    'gemini-1.5-pro': 'Gemini Pro',
+    'gemini-1.5-flash': 'Gemini Flash',
+    'gemini-pro': 'Gemini Pro',
+    'gemini-flash': 'Gemini Flash',
+    
+    // Deepseek
+    'deepseek-chat': 'Deepseek',
+    'deepseek-reasoner': 'Deepseek',
+    'deepseek-r1': 'Deepseek',
+    
+    // GPT
+    'gpt-5.1': 'GPT-5.1',
+    'gpt-5-mini': 'GPT-5 Mini',
+    'gpt-4o': 'GPT-4o',
+    'gpt-4o-mini': 'GPT-4o Mini',
+    'gpt-4-turbo': 'GPT-4 Turbo',
+    'gpt-4': 'GPT-4',
+    'gpt-3.5-turbo': 'GPT-3.5',
+    
+    // Claude
+    'claude-3.5-sonnet': 'Claude 3.5',
+    'claude-3-opus': 'Claude 3 Opus',
+    'claude-3-sonnet': 'Claude 3 Sonnet',
+    'claude-3-haiku': 'Claude 3 Haiku',
+    
+    // O1/O3
+    'o3': 'O3',
+    'o3-mini': 'O3 Mini',
+    'o1-preview': 'O1',
+    'o1-mini': 'O1 Mini',
+  };
+  
+  // Verificar se há mapeamento direto
+  if (modelNameMap[name.toLowerCase()]) {
+    return modelNameMap[name.toLowerCase()];
+  }
+  
+  // Extrair nome base (remover versões, datas, etc)
+  const baseName = name.toLowerCase();
+  
+  // Detectar padrões comuns
+  if (baseName.includes('gemini')) {
+    if (baseName.includes('pro')) return 'Gemini Pro';
+    if (baseName.includes('flash')) return 'Gemini Flash';
+    return 'Gemini';
+  }
+  
+  if (baseName.includes('deepseek')) {
+    return 'Deepseek';
+  }
+  
+  if (baseName.includes('gpt-4o')) {
+    if (baseName.includes('mini')) return 'GPT-4o Mini';
+    return 'GPT-4o';
+  }
+  
+  if (baseName.includes('gpt-4')) {
+    if (baseName.includes('turbo')) return 'GPT-4 Turbo';
+    return 'GPT-4';
+  }
+  
+  if (baseName.includes('gpt-3.5')) {
+    return 'GPT-3.5';
+  }
+  
+  if (baseName.includes('claude')) {
+    if (baseName.includes('3.5')) return 'Claude 3.5';
+    if (baseName.includes('opus')) return 'Claude 3 Opus';
+    if (baseName.includes('sonnet')) return 'Claude 3 Sonnet';
+    if (baseName.includes('haiku')) return 'Claude 3 Haiku';
+    return 'Claude';
+  }
+  
+  if (baseName.includes('o3')) {
+    if (baseName.includes('mini')) return 'O3 Mini';
+    return 'O3';
+  }
+  
+  if (baseName.includes('o1')) {
+    if (baseName.includes('mini')) return 'O1 Mini';
+    return 'O1';
+  }
+  
+  // Se não encontrou padrão, retornar nome formatado (primeira letra maiúscula)
+  return name.split('-').map(word => 
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ');
+};
+
 const ClientApexIASettings = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -137,16 +238,51 @@ const ClientApexIASettings = () => {
 
       if (clientsError) throw clientsError;
 
-      // Buscar configurações
+      // Buscar configurações - usar select('*') para pegar todos os campos disponíveis
       const { data: configsData, error: configsError } = await supabase
         .from('cliente_apexia_config')
         .select('*');
+      
+      // Se houver erro, tentar buscar apenas campos básicos
+      if (configsError && configsError.message && configsError.message.includes('default_model')) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('cliente_apexia_config')
+          .select('id, cliente_id, has_traffic_access, allowed_ai_models, created_at, updated_at');
+        
+        if (!fallbackError && fallbackData) {
+          // Adicionar campos como null
+          const processedData = fallbackData.map(config => ({
+            ...config,
+            default_model_chat: null,
+            default_model_traffic: null,
+          }));
+          
+          // Criar mapa de configurações por cliente_id
+          const configsMap = {};
+          processedData.forEach(config => {
+            configsMap[config.cliente_id] = config;
+          });
+          
+          setClients(clientsData || []);
+          setConfigs(configsMap);
+          setLoading(false);
+          toast({
+            title: 'Migration necessária',
+            description: 'Execute EXECUTAR_MIGRATION_DEFAULT_MODEL_TRAFFIC.sql no Supabase SQL Editor para habilitar modelos padrão por contexto.',
+            variant: 'default',
+          });
+          return;
+        }
+      }
 
       if (configsError) throw configsError;
 
       // Criar mapa de configurações por cliente_id
       const configsMap = {};
       (configsData || []).forEach(config => {
+        // Garantir que os campos de modelo padrão existam
+        config.default_model_chat = config.default_model_chat ?? null;
+        config.default_model_traffic = config.default_model_traffic ?? null;
         configsMap[config.cliente_id] = config;
       });
 
@@ -216,7 +352,17 @@ const ClientApexIASettings = () => {
       cliente_id: clientId,
       has_traffic_access: false,
       allowed_ai_models: [],
+      default_model_chat: null,
+      default_model_traffic: null,
     };
+    
+    // Garantir que os campos existam
+    if (config.default_model_chat === undefined) {
+      config.default_model_chat = null;
+    }
+    if (config.default_model_traffic === undefined) {
+      config.default_model_traffic = null;
+    }
     
     // Garantir que o modelo padrão sempre esteja na lista (se não estiver)
     if (defaultModel && !config.allowed_ai_models.includes(defaultModel)) {
@@ -247,17 +393,50 @@ const ClientApexIASettings = () => {
         modelsToSave = [defaultModel, ...modelsToSave];
       }
       
+      // Preparar dados para salvar
+      const dataToSave = {
+        cliente_id: clientId,
+        has_traffic_access: config.has_traffic_access,
+        allowed_ai_models: modelsToSave,
+      };
+      
+      // Adicionar modelos padrão (sempre tentar, se a coluna não existir, o erro será tratado)
+      dataToSave.default_model_chat = config.default_model_chat || null;
+      dataToSave.default_model_traffic = config.default_model_traffic || null;
+      
       const { error } = await supabase
         .from('cliente_apexia_config')
-        .upsert({
-          cliente_id: clientId,
-          has_traffic_access: config.has_traffic_access,
-          allowed_ai_models: modelsToSave,
-        }, {
+        .upsert(dataToSave, {
           onConflict: 'cliente_id',
         });
 
-      if (error) throw error;
+      if (error) {
+        // Se o erro for sobre a coluna não existir, tentar salvar sem os campos de modelo padrão
+        if (error.message && (error.message.includes('default_model') || error.code === 'PGRST204')) {
+          // Tentar salvar sem os campos de modelo padrão
+          const { error: fallbackError } = await supabase
+            .from('cliente_apexia_config')
+            .upsert({
+              cliente_id: clientId,
+              has_traffic_access: config.has_traffic_access,
+              allowed_ai_models: modelsToSave,
+            }, {
+              onConflict: 'cliente_id',
+            });
+          
+          if (fallbackError) throw fallbackError;
+          
+          toast({
+            title: 'Configuração salva',
+            description: 'A configuração foi salva. Execute EXECUTAR_MIGRATION_DEFAULT_MODEL_TRAFFIC.sql para habilitar modelos padrão por contexto.',
+            variant: 'default',
+          });
+          
+          await fetchData();
+          return;
+        }
+        throw error;
+      }
 
       toast({
         title: 'Configuração salva!',
@@ -290,11 +469,21 @@ const ClientApexIASettings = () => {
           modelsToSave = [defaultModel, ...modelsToSave];
         }
         
-        return {
+        const dataToSave = {
           cliente_id: client.id,
           has_traffic_access: config.has_traffic_access,
           allowed_ai_models: modelsToSave,
         };
+        
+        // Adicionar modelos padrão apenas se existirem
+        if (config.default_model_chat !== undefined) {
+          dataToSave.default_model_chat = config.default_model_chat || null;
+        }
+        if (config.default_model_traffic !== undefined) {
+          dataToSave.default_model_traffic = config.default_model_traffic || null;
+        }
+        
+        return dataToSave;
       });
 
       // Usar upsert em lote
@@ -329,11 +518,42 @@ const ClientApexIASettings = () => {
   const toggleTrafficAccess = (clientId) => {
     setConfigs(prev => {
       const config = getClientConfig(clientId);
+      const newTrafficAccess = !config.has_traffic_access;
       return {
         ...prev,
         [clientId]: {
           ...config,
-          has_traffic_access: !config.has_traffic_access,
+          has_traffic_access: newTrafficAccess,
+          // Se desativar tráfego, limpar modelo padrão do cliente
+          default_model: newTrafficAccess ? config.default_model : null,
+        },
+      };
+    });
+  };
+
+  // Atualizar modelo padrão do cliente (chat)
+  const updateClientDefaultModelChat = (clientId, modelId) => {
+    setConfigs(prev => {
+      const config = getClientConfig(clientId);
+      return {
+        ...prev,
+        [clientId]: {
+          ...config,
+          default_model_chat: modelId || null,
+        },
+      };
+    });
+  };
+
+  // Atualizar modelo padrão do cliente (tráfego pago)
+  const updateClientDefaultModelTraffic = (clientId, modelId) => {
+    setConfigs(prev => {
+      const config = getClientConfig(clientId);
+      return {
+        ...prev,
+        [clientId]: {
+          ...config,
+          default_model_traffic: modelId || null,
         },
       };
     });
@@ -740,9 +960,21 @@ const ClientApexIASettings = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {modelsCount} modelo{modelsCount !== 1 ? 's' : ''}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="outline">
+                          {modelsCount} modelo{modelsCount !== 1 ? 's' : ''}
+                        </Badge>
+                        {config.default_model_chat && (
+                          <Badge variant="secondary" className="text-xs">
+                            Chat: {formatModelName(config.default_model_chat)}
+                          </Badge>
+                        )}
+                        {config.has_traffic_access && config.default_model_traffic && (
+                          <Badge variant="secondary" className="text-xs">
+                            Tráfego: {formatModelName(config.default_model_traffic)}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -788,6 +1020,85 @@ const ClientApexIASettings = () => {
           </DialogHeader>
           
           <div className="space-y-4">
+            {/* Seletor de Modelo Padrão para Chat Normal */}
+            <div className="p-4 bg-muted/50 rounded-lg border">
+              <Label className="text-sm font-semibold mb-2 block">
+                Modelo Padrão - Chat Normal
+              </Label>
+              <p className="text-xs text-muted-foreground mb-3">
+                Escolha qual modelo será usado por padrão no chat normal do ApexIA. Se não escolher, usará o modelo padrão global ({defaultModel.split('/').pop() || defaultModel}).
+              </p>
+              <Select
+                value={selectedClientConfig?.default_model_chat || selectedClientConfig?.default_model || 'global'}
+                onValueChange={(value) => {
+                  if (selectedClient) {
+                    updateClientDefaultModelChat(selectedClient.id, value === 'global' ? null : value);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {selectedClientConfig?.default_model_chat || selectedClientConfig?.default_model
+                      ? formatModelName(selectedClientConfig.default_model_chat || selectedClientConfig.default_model)
+                      : `Global: ${formatModelName(defaultModel)}`}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">
+                    <div className="flex flex-col">
+                      <span>Usar Padrão Global</span>
+                      <span className="text-xs text-muted-foreground">{formatModelName(defaultModel)}</span>
+                    </div>
+                  </SelectItem>
+                  {selectedClientConfig?.allowed_ai_models?.map((modelId) => (
+                    <SelectItem key={modelId} value={modelId}>
+                      {formatModelName(modelId)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Seletor de Modelo Padrão para Tráfego Pago (apenas se Tráfego Pago estiver ativado) */}
+            {selectedClientConfig?.has_traffic_access && (
+              <div className="p-4 bg-muted/50 rounded-lg border border-primary/20">
+                <Label className="text-sm font-semibold mb-2 block">
+                  Modelo Padrão - Tráfego Pago
+                </Label>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Escolha qual modelo será usado por padrão quando este cliente usar o ApexIA no modo Tráfego Pago. Se não escolher, usará o modelo padrão global ({defaultModel.split('/').pop() || defaultModel}).
+                </p>
+                <Select
+                  value={selectedClientConfig?.default_model_traffic || 'global'}
+                  onValueChange={(value) => {
+                    if (selectedClient) {
+                      updateClientDefaultModelTraffic(selectedClient.id, value === 'global' ? null : value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {selectedClientConfig?.default_model_traffic 
+                        ? formatModelName(selectedClientConfig.default_model_traffic)
+                        : `Global: ${formatModelName(defaultModel)}`}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="global">
+                      <div className="flex flex-col">
+                        <span>Usar Padrão Global</span>
+                        <span className="text-xs text-muted-foreground">{formatModelName(defaultModel)}</span>
+                      </div>
+                    </SelectItem>
+                    {selectedClientConfig?.allowed_ai_models?.map((modelId) => (
+                      <SelectItem key={modelId} value={modelId}>
+                        {formatModelName(modelId)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {/* Tabs para escolher entre OpenAI e OpenRouter */}
             <div className="flex gap-2 border-b">
               <Button
