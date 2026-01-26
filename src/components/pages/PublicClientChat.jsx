@@ -3393,7 +3393,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                     </div>
                                                                 </div>
                                                             )}
-                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
+                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-sm sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
                                                             {msg.showCategoryButtons && (
                                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                                     {STORY_CATEGORIES.map((cat) => (
@@ -3471,7 +3471,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         </div>
                                                     )}
                                                     <div 
-                                                        className="prose prose-sm dark:prose-invert max-w-none"
+                                                        className="prose prose-sm dark:prose-invert max-w-none text-sm sm:text-base"
                                                         style={{
                                                             minHeight: '1.5em',
                                                             lineHeight: '1.75'
@@ -3497,6 +3497,40 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                     @keyframes blink {
                                                         0%, 49% { opacity: 1; }
                                                         50%, 100% { opacity: 0.3; }
+                                                    }
+                                                    /* Reduzir tamanho do texto no mobile */
+                                                    @media (max-width: 640px) {
+                                                        .chat-message-content {
+                                                            font-size: 0.875rem !important;
+                                                            line-height: 1.5 !important;
+                                                        }
+                                                        .chat-message-content p {
+                                                            font-size: 0.875rem !important;
+                                                            line-height: 1.5 !important;
+                                                        }
+                                                        .chat-message-content h1,
+                                                        .chat-message-content h2,
+                                                        .chat-message-content h3,
+                                                        .chat-message-content h4,
+                                                        .chat-message-content h5,
+                                                        .chat-message-content h6 {
+                                                            font-size: 1rem !important;
+                                                            line-height: 1.4 !important;
+                                                        }
+                                                        .chat-message-content ul,
+                                                        .chat-message-content ol {
+                                                            font-size: 0.875rem !important;
+                                                        }
+                                                        .chat-message-content li {
+                                                            font-size: 0.875rem !important;
+                                                            line-height: 1.5 !important;
+                                                        }
+                                                        .chat-message-content code {
+                                                            font-size: 0.8125rem !important;
+                                                        }
+                                                        .chat-message-content pre {
+                                                            font-size: 0.8125rem !important;
+                                                        }
                                                     }
                                                 `}</style>
                                             </motion.div>
