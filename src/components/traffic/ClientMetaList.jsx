@@ -16,6 +16,75 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { format, isValid, startOfMonth, endOfMonth, subMonths, subDays, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// Constantes para cache
+const CACHE_PREFIX = 'meta_ads_cache_';
+const CACHE_DURATION_MS = 4 * 60 * 60 * 1000; // 4 horas em milissegundos
+
+// Funções auxiliares para gerenciar cache
+const getCacheKey = (accountId, dateFrom, dateTo) => {
+  const fromStr = dateFrom ? format(dateFrom, 'yyyy-MM-dd') : '';
+  const toStr = dateTo ? format(dateTo, 'yyyy-MM-dd') : '';
+  return `${CACHE_PREFIX}${accountId}_${fromStr}_${toStr}`;
+};
+
+const getCachedData = (cacheKey) => {
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (!cached) return null;
+    
+    const parsed = JSON.parse(cached);
+    const now = Date.now();
+    const cacheAge = now - parsed.timestamp;
+    
+    // Verifica se o cache ainda é válido (menos de 4 horas)
+    if (cacheAge < CACHE_DURATION_MS) {
+      console.log(`✅ Cache válido encontrado para ${cacheKey} (${Math.round(cacheAge / 1000 / 60)}min atrás)`);
+      // Converte lastUpdate de string para Date se necessário
+      if (parsed.data && parsed.data.lastUpdate) {
+        parsed.data.lastUpdate = parsed.data.lastUpdate instanceof Date 
+          ? parsed.data.lastUpdate 
+          : new Date(parsed.data.lastUpdate);
+      }
+      return parsed.data;
+    } else {
+      console.log(`⏰ Cache expirado para ${cacheKey} (${Math.round(cacheAge / 1000 / 60)}min atrás)`);
+      localStorage.removeItem(cacheKey);
+      return null;
+    }
+  } catch (err) {
+    console.error('Erro ao ler cache:', err);
+    return null;
+  }
+};
+
+const setCachedData = (cacheKey, data) => {
+  try {
+    const cacheEntry = {
+      timestamp: Date.now(),
+      data: data,
+    };
+    localStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+    console.log(`💾 Dados salvos no cache: ${cacheKey}`);
+  } catch (err) {
+    console.error('Erro ao salvar cache:', err);
+    // Se o localStorage estiver cheio, tenta limpar caches antigos
+    try {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_PREFIX));
+      if (keys.length > 50) {
+        // Remove os 10 mais antigos
+        const sortedKeys = keys.map(key => ({
+          key,
+          timestamp: JSON.parse(localStorage.getItem(key))?.timestamp || 0
+        })).sort((a, b) => a.timestamp - b.timestamp).slice(0, 10);
+        sortedKeys.forEach(({ key }) => localStorage.removeItem(key));
+        console.log('🧹 Limpeza de cache antigo realizada');
+      }
+    } catch (cleanErr) {
+      console.error('Erro ao limpar cache:', cleanErr);
+    }
+  }
+};
+
 const ClientMetaList = () => {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -37,6 +106,8 @@ const ClientMetaList = () => {
   const [newObservation, setNewObservation] = useState('');
   const [loadingObservations, setLoadingObservations] = useState(false);
   const [detailViewClient, setDetailViewClient] = useState(null);
+  const autoRefreshIntervalRef = useRef(null); // Referência para intervalo de atualização automática
+  const lastDateRangeRef = useRef(null); // Referência para o último período carregado
 
   // Busca observações de um cliente
   const fetchObservations = useCallback(async (clientId) => {
@@ -274,8 +345,8 @@ const ClientMetaList = () => {
     }
   }, []);
 
-  // Busca dados do Meta para uma conta
-  const fetchMetaData = useCallback(async (accountId) => {
+  // Busca dados do Meta para uma conta (com cache)
+  const fetchMetaData = useCallback(async (accountId, forceRefresh = false) => {
     try {
       // Usa o período selecionado pelo usuário
       const timeRange = {
@@ -283,7 +354,18 @@ const ClientMetaList = () => {
         until: date?.to && isValid(date.to) ? format(date.to, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       };
 
-      // Busca apenas campanhas (que já incluem insights)
+      // Verifica cache antes de buscar da API
+      const cacheKey = getCacheKey(accountId, date?.from, date?.to);
+      if (!forceRefresh) {
+        const cachedData = getCachedData(cacheKey);
+        if (cachedData) {
+          return cachedData;
+        }
+      } else {
+        console.log(`🔄 Forçando atualização (ignorando cache) para conta ${accountId}`);
+      }
+
+      // Busca apenas campanhas (que já incluem insights) - sempre busca da API quando forceRefresh
       const campaignsResponse = await supabase.functions.invoke('meta-ads-api', {
         body: {
           action: 'get-campaigns',
@@ -397,7 +479,7 @@ const ClientMetaList = () => {
         });
       }
 
-      return {
+      const result = {
         spend: totalSpend,
         impressions: totalImpressions,
         clicks: totalClicks,
@@ -409,6 +491,15 @@ const ClientMetaList = () => {
         activeCampaignsCount,
         lastUpdate,
       };
+
+      // Salva no cache (atualiza com dados novos)
+      setCachedData(cacheKey, result);
+      
+      if (forceRefresh) {
+        console.log(`✅ Dados atualizados em tempo real para conta ${accountId}`);
+      }
+
+      return result;
     } catch (err) {
       console.error(`Erro ao buscar dados do Meta para conta ${accountId}:`, err);
       throw err;
@@ -416,7 +507,85 @@ const ClientMetaList = () => {
   }, [date]);
 
   // Carrega dados de um cliente
-  const loadClientData = useCallback(async (client) => {
+  const loadClientData = useCallback(async (client, forceRefresh = false) => {
+    // Verifica se já tem dados válidos e não está forçando refresh
+    const existingData = clientData[client.id];
+    if (!forceRefresh && existingData && !existingData.loading && existingData.metrics !== null) {
+      console.log(`⏭️  Pulando carregamento do cliente ${client.empresa} - dados já disponíveis`);
+      return; // Já tem dados válidos, não recarrega
+    }
+
+    // Verifica cache antes de mostrar loading
+    if (!forceRefresh) {
+      try {
+        const linkedAccounts = await fetchLinkedAccounts(client.id);
+        if (linkedAccounts.length > 0) {
+          // Tenta carregar do cache primeiro
+          const cachedResults = await Promise.all(
+            linkedAccounts.map(async (account) => {
+              const cacheKey = getCacheKey(account.meta_account_id, date?.from, date?.to);
+              return getCachedData(cacheKey);
+            })
+          );
+
+            // Se todos os dados estão em cache, usa eles
+          if (cachedResults.every(result => result !== null)) {
+            const aggregated = cachedResults.reduce((acc, data) => {
+              if (!data) return acc;
+              
+              // Converte lastUpdate para Date se necessário
+              const accLastUpdate = acc.lastUpdate instanceof Date 
+                ? acc.lastUpdate 
+                : (acc.lastUpdate ? new Date(acc.lastUpdate) : null);
+              const dataLastUpdate = data.lastUpdate instanceof Date 
+                ? data.lastUpdate 
+                : (data.lastUpdate ? new Date(data.lastUpdate) : null);
+              
+              return {
+                spend: acc.spend + (data.spend || 0),
+                impressions: acc.impressions + (data.impressions || 0),
+                clicks: acc.clicks + (data.clicks || 0),
+                reach: acc.reach + (data.reach || 0),
+                messages: acc.messages + (data.messages || 0),
+                purchases: acc.purchases + (data.purchases || 0),
+                purchaseValue: acc.purchaseValue + (data.purchaseValue || 0),
+                hasActiveCampaigns: acc.hasActiveCampaigns || data.hasActiveCampaigns,
+                activeCampaignsCount: acc.activeCampaignsCount + (data.activeCampaignsCount || 0),
+                lastUpdate: accLastUpdate && dataLastUpdate
+                  ? new Date(Math.max(accLastUpdate.getTime(), dataLastUpdate.getTime()))
+                  : (accLastUpdate || dataLastUpdate),
+              };
+            }, {
+              spend: 0,
+              impressions: 0,
+              clicks: 0,
+              reach: 0,
+              messages: 0,
+              purchases: 0,
+              purchaseValue: 0,
+              hasActiveCampaigns: false,
+              activeCampaignsCount: 0,
+              lastUpdate: null,
+            });
+
+            setClientData(prev => ({
+              ...prev,
+              [client.id]: {
+                loading: false,
+                error: null,
+                metrics: aggregated,
+              },
+            }));
+            console.log(`✅ Dados carregados do cache para ${client.empresa}`);
+            return; // Dados do cache, não precisa buscar da API
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao verificar cache:', err);
+        // Continua para buscar da API
+      }
+    }
+
     setClientData(prev => ({
       ...prev,
       [client.id]: { loading: true, error: null, metrics: null },
@@ -439,7 +608,7 @@ const ClientMetaList = () => {
 
       // Busca dados de todas as contas vinculadas
       const accountDataPromises = linkedAccounts.map(account =>
-        fetchMetaData(account.meta_account_id).catch(err => {
+        fetchMetaData(account.meta_account_id, forceRefresh).catch(err => {
           console.error(`Erro ao buscar dados da conta ${account.meta_account_id}:`, err);
           return null;
         })
@@ -450,6 +619,15 @@ const ClientMetaList = () => {
       // Agrega dados de todas as contas
       const aggregated = accountDataResults.reduce((acc, data) => {
         if (!data) return acc;
+        
+        // Converte lastUpdate para Date se necessário
+        const accLastUpdate = acc.lastUpdate instanceof Date 
+          ? acc.lastUpdate 
+          : (acc.lastUpdate ? new Date(acc.lastUpdate) : null);
+        const dataLastUpdate = data.lastUpdate instanceof Date 
+          ? data.lastUpdate 
+          : (data.lastUpdate ? new Date(data.lastUpdate) : null);
+        
         return {
           spend: acc.spend + (data.spend || 0),
           impressions: acc.impressions + (data.impressions || 0),
@@ -460,9 +638,9 @@ const ClientMetaList = () => {
           purchaseValue: acc.purchaseValue + (data.purchaseValue || 0),
           hasActiveCampaigns: acc.hasActiveCampaigns || data.hasActiveCampaigns,
           activeCampaignsCount: acc.activeCampaignsCount + (data.activeCampaignsCount || 0),
-          lastUpdate: acc.lastUpdate && data.lastUpdate
-            ? new Date(Math.max(acc.lastUpdate.getTime(), data.lastUpdate.getTime()))
-            : (acc.lastUpdate || data.lastUpdate),
+          lastUpdate: accLastUpdate && dataLastUpdate
+            ? new Date(Math.max(accLastUpdate.getTime(), dataLastUpdate.getTime()))
+            : (accLastUpdate || dataLastUpdate),
         };
       }, {
         spend: 0,
@@ -496,12 +674,14 @@ const ClientMetaList = () => {
         },
       }));
     }
-  }, [fetchLinkedAccounts, fetchMetaData]);
+  }, [fetchLinkedAccounts, fetchMetaData, clientData, date]);
 
-  // Carrega dados de todos os clientes
-  const loadAllClientsData = useCallback(async () => {
+  // Carrega dados de todos os clientes (otimizado com processamento em paralelo)
+  const loadAllClientsData = useCallback(async (forceRefresh = false) => {
     setRefreshing(true);
-    setClientData({});
+    if (forceRefresh) {
+      setClientData({});
+    }
     hasLoadedRef.current = false; // Reseta flag ao atualizar manualmente
 
     // Filtra apenas clientes com contas vinculadas
@@ -510,17 +690,37 @@ const ClientMetaList = () => {
       return accounts && accounts.length > 0;
     });
 
-    // Carrega em lotes para evitar rate limiting
-    for (let i = 0; i < clientsWithAccounts.length; i++) {
-      await loadClientData(clientsWithAccounts[i]);
-      // Delay entre clientes para evitar rate limiting
-      if (i < clientsWithAccounts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    if (clientsWithAccounts.length === 0) {
+      setRefreshing(false);
+      hasLoadedRef.current = true;
+      return;
     }
+
+    // Processa TODOS os clientes em paralelo (sem batches) para máxima velocidade
+    // A edge function já tem rate limiting interno, então podemos processar tudo junto
+    if (forceRefresh) {
+      console.log(`🔄 Atualizando dados em tempo real de ${clientsWithAccounts.length} clientes (ignorando cache - buscando da API Meta)...`);
+    } else {
+      console.log(`📊 Carregando dados de ${clientsWithAccounts.length} clientes em paralelo (usando cache quando disponível)...`);
+    }
+
+    // Processa todos os clientes simultaneamente
+    const allPromises = clientsWithAccounts.map(client => 
+      loadClientData(client, forceRefresh).catch(err => {
+        console.error(`Erro ao carregar dados do cliente ${client.id}:`, err);
+        return null; // Continua mesmo com erro
+      })
+    );
+    
+    await Promise.all(allPromises);
 
     setRefreshing(false);
     hasLoadedRef.current = true; // Marca como carregado após atualização manual
+    if (forceRefresh) {
+      console.log(`✅ Atualização em tempo real concluída! ${clientsWithAccounts.length} clientes atualizados com dados novos da API Meta.`);
+    } else {
+      console.log(`✅ Todos os dados carregados! ${clientsWithAccounts.length} clientes processados.`);
+    }
   }, [clients, loadClientData, linkedAccountsMap]);
 
   // Inicializa
@@ -575,21 +775,41 @@ const ClientMetaList = () => {
       });
       
       if (clientsWithAccounts.length > 0) {
-        hasLoadedRef.current = true; // Marca como carregado
+        hasLoadedRef.current = true; // Marca como carregado ANTES de verificar dados
         
-        // Carrega dados apenas desses clientes
+        // Verifica se já temos dados válidos no estado para esses clientes
+        const clientsNeedingData = clientsWithAccounts.filter(client => {
+          const data = clientData[client.id];
+          // Precisa carregar se não tem dados ou se está em loading
+          return !data || data.loading || (data.metrics === null && !data.error);
+        });
+
+        // Se todos já têm dados válidos, não recarrega
+        if (clientsNeedingData.length === 0) {
+          console.log('✅ Todos os dados já estão carregados, usando estado existente');
+          return;
+        }
+
+        // Carrega dados apenas dos clientes que precisam (otimizado - todos em paralelo)
+        // Usa cache quando disponível, então não precisa resetar o estado
         const loadClientsWithAccounts = async () => {
           setRefreshing(true);
-          setClientData({});
+          // Não reseta clientData aqui - deixa os dados existentes enquanto carrega do cache
           
-          for (let i = 0; i < clientsWithAccounts.length; i++) {
-            await loadClientData(clientsWithAccounts[i]);
-            if (i < clientsWithAccounts.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
+          // Processa TODOS os clientes simultaneamente para máxima velocidade
+          console.log(`📊 Carregando dados de ${clientsNeedingData.length} clientes em paralelo (usando cache quando disponível)...`);
+          
+          const allPromises = clientsNeedingData.map(client => 
+            loadClientData(client, false).catch(err => {
+              console.error(`Erro ao carregar dados do cliente ${client.id}:`, err);
+              return null; // Continua mesmo com erro
+            })
+          );
+          
+          await Promise.all(allPromises);
           
           setRefreshing(false);
+          console.log(`✅ Dados carregados! ${clientsNeedingData.length} clientes processados.`);
         };
         
         loadClientsWithAccounts();
@@ -600,6 +820,29 @@ const ClientMetaList = () => {
   useEffect(() => {
     setLoading(false);
   }, []);
+
+  // Configura atualização automática a cada 4 horas
+  useEffect(() => {
+    // Limpa intervalo anterior se existir
+    if (autoRefreshIntervalRef.current) {
+      clearInterval(autoRefreshIntervalRef.current);
+    }
+
+    // Configura intervalo para atualizar automaticamente a cada 4 horas
+    autoRefreshIntervalRef.current = setInterval(() => {
+      console.log('🔄 Atualização automática do cache (4 horas)');
+      if (clients.length > 0 && Object.keys(linkedAccountsMap).length > 0) {
+        loadAllClientsData(true); // Força atualização ignorando cache
+      }
+    }, CACHE_DURATION_MS);
+
+    // Limpa intervalo ao desmontar componente
+    return () => {
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+      }
+    };
+  }, [clients.length, linkedAccountsMap, loadAllClientsData]);
 
   // Formatação de valores
   const formatCurrency = (value) => {
@@ -822,35 +1065,52 @@ const ClientMetaList = () => {
     setDate({ from, to });
   }, []);
 
-  // Reseta flag quando período muda para recarregar dados
+  // Reseta flag quando período muda para recarregar dados (usa cache quando disponível)
   useEffect(() => {
-    if (date?.from && date?.to && isValid(date.from) && isValid(date.to) && hasLoadedRef.current) {
-      hasLoadedRef.current = false;
-      // Recarrega dados quando período muda
-      if (clients.length > 0 && Object.keys(linkedAccountsMap).length > 0) {
-        const clientsWithAccounts = clients.filter(client => {
-          const accounts = linkedAccountsMap[client.id];
-          return accounts && accounts.length > 0;
-        });
-        
-        if (clientsWithAccounts.length > 0) {
-          const loadClientsWithAccounts = async () => {
-            setRefreshing(true);
-            setClientData({});
-            
-            for (let i = 0; i < clientsWithAccounts.length; i++) {
-              await loadClientData(clientsWithAccounts[i]);
-              if (i < clientsWithAccounts.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
-            }
-            
-            setRefreshing(false);
-            hasLoadedRef.current = true;
-          };
+    if (!date?.from || !date?.to || !isValid(date.from) || !isValid(date.to) || !hasLoadedRef.current) {
+      return;
+    }
+
+    // Cria uma chave única para o período atual
+    const currentDateRange = `${date.from.getTime()}_${date.to.getTime()}`;
+    
+    // Só recarrega se o período realmente mudou
+    if (lastDateRangeRef.current === currentDateRange) {
+      return; // Período não mudou, não precisa recarregar
+    }
+
+    lastDateRangeRef.current = currentDateRange;
+    hasLoadedRef.current = false;
+    
+    // Recarrega dados quando período muda (usa cache quando disponível)
+    if (clients.length > 0 && Object.keys(linkedAccountsMap).length > 0) {
+      const clientsWithAccounts = clients.filter(client => {
+        const accounts = linkedAccountsMap[client.id];
+        return accounts && accounts.length > 0;
+      });
+      
+      if (clientsWithAccounts.length > 0) {
+        const loadClientsWithAccounts = async () => {
+          setRefreshing(true);
+          setClientData({});
           
-          loadClientsWithAccounts();
-        }
+          // Processa em paralelo (cache será verificado automaticamente)
+          console.log(`📊 Recarregando dados para novo período (usando cache quando disponível)...`);
+          const allPromises = clientsWithAccounts.map(client => 
+            loadClientData(client, false).catch(err => {
+              console.error(`Erro ao carregar dados do cliente ${client.id}:`, err);
+              return null;
+            })
+          );
+          
+          await Promise.all(allPromises);
+          
+          setRefreshing(false);
+          hasLoadedRef.current = true;
+          console.log(`✅ Dados recarregados para novo período!`);
+        };
+        
+        loadClientsWithAccounts();
       }
     }
   }, [date?.from?.getTime(), date?.to?.getTime()]);
@@ -990,14 +1250,18 @@ const ClientMetaList = () => {
             </Select>
           </div>
           <Button
-            onClick={loadAllClientsData}
+            onClick={() => {
+              console.log('🔄 Atualização manual solicitada - buscando dados em tempo real da API Meta...');
+              loadAllClientsData(true);
+            }}
             disabled={refreshing}
             variant="outline"
             size="sm"
             className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+            title="Força atualização em tempo real ignorando cache (busca dados novos da API Meta)"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Atualizar
+            {refreshing ? 'Atualizando...' : 'Atualizar'}
           </Button>
         </div>
       </div>
@@ -1064,7 +1328,21 @@ const ClientMetaList = () => {
                     {data?.loading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : metrics?.lastUpdate ? (
-                      format(metrics.lastUpdate, 'dd/MM/yyyy', { locale: ptBR })
+                      (() => {
+                        try {
+                          // Garante que lastUpdate é um Date object válido
+                          const updateDate = metrics.lastUpdate instanceof Date 
+                            ? metrics.lastUpdate 
+                            : new Date(metrics.lastUpdate);
+                          if (isValid(updateDate)) {
+                            return format(updateDate, 'dd/MM/yyyy', { locale: ptBR });
+                          }
+                          return '-';
+                        } catch (err) {
+                          console.error('Erro ao formatar data:', err);
+                          return '-';
+                        }
+                      })()
                     ) : (
                       '-'
                     )}

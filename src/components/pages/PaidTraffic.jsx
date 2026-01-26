@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback } from 'react';
     import { supabase } from '@/lib/customSupabaseClient';
     import { useToast } from '@/components/ui/use-toast';
     import PaidCampaignForm from '@/components/traffic/PaidCampaignForm';
+    import FloatingTrafficAssistant from '@/components/traffic/FloatingTrafficAssistant';
     import { AnimatePresence } from 'framer-motion';
 
     const PaidTraffic = ({ isCreating = false }) => {
@@ -57,6 +58,26 @@ import React, { useState, useEffect, useCallback } from 'react';
               fetchDataForForm();
           }
       }, [showForm, fetchDataForForm]);
+
+      // Buscar campanhas para o chat
+      const fetchCampaigns = useCallback(async () => {
+        try {
+          const { data: campaignsData, error: campaignsError } = await supabase
+            .from('paid_campaigns')
+            .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+            .order('created_at', { ascending: false })
+            .limit(100);
+          
+          if (campaignsError) throw campaignsError;
+          setCampaigns(campaignsData || []);
+        } catch (error) {
+          console.error('Erro ao buscar campanhas:', error);
+        }
+      }, []);
+
+      useEffect(() => {
+        fetchCampaigns();
+      }, [fetchCampaigns]);
 
 
       const checkConnectionStatus = useCallback(async () => {
@@ -180,6 +201,7 @@ import React, { useState, useEffect, useCallback } from 'react';
               />
             )}
           </AnimatePresence>
+          <FloatingTrafficAssistant />
         </div>
       );
     };

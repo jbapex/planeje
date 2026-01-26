@@ -21,7 +21,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const [tasks, setTasks] = useState([]);
       const [loading, setLoading] = useState(true);
       const [loadingTimeout, setLoadingTimeout] = useState(false);
-      const [activeTab, setActiveTab] = useState("kanban");
+      const [activeTab, setActiveTab] = useState("list");
       const { toast } = useToast();
       const { profile } = useAuth();
       const userRole = profile?.role;

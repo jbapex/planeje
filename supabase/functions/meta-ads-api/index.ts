@@ -25,7 +25,42 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get request body
-    const { action, ...body } = await req.json();
+    let action: string;
+    let body: any = {};
+    try {
+      const requestBody = await req.json();
+      action = requestBody.action;
+      body = { ...requestBody };
+      delete body.action;
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Invalid request body",
+            code: "INVALID_REQUEST",
+          },
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (!action) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Action is required",
+            code: "MISSING_ACTION",
+          },
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
     // Get Meta token - Priority: Environment Variable > Vault RPC
     let metaToken: string | null = null;
@@ -55,6 +90,7 @@ serve(async (req) => {
     }
 
     if (!metaToken) {
+      // Retorna status 200 para que o cliente possa tratar o erro
       return new Response(
         JSON.stringify({
           error: {
@@ -64,7 +100,7 @@ serve(async (req) => {
           connected: false,
         }),
         {
-          status: 400,
+          status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -125,6 +161,7 @@ serve(async (req) => {
         // Get business ID first (you may need to configure this)
         const businessId = Deno.env.get("META_BUSINESS_ID");
         console.log("Business ID from env:", businessId || "not set");
+        console.log("🔍 Starting comprehensive ad accounts search...");
         
         if (!businessId) {
           // Try to get from user's businesses
@@ -154,87 +191,152 @@ serve(async (req) => {
             );
           }
 
-          if (!userData.businesses || userData.businesses.data.length === 0) {
-            console.warn("⚠️ No businesses found for this user, trying direct ad accounts...");
+          // Helper function to fetch all pages from paginated API
+          const fetchAllPages = async (url: string): Promise<any[]> => {
+            const allData: any[] = [];
+            let currentUrl = url;
             
-            // Fallback: Try to get ad accounts directly from user
-            try {
-              const directAccountsResponse = await fetch(
-                `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name,account_id,currency&access_token=${metaToken}`
-              );
-              const directAccountsData = await directAccountsResponse.json();
+            while (currentUrl) {
+              const response = await fetch(currentUrl);
+              const data = await response.json();
               
-              console.log("Direct ad accounts response:", JSON.stringify(directAccountsData));
-              
-              if (directAccountsData.error) {
-                console.error("❌ Error fetching direct ad accounts:", directAccountsData.error);
-                return new Response(
-                  JSON.stringify({
-                    error: {
-                      message: directAccountsData.error.message || "Nenhuma business encontrada e não foi possível buscar contas diretamente. Verifique se o System User tem acesso a uma Business ou contas de anúncio no Meta Business Manager.",
-                      code: directAccountsData.error.code,
-                      type: directAccountsData.error.type,
-                    },
-                    adAccounts: [],
-                  }),
-                  {
-                    status: 200,
-                    headers: { ...corsHeaders, "Content-Type": "application/json" },
-                  }
-                );
+              if (data.error) {
+                console.error("❌ Error in pagination:", data.error);
+                break;
               }
               
-              if (directAccountsData.data && directAccountsData.data.length > 0) {
-                console.log(`✅ Found ${directAccountsData.data.length} ad accounts directly`);
-                return new Response(
-                  JSON.stringify({
-                    adAccounts: directAccountsData.data || [],
-                  }),
-                  {
-                    status: 200,
-                    headers: { ...corsHeaders, "Content-Type": "application/json" },
-                  }
-                );
+              if (data.data) {
+                allData.push(...data.data);
               }
-            } catch (directErr) {
-              console.error("❌ Exception fetching direct ad accounts:", directErr);
+              
+              // Check for next page
+              currentUrl = data.paging?.next || null;
             }
             
-            // If we get here, both methods failed
-            return new Response(
-              JSON.stringify({
-                error: {
-                  message: "Nenhuma business encontrada e não foi possível buscar contas diretamente. Verifique se o System User tem acesso a uma Business ou contas de anúncio no Meta Business Manager.",
-                  hint: "Configure o System User no Meta Business Manager e atribua-o a uma Business ou contas de anúncio.",
-                },
-                adAccounts: [],
-              }),
-              {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              }
-            );
-          }
+            return allData;
+          };
 
-          // Get ad accounts from first business
-          const firstBusiness = userData.businesses.data[0];
-          console.log("Using business:", firstBusiness.id);
+          // Helper function to remove duplicates by ID
+          const removeDuplicates = (accounts: any[]): any[] => {
+            const seen = new Set();
+            return accounts.filter(account => {
+              if (seen.has(account.id)) {
+                return false;
+              }
+              seen.add(account.id);
+              return true;
+            });
+          };
+
+          const allAccounts: any[] = [];
+
+          // Method 1: Try to get ad accounts directly from user (includes all accessible accounts)
+          try {
+            console.log("🔍 Fetching ad accounts directly from user (me/adaccounts)...");
+            const directAccountsUrl = `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const directAccounts = await fetchAllPages(directAccountsUrl);
+            
+            if (directAccounts.length > 0) {
+              console.log(`✅ Found ${directAccounts.length} ad accounts directly from user`);
+              allAccounts.push(...directAccounts);
+            } else {
+              console.log("⚠️ No accounts found via me/adaccounts");
+            }
+          } catch (directErr) {
+            console.warn("⚠️ Could not fetch direct ad accounts:", directErr);
+          }
           
-          const accountsResponse = await fetch(
-            `https://graph.facebook.com/v18.0/${firstBusiness.id}/owned_ad_accounts?access_token=${metaToken}`
-          );
-          const accountsData = await accountsResponse.json();
+          // Method 1.5: Try to get ad accounts from System User's assigned assets
+          try {
+            console.log("🔍 Fetching ad accounts from System User assigned assets...");
+            // Get the System User ID first
+            const systemUserResponse = await fetch(
+              `https://graph.facebook.com/v18.0/me?fields=id&access_token=${metaToken}`
+            );
+            const systemUserData = await systemUserResponse.json();
+            
+            if (systemUserData.id && !systemUserData.error) {
+              const systemUserId = systemUserData.id;
+              console.log(`System User ID: ${systemUserId}`);
+              
+              // Try to get ad accounts assigned to this system user
+              const assignedAccountsUrl = `https://graph.facebook.com/v18.0/${systemUserId}/assigned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+              const assignedAccounts = await fetchAllPages(assignedAccountsUrl);
+              
+              if (assignedAccounts.length > 0) {
+                console.log(`✅ Found ${assignedAccounts.length} assigned ad accounts from System User`);
+                allAccounts.push(...assignedAccounts);
+              }
+            }
+          } catch (systemUserErr) {
+            console.warn("⚠️ Could not fetch System User assigned accounts:", systemUserErr);
+          }
 
-          console.log("Ad accounts response:", JSON.stringify(accountsData));
+          // Method 2: Get accounts from all businesses (if available)
+          if (userData.businesses && userData.businesses.data.length > 0) {
+            console.log(`🔍 Fetching ad accounts from ${userData.businesses.data.length} businesses...`);
+            console.log(`📋 Business IDs:`, userData.businesses.data.map((b: any) => `${b.id} (${b.name || 'no name'})`).join(', '));
+            
+            for (const business of userData.businesses.data) {
+              try {
+                console.log(`  📦 Processing business: ${business.id} (${business.name || 'no name'})`);
+                
+                // Get owned accounts
+                const ownedUrl = `https://graph.facebook.com/v18.0/${business.id}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                const ownedAccounts = await fetchAllPages(ownedUrl);
+                if (ownedAccounts.length > 0) {
+                  console.log(`    ✅ Found ${ownedAccounts.length} owned accounts from business ${business.id}`);
+                  allAccounts.push(...ownedAccounts);
+                } else {
+                  console.log(`    ⚠️ No owned accounts found for business ${business.id}`);
+                }
 
-          if (accountsData.error) {
-            console.error("❌ Error fetching ad accounts:", accountsData.error);
+                // Get assigned accounts (accounts the System User has access to but doesn't own)
+                // This is the key endpoint - it returns ALL accounts the System User can access
+                const assignedUrl = `https://graph.facebook.com/v18.0/${business.id}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                const assignedAccounts = await fetchAllPages(assignedUrl);
+                if (assignedAccounts.length > 0) {
+                  console.log(`    ✅ Found ${assignedAccounts.length} assigned accounts from business ${business.id}`);
+                  console.log(`    📋 Account IDs from ${business.id}:`, assignedAccounts.map((acc: any) => acc.id).join(', '));
+                  allAccounts.push(...assignedAccounts);
+                } else {
+                  console.log(`    ⚠️ No assigned accounts found for business ${business.id}`);
+                }
+                
+                // Also try the client_ad_accounts endpoint (for client accounts)
+                try {
+                  const clientAccountsUrl = `https://graph.facebook.com/v18.0/${business.id}/client_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                  const clientAccounts = await fetchAllPages(clientAccountsUrl);
+                  if (clientAccounts.length > 0) {
+                    console.log(`    ✅ Found ${clientAccounts.length} client accounts from business ${business.id}`);
+                    allAccounts.push(...clientAccounts);
+                  }
+                } catch (clientErr) {
+                  // This endpoint might not be available, ignore
+                  console.log(`    ℹ️ client_ad_accounts endpoint not available for business ${business.id}`);
+                }
+              } catch (businessErr) {
+                console.warn(`    ❌ Error fetching accounts from business ${business.id}:`, businessErr);
+                if (businessErr instanceof Error) {
+                  console.warn(`    Error message: ${businessErr.message}`);
+                }
+              }
+            }
+          } else {
+            console.warn("⚠️ No businesses found for System User");
+          }
+
+          // Remove duplicates and return
+          const uniqueAccounts = removeDuplicates(allAccounts);
+          console.log(`✅ Total unique ad accounts found: ${uniqueAccounts.length}`);
+          console.log(`📋 Account IDs:`, uniqueAccounts.map(acc => acc.id).join(', '));
+
+          if (uniqueAccounts.length === 0) {
             return new Response(
               JSON.stringify({
                 error: {
-                  message: accountsData.error.message || "Erro ao buscar contas de anúncio",
-                  code: accountsData.error.code,
-                  type: accountsData.error.type,
+                  message: "Nenhuma conta de anúncio encontrada. Verifique se o System User tem acesso a contas de anúncio no Meta Business Manager.",
+                  hint: "Configure o System User no Meta Business Manager e atribua-o a contas de anúncio.",
                 },
                 adAccounts: [],
               }),
@@ -245,10 +347,9 @@ serve(async (req) => {
             );
           }
 
-          console.log(`✅ Found ${accountsData.data?.length || 0} ad accounts`);
           return new Response(
             JSON.stringify({
-              adAccounts: accountsData.data || [],
+              adAccounts: uniqueAccounts,
             }),
             {
               status: 200,
@@ -256,23 +357,94 @@ serve(async (req) => {
             }
           );
         } else {
-          // Use configured business ID
+          // Use configured business ID - but still fetch all types of accounts
           console.log("Using configured business ID:", businessId);
-          const accountsResponse = await fetch(
-            `https://graph.facebook.com/v18.0/${businessId}/owned_ad_accounts?access_token=${metaToken}`
-          );
-          const accountsData = await accountsResponse.json();
+          
+          // Helper function to fetch all pages from paginated API
+          const fetchAllPages = async (url: string): Promise<any[]> => {
+            const allData: any[] = [];
+            let currentUrl = url;
+            
+            while (currentUrl) {
+              const response = await fetch(currentUrl);
+              const data = await response.json();
+              
+              if (data.error) {
+                console.error("❌ Error in pagination:", data.error);
+                break;
+              }
+              
+              if (data.data) {
+                allData.push(...data.data);
+              }
+              
+              // Check for next page
+              currentUrl = data.paging?.next || null;
+            }
+            
+            return allData;
+          };
 
-          console.log("Ad accounts response:", JSON.stringify(accountsData));
+          // Helper function to remove duplicates by ID
+          const removeDuplicates = (accounts: any[]): any[] => {
+            const seen = new Set();
+            return accounts.filter(account => {
+              if (seen.has(account.id)) {
+                return false;
+              }
+              seen.add(account.id);
+              return true;
+            });
+          };
 
-          if (accountsData.error) {
-            console.error("❌ Error fetching ad accounts:", accountsData.error);
+          const allAccounts: any[] = [];
+
+          // Get owned accounts
+          try {
+            const ownedUrl = `https://graph.facebook.com/v18.0/${businessId}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const ownedAccounts = await fetchAllPages(ownedUrl);
+            if (ownedAccounts.length > 0) {
+              console.log(`✅ Found ${ownedAccounts.length} owned accounts`);
+              allAccounts.push(...ownedAccounts);
+            }
+          } catch (err) {
+            console.warn("⚠️ Error fetching owned accounts:", err);
+          }
+
+          // Get assigned accounts (accounts the System User has access to)
+          try {
+            const assignedUrl = `https://graph.facebook.com/v18.0/${businessId}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const assignedAccounts = await fetchAllPages(assignedUrl);
+            if (assignedAccounts.length > 0) {
+              console.log(`✅ Found ${assignedAccounts.length} assigned accounts`);
+              allAccounts.push(...assignedAccounts);
+            }
+          } catch (err) {
+            console.warn("⚠️ Error fetching assigned accounts:", err);
+          }
+
+          // Also try direct method as fallback
+          try {
+            const directUrl = `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const directAccounts = await fetchAllPages(directUrl);
+            if (directAccounts.length > 0) {
+              console.log(`✅ Found ${directAccounts.length} accounts directly from user`);
+              allAccounts.push(...directAccounts);
+            }
+          } catch (err) {
+            console.warn("⚠️ Error fetching direct accounts:", err);
+          }
+
+          // Remove duplicates
+          const uniqueAccounts = removeDuplicates(allAccounts);
+          console.log(`✅ Total unique ad accounts found: ${uniqueAccounts.length}`);
+
+          if (uniqueAccounts.length === 0) {
             return new Response(
               JSON.stringify({
                 error: {
-                  message: accountsData.error.message || "Erro ao buscar contas de anúncio",
-                  code: accountsData.error.code,
-                  type: accountsData.error.type,
+                  message: "Nenhuma conta de anúncio encontrada. Verifique se o System User tem acesso a contas de anúncio no Meta Business Manager.",
+                  hint: "Configure o System User no Meta Business Manager e atribua-o a contas de anúncio.",
                 },
                 adAccounts: [],
               }),
@@ -283,10 +455,9 @@ serve(async (req) => {
             );
           }
 
-          console.log(`✅ Found ${accountsData.data?.length || 0} ad accounts`);
           return new Response(
             JSON.stringify({
-              adAccounts: accountsData.data || [],
+              adAccounts: uniqueAccounts,
             }),
             {
               status: 200,
@@ -415,78 +586,63 @@ serve(async (req) => {
         console.log(`📅 Time range:`, validTimeRange);
         console.log(`📊 Metrics:`, metricsStr);
         
-        // Processa campanhas sequencialmente com delay para evitar rate limiting
-        // Para contas com muitas campanhas, isso é mais seguro que Promise.all
+        // Processa TODAS as campanhas em paralelo para máxima velocidade
         const campaignsWithInsights = [];
         const campaignsList = campaignsData.data || [];
         
-        console.log(`📊 Processando ${campaignsList.length} campanhas...`);
+        console.log(`📊 Processando ${campaignsList.length} campanhas em paralelo...`);
         
-        for (let i = 0; i < campaignsList.length; i++) {
-          const campaign = campaignsList[i];
-          
-          // Delay entre requisições para evitar rate limiting (200ms)
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
-          
+        // Processa todas as campanhas simultaneamente
+        const allCampaignPromises = campaignsList.map(async (campaign, index) => {
           try {
-            // Usa encodeURIComponent para garantir que o JSON seja codificado corretamente
+            // Busca insights
             const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
             const insightsUrl = `https://graph.facebook.com/v18.0/${campaign.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
             
-            console.log(`🔍 [${i + 1}/${campaignsList.length}] Fetching insights for campaign ${campaign.id}...`);
             const insightsResponse = await fetch(insightsUrl);
             const insightsData = await insightsResponse.json();
             
             // Garante que sempre retorna um formato consistente
             if (insightsData.error) {
-              console.error(`❌ Error fetching insights for campaign ${campaign.id} (${campaign.name}):`, JSON.stringify(insightsData.error, null, 2));
-              console.error(`   URL: ${insightsUrl.replace(metaToken, 'TOKEN_HIDDEN')}`);
-              campaignsWithInsights.push({ ...campaign, insights: { data: [], error: insightsData.error } });
-              continue;
+              console.error(`❌ Error fetching insights for campaign ${campaign.id}:`, insightsData.error);
+              return { ...campaign, insights: { data: [], error: insightsData.error } };
             }
             
-            // Debug: log do effective_status da campanha
-            console.log(`📊 Campaign ${campaign.id} (${campaign.name}): status=${campaign.status}, effective_status=${campaign.effective_status}`);
-            
-            // Tenta buscar effective_status novamente se não estiver presente
+            // Busca effective_status apenas se não estiver presente
             let finalCampaign = { ...campaign };
             if (!finalCampaign.effective_status) {
               try {
-                // Faz uma requisição adicional para obter effective_status
-                const campaignDetailsUrl = `https://graph.facebook.com/v18.0/${campaign.id}?fields=id,name,status,effective_status,objective&access_token=${metaToken}`;
+                const campaignDetailsUrl = `https://graph.facebook.com/v18.0/${campaign.id}?fields=effective_status&access_token=${metaToken}`;
                 const campaignDetailsResponse = await fetch(campaignDetailsUrl);
                 const campaignDetailsData = await campaignDetailsResponse.json();
                 
                 if (!campaignDetailsData.error && campaignDetailsData.effective_status) {
                   finalCampaign.effective_status = campaignDetailsData.effective_status;
-                  console.log(`✅ effective_status obtido para campanha ${campaign.id}: ${campaignDetailsData.effective_status}`);
-                } else if (campaignDetailsData.error) {
-                  console.warn(`⚠️ Erro ao buscar effective_status para campanha ${campaign.id}:`, campaignDetailsData.error);
                 }
               } catch (err) {
-                console.warn(`⚠️ Exception ao buscar effective_status para campanha ${campaign.id}:`, err);
+                // Ignora erro de effective_status, não é crítico
               }
             }
             
-            // Debug: log do effective_status da campanha
-            console.log(`📊 Campaign ${campaign.id} (${campaign.name}): status=${finalCampaign.status}, effective_status=${finalCampaign.effective_status}`);
-            
             // Garante que data seja sempre um array
-            campaignsWithInsights.push({ 
+            return { 
               ...finalCampaign, 
               insights: { 
                 data: Array.isArray(insightsData.data) ? insightsData.data : (insightsData.data ? [insightsData.data] : []),
                 paging: insightsData.paging || null
               } 
-            });
+            };
           } catch (err) {
             console.error(`Exception fetching insights for campaign ${campaign.id}:`, err);
-            campaignsWithInsights.push({ ...campaign, insights: { data: [], error: { message: err.message } } });
+            return { ...campaign, insights: { data: [], error: { message: err.message } } };
           }
-        }
-        );
+        });
+        
+        // Aguarda todas as campanhas processarem
+        const allResults = await Promise.all(allCampaignPromises);
+        campaignsWithInsights.push(...allResults);
+        
+        console.log(`✅ Todas as ${campaignsWithInsights.length} campanhas processadas!`);
 
         return new Response(
           JSON.stringify({ campaigns: campaignsWithInsights }),
@@ -747,13 +903,543 @@ serve(async (req) => {
       }
     }
 
+    // Get Facebook Pages
+    if (action === "get-pages") {
+      try {
+        console.log("🔍 Fetching Facebook pages...");
+        
+        // Busca páginas do System User
+        const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,access_token,category,picture&limit=500&access_token=${metaToken}`;
+        const pagesResponse = await fetch(pagesUrl);
+        const pagesData = await pagesResponse.json();
+
+        if (pagesData.error) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: pagesData.error.message || "Erro ao buscar páginas",
+                code: pagesData.error.code,
+                type: pagesData.error.type,
+              },
+              pages: [],
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            pages: pagesData.data || [],
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      } catch (err) {
+        console.error("❌ Exception in get-pages:", err);
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: err?.message || "Erro inesperado ao buscar páginas",
+              details: err?.toString(),
+            },
+            pages: [],
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
+    // Get Instagram Business Accounts
+    if (action === "get-instagram-accounts") {
+      try {
+        console.log("🔍 Fetching Instagram Business accounts...");
+        
+        // Primeiro busca as páginas do Facebook (que podem ter Instagram conectado)
+        const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,instagram_business_account&limit=500&access_token=${metaToken}`;
+        const pagesResponse = await fetch(pagesUrl);
+        const pagesData = await pagesResponse.json();
+
+        if (pagesData.error) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: pagesData.error.message || "Erro ao buscar contas Instagram",
+                code: pagesData.error.code,
+              },
+              instagramAccounts: [],
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        // Filtra apenas páginas com Instagram Business conectado
+        const instagramAccounts = [];
+        for (const page of pagesData.data || []) {
+          if (page.instagram_business_account) {
+            try {
+              // Busca detalhes da conta Instagram
+              const instagramUrl = `https://graph.facebook.com/v18.0/${page.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${metaToken}`;
+              const instagramResponse = await fetch(instagramUrl);
+              const instagramData = await instagramResponse.json();
+              
+              if (!instagramData.error && instagramData.id) {
+                instagramAccounts.push({
+                  id: instagramData.id,
+                  username: instagramData.username,
+                  name: instagramData.name || instagramData.username,
+                  profile_picture_url: instagramData.profile_picture_url,
+                  page_id: page.id,
+                  page_name: page.name,
+                });
+              }
+            } catch (err) {
+              console.warn(`⚠️ Erro ao buscar detalhes do Instagram ${page.instagram_business_account.id}:`, err);
+            }
+          }
+        }
+
+        return new Response(
+          JSON.stringify({
+            instagramAccounts: instagramAccounts,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      } catch (err) {
+        console.error("❌ Exception in get-instagram-accounts:", err);
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: err?.message || "Erro inesperado ao buscar contas Instagram",
+              details: err?.toString(),
+            },
+            instagramAccounts: [],
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
+    // Get Page Insights
+    if (action === "get-page-insights") {
+      const { page_id, time_range, metrics } = body;
+
+      if (!page_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "page_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        // Métricas válidas para v18 - usando apenas métricas básicas e testadas
+        const metricsStr = Array.isArray(metrics) ? metrics.join(",") : metrics || "page_follows,page_reach,page_post_engagements";
+        const validTimeRange = time_range && time_range.since && time_range.until 
+          ? time_range 
+          : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
+        
+        // Para insights de página, precisamos chamar cada métrica separadamente se houver erro
+        // Tenta buscar insights - se uma métrica falhar, tenta individualmente
+        let url = `https://graph.facebook.com/v18.0/${page_id}/insights?metric=${metricsStr}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+        
+        let response = await fetch(url);
+        let data = await response.json();
+
+        // Se houver erro de métrica inválida, tenta buscar métricas individualmente
+        if (data.error && data.error.message?.includes('valid insights metric')) {
+          console.warn("⚠️ Alguma métrica inválida detectada, tentando métricas individuais...");
+          const validMetrics = ['page_follows', 'page_reach', 'page_post_engagements'];
+          const insightsResults = [];
+          
+          for (const metric of validMetrics) {
+            try {
+              const singleMetricUrl = `https://graph.facebook.com/v18.0/${page_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+              const singleResponse = await fetch(singleMetricUrl);
+              const singleData = await singleResponse.json();
+              
+              if (!singleData.error && singleData.data) {
+                insightsResults.push(...singleData.data);
+              }
+            } catch (err) {
+              console.warn(`⚠️ Erro ao buscar métrica ${metric}:`, err);
+            }
+          }
+          
+          return new Response(
+            JSON.stringify({ insights: insightsResults }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        if (data.error) {
+          return new Response(
+            JSON.stringify({ error: data.error, insights: [] }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ insights: data.data || [] }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao buscar insights da página" }, insights: null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Get Page Posts
+    if (action === "get-page-posts") {
+      const { page_id, time_range } = body;
+
+      if (!page_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "page_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        // Primeiro precisa obter o access_token da página
+        const pageUrl = `https://graph.facebook.com/v18.0/${page_id}?fields=access_token&access_token=${metaToken}`;
+        const pageResponse = await fetch(pageUrl);
+        const pageData = await pageResponse.json();
+
+        if (pageData.error || !pageData.access_token) {
+          return new Response(
+            JSON.stringify({ error: { message: "Não foi possível obter o token de acesso da página" }, posts: [] }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const pageAccessToken = pageData.access_token;
+        const validTimeRange = time_range && time_range.since && time_range.until 
+          ? time_range 
+          : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
+        
+        // Busca posts com insights básicos
+        const postsUrl = `https://graph.facebook.com/v18.0/${page_id}/posts?fields=id,message,created_time,type,permalink_url,insights.metric(reach,post_engagements)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${pageAccessToken}`;
+        const postsResponse = await fetch(postsUrl);
+        const postsData = await postsResponse.json();
+
+        if (postsData.error) {
+          return new Response(
+            JSON.stringify({ error: postsData.error, posts: [] }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Processa posts para incluir insights de forma mais acessível
+        const processedPosts = (postsData.data || []).map((post: any) => {
+          const insights: any = {};
+          if (post.insights && post.insights.data) {
+            post.insights.data.forEach((insight: any) => {
+              if (insight.values && insight.values.length > 0) {
+                insights[insight.name] = insight.values[0].value;
+              }
+            });
+          }
+          return {
+            ...post,
+            insights,
+          };
+        });
+
+        return new Response(
+          JSON.stringify({ posts: processedPosts }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao buscar posts da página" }, posts: [] }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Get Instagram Insights
+    if (action === "get-instagram-insights") {
+      const { instagram_account_id, time_range, metrics } = body;
+
+      if (!instagram_account_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "instagram_account_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        // Métricas válidas para Instagram Business Account
+        // Algumas métricas precisam de metric_type=total_value
+        const metricsStr = Array.isArray(metrics) ? metrics.join(",") : metrics || "reach,follower_count,profile_views,total_interactions";
+        const validTimeRange = time_range && time_range.since && time_range.until 
+          ? time_range 
+          : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
+        
+        // Métricas que precisam de metric_type=total_value
+        const metricsNeedingTotalValue = ['profile_views', 'website_clicks', 'total_interactions'];
+        const metricsNeedingPeriod = ['reach', 'follower_count'];
+        
+        const insightsResults = [];
+        
+        // Busca métricas que precisam de period (dia a dia)
+        for (const metric of metricsNeedingPeriod) {
+          try {
+            const periodUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+            const periodResponse = await fetch(periodUrl);
+            const periodData = await periodResponse.json();
+            
+            if (!periodData.error && periodData.data) {
+              console.log(`✅ Métrica ${metric} com period retornada:`, periodData.data);
+              insightsResults.push(...periodData.data);
+            } else if (periodData.error) {
+              console.warn(`⚠️ Erro ao buscar ${metric} com period:`, periodData.error);
+            }
+          } catch (err) {
+            console.warn(`⚠️ Erro ao buscar métrica ${metric}:`, err);
+          }
+        }
+        
+        // Busca métricas que precisam de metric_type=total_value (valor total agregado)
+        // Para total_value, usamos timeframe ao invés de period/since/until
+        for (const metric of metricsNeedingTotalValue) {
+          try {
+            // Calcula o número de dias entre since e until para usar como timeframe
+            const sinceDate = new Date(validTimeRange.since);
+            const untilDate = new Date(validTimeRange.until);
+            const daysDiff = Math.ceil((untilDate.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            // Usa timeframe baseado no número de dias (máximo 30 dias para total_value)
+            let timeframe = 'last_30_days';
+            if (daysDiff <= 7) {
+              timeframe = 'last_7_days';
+            } else if (daysDiff <= 30) {
+              timeframe = 'last_30_days';
+            } else {
+              timeframe = 'last_30_days'; // Limita a 30 dias para total_value
+            }
+            
+            const totalValueUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/insights?metric=${metric}&metric_type=total_value&timeframe=${timeframe}&access_token=${metaToken}`;
+            const totalValueResponse = await fetch(totalValueUrl);
+            const totalValueData = await totalValueResponse.json();
+            
+            if (!totalValueData.error && totalValueData.data) {
+              console.log(`✅ Métrica ${metric} com total_value retornada:`, totalValueData.data);
+              insightsResults.push(...totalValueData.data);
+            } else if (totalValueData.error) {
+              console.warn(`⚠️ Erro ao buscar ${metric} com total_value:`, totalValueData.error);
+            }
+          } catch (err) {
+            console.warn(`⚠️ Erro ao buscar métrica ${metric} com total_value:`, err);
+          }
+        }
+        
+        console.log(`📊 Total de insights retornados para Instagram ${instagram_account_id}:`, insightsResults.length);
+        
+        return new Response(
+          JSON.stringify({ insights: insightsResults }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao buscar insights do Instagram" }, insights: null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Get Instagram Media
+    if (action === "get-instagram-media") {
+      const { instagram_account_id, time_range } = body;
+
+      if (!instagram_account_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "instagram_account_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        const validTimeRange = time_range && time_range.since && time_range.until 
+          ? time_range 
+          : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
+        
+        // Busca mídia do Instagram (impressions foi deprecado, usar reach e total_interactions)
+        const mediaUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media?fields=id,media_type,media_url,thumbnail_url,caption,permalink,timestamp,like_count,comments_count,insights.metric(reach,engagement)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${metaToken}`;
+        const mediaResponse = await fetch(mediaUrl);
+        const mediaData = await mediaResponse.json();
+
+        if (mediaData.error) {
+          return new Response(
+            JSON.stringify({ error: mediaData.error, media: [] }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Processa mídia para incluir insights de forma mais acessível
+        const processedMedia = (mediaData.data || []).map((item: any) => {
+          const insights: any = {};
+          if (item.insights && item.insights.data) {
+            item.insights.data.forEach((insight: any) => {
+              if (insight.values && insight.values.length > 0) {
+                insights[insight.name] = insight.values[0].value;
+              }
+            });
+          }
+          return {
+            ...item,
+            insights,
+          };
+        });
+
+        return new Response(
+          JSON.stringify({ media: processedMedia }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao buscar mídia do Instagram" }, media: [] }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Publish Page Post
+    if (action === "publish-page-post") {
+      const { page_id, message, link, scheduled_publish_time } = body;
+
+      if (!page_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "page_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        // Primeiro precisa obter o access_token da página
+        const pageUrl = `https://graph.facebook.com/v18.0/${page_id}?fields=access_token&access_token=${metaToken}`;
+        const pageResponse = await fetch(pageUrl);
+        const pageData = await pageResponse.json();
+
+        if (pageData.error || !pageData.access_token) {
+          return new Response(
+            JSON.stringify({ error: { message: "Não foi possível obter o token de acesso da página" } }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const pageAccessToken = pageData.access_token;
+        
+        // Monta o body da requisição
+        const postBody: any = {};
+        if (message) postBody.message = message;
+        if (link) postBody.link = link;
+        if (scheduled_publish_time) postBody.scheduled_publish_time = scheduled_publish_time;
+
+        const publishUrl = `https://graph.facebook.com/v18.0/${page_id}/feed?${new URLSearchParams(postBody).toString()}&access_token=${pageAccessToken}`;
+        const publishResponse = await fetch(publishUrl, {
+          method: 'POST',
+        });
+        const publishData = await publishResponse.json();
+
+        if (publishData.error) {
+          return new Response(
+            JSON.stringify({ error: publishData.error, post_id: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ post_id: publishData.id, success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao publicar post na página" }, post_id: null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Publish Instagram Content
+    if (action === "publish-instagram-content") {
+      const { instagram_account_id, image_url, caption, media_type } = body;
+
+      if (!instagram_account_id) {
+        return new Response(
+          JSON.stringify({ error: { message: "instagram_account_id is required" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      try {
+        // Instagram Graph API requer criação de container primeiro
+        const containerUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media?image_url=${encodeURIComponent(image_url)}&caption=${encodeURIComponent(caption || '')}&access_token=${metaToken}`;
+        const containerResponse = await fetch(containerUrl, {
+          method: 'POST',
+        });
+        const containerData = await containerResponse.json();
+
+        if (containerData.error) {
+          return new Response(
+            JSON.stringify({ error: containerData.error, media_id: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const creationId = containerData.id;
+
+        // Publica o conteúdo
+        const publishUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media_publish?creation_id=${creationId}&access_token=${metaToken}`;
+        const publishResponse = await fetch(publishUrl, {
+          method: 'POST',
+        });
+        const publishData = await publishResponse.json();
+
+        if (publishData.error) {
+          return new Response(
+            JSON.stringify({ error: publishData.error, media_id: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ media_id: publishData.id, success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Erro ao publicar conteúdo no Instagram" }, media_id: null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // Unknown action
     return new Response(
       JSON.stringify({
         error: { message: `Unknown action: ${action}` },
       }),
       {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
