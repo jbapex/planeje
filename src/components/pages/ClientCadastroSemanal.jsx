@@ -34,6 +34,26 @@ const formatCurrency = (value) => {
   }).format(num);
 };
 
+// Helper para interpretar datas vindo do banco (YYYY-MM-DD) como datas locais
+// evitando o bug de "voltar 1 dia" por causa do fuso horário/UTC
+const parseLocalDateFromDb = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+
+  const str = String(value);
+  const parts = str.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts.map((p) => parseInt(p, 10));
+    if (!Number.isNaN(year) && !Number.isNaN(month) && !Number.isNaN(day)) {
+      // new Date(ano, mesIndex, dia) usa sempre horário local
+      return new Date(year, month - 1, day);
+    }
+  }
+
+  // Fallback: deixa o JS tentar parsear
+  return new Date(str);
+};
+
 const ClientCadastroSemanal = () => {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -177,7 +197,7 @@ const ClientCadastroSemanal = () => {
 
   const handleEditar = (lancamento) => {
     setEditandoId(lancamento.id);
-    setReferenceDate(new Date(lancamento.data_referencia));
+    setReferenceDate(parseLocalDateFromDb(lancamento.data_referencia));
     
     setFormState({
       leads: lancamento.leads?.toString() || '',
@@ -652,10 +672,10 @@ const ClientCadastroSemanal = () => {
                             <div className="flex items-center justify-between mb-4 relative z-10">
                               <div>
                                 <p className="text-base font-bold text-[#1e293b]">
-                                  {format(new Date(dia.data_referencia), 'dd/MM/yyyy', { locale: ptBR })}
+                                  {format(parseLocalDateFromDb(dia.data_referencia), 'dd/MM/yyyy', { locale: ptBR })}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-0.5 font-medium">
-                                  {format(new Date(dia.data_referencia), "EEEE", { locale: ptBR })}
+                                  {format(parseLocalDateFromDb(dia.data_referencia), "EEEE", { locale: ptBR })}
                                 </p>
                               </div>
                               <div className="h-9 w-9 rounded-lg bg-emerald-100 flex items-center justify-center shadow-sm group-hover:bg-emerald-200 group-hover:scale-105 transition-all">
@@ -727,7 +747,7 @@ const ClientCadastroSemanal = () => {
                       return (
                         <TableRow key={lancamento.id}>
                           <TableCell className="font-medium">
-                            {format(new Date(lancamento.data_referencia), 'dd/MM/yyyy', { locale: ptBR })}
+                            {format(parseLocalDateFromDb(lancamento.data_referencia), 'dd/MM/yyyy', { locale: ptBR })}
                           </TableCell>
                           <TableCell>{lancamento.leads?.toLocaleString('pt-BR') || 0}</TableCell>
                           <TableCell>{lancamento.visitas_agendadas?.toLocaleString('pt-BR') || 0}</TableCell>

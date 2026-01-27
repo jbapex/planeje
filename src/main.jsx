@@ -19,15 +19,26 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('Promise rejeitada não tratada:', event.reason);
 });
 
-// Registrar service worker (não crítico se falhar)
-if ('serviceWorker' in navigator) {
+// Registrar service worker (opcional)
+// Observação:
+// - O service worker pode manter versões antigas do bundle em cache
+//   e causar erros intermitentes após login (como na página Cadastro Diário),
+//   especialmente em navegadores no Windows que são mais agressivos com cache.
+// - Por isso, deixamos o registro DESATIVADO por padrão e controlado por
+//   variável de ambiente. Para reativar, defina VITE_ENABLE_SW=true.
+const enableServiceWorker = import.meta.env.VITE_ENABLE_SW === 'true';
+
+if (enableServiceWorker && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('SW registered: ', registration);
-    }).catch(registrationError => {
-      // Não é crítico se o service worker falhar
-      console.log('SW registration failed (não crítico): ', registrationError);
-    });
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((registration) => {
+        console.log('SW registered: ', registration);
+      })
+      .catch((registrationError) => {
+        // Não é crítico se o service worker falhar
+        console.log('SW registration failed (não crítico): ', registrationError);
+      });
   });
 }
 
