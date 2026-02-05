@@ -14,6 +14,7 @@ const MainLayoutCliente = memo(() => {
   const auth = useAuth();
   const { profile, signOut } = auth || {};
   const [clienteData, setClienteData] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Salva posição de scroll ao navegar
   useEffect(() => {
@@ -113,9 +114,19 @@ const MainLayoutCliente = memo(() => {
     ? 'JB APEX' 
     : (clienteData?.empresa || clienteData?.nome_contato || 'JB APEX');
 
+  // Colapsar automaticamente a sidebar quando estiver na rota de CRM
+  useEffect(() => {
+    const path = location.pathname || '';
+    const isCrmRoute = path.startsWith('/cliente/crm') || path.startsWith('/client-area/crm');
+    setIsSidebarCollapsed(isCrmRoute);
+  }, [location.pathname]);
+
   return (
     <div className="h-screen flex overflow-hidden bg-[#f8fafc]">
-      <SidebarCliente />
+      <SidebarCliente
+        collapsed={isSidebarCollapsed}
+        onToggleCollapsed={() => setIsSidebarCollapsed(prev => !prev)}
+      />
       
       {/* Header Mobile Fixo */}
       {auth && profile && (

@@ -10,6 +10,7 @@ const ROUTE_TO_PAGE_KEY = {
   '/apexia': 'apexia',
   '/cliente/pgm-panel': 'pgm-panel',
   '/cliente/cadastros': 'cadastros', // Página "Meus Dados" - sempre permitida para clientes
+  '/cliente/crm': 'crm',
 };
 
 // Função helper para obter pageKey de uma rota
@@ -84,6 +85,9 @@ const ProtectedClientPageRoute = ({ children, pageKey }) => {
         'campaigns-status': '/cliente/campaigns-status',
         'apexia': '/apexia',
         'pgm-panel': '/cliente/pgm-panel',
+        'crm': '/cliente/crm',
+        'api': '/cliente/crm',
+        'canais': '/cliente/crm',
       };
       redirectPath = pageToRoute[firstAllowedPage] || '/cliente/support';
     } else if (allowedPages === null || allowedPages === undefined) {

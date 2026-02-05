@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, FileText, Activity, ClipboardList, TrendingUp, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, FileText, Activity, ClipboardList, TrendingUp, MoreHorizontal, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import {
   DropdownMenu,
@@ -75,6 +75,12 @@ const getMenuItems = (profile) => {
       label: 'PGM',
       path: `${prefix}/pgm-panel`,
       icon: Activity,
+    },
+    {
+      key: 'crm',
+      label: 'CRM',
+      path: `${prefix}/crm`,
+      icon: BarChart3,
     },
   ];
 
@@ -163,7 +169,7 @@ const BottomNavCliente = () => {
               <div className={`
                 relative p-2 rounded-xl transition-all duration-300
                 ${isActive 
-                  ? 'bg-blue-50 shadow-sm' 
+                  ? 'bg-blue-600 text-white shadow-md' 
                   : isApexIA
                   ? 'bg-orange-50/80 border-2 border-orange-400/60 shadow-[0_0_8px_rgba(251,146,60,0.25)]'
                   : 'group-hover:bg-slate-50'
@@ -171,11 +177,11 @@ const BottomNavCliente = () => {
               `}>
                 <Icon className={`
                   w-5 h-5 transition-all duration-300
-                  ${isActive ? 'scale-110' : isApexIA ? 'scale-105' : ''}
+                  ${isActive ? 'scale-110 text-white' : isApexIA && !isActive ? 'scale-105' : ''}
                 `} />
                 {isActive && (
                   <motion.div
-                    className="absolute -top-1 -right-1 h-2 w-2 bg-blue-600 rounded-full"
+                    className="absolute -top-1 -right-1 h-2 w-2 bg-white rounded-full"
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 20 }}
@@ -255,7 +261,7 @@ const BottomNavCliente = () => {
                     className={`
                       flex items-center gap-3 cursor-pointer rounded-xl mx-1 my-0.5
                       ${isActive 
-                        ? 'bg-blue-50 text-blue-600 font-semibold' 
+                        ? 'bg-blue-600 text-white font-semibold' 
                         : isApexIA
                         ? 'bg-orange-50/80 border border-orange-400/40 text-orange-600 hover:bg-orange-100/80'
                         : 'hover:bg-slate-50 text-slate-700'

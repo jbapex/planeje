@@ -48,6 +48,7 @@ import ClientChat from '@/components/pages/ClientChat';
 import GeneralChat from '@/components/pages/GeneralChat';
 import TestImageModels from '@/components/pages/TestImageModels';
 import AILearningDashboard from '@/components/pages/AILearningDashboard';
+import ClientCRM from '@/components/pages/ClientCRM';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
     import ChatLauncher from '@/components/pages/ChatLauncher';
@@ -106,25 +107,6 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
       useEffect(() => {
         if (!authLoading && session && profile?.role === 'cliente' && profile?.cliente_id) {
 
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: 'debug-session',
-              runId: 'initial',
-              hypothesisId: 'H4',
-              location: 'App.jsx:clientRedirectEffect',
-              message: 'Client redirect guard running',
-              data: {
-                sessionExists: !!session,
-                role: profile?.role || null,
-                hasClienteId: !!profile?.cliente_id,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion agent log
           // Para HashRouter, o path está no hash
           const hash = window.location.hash;
           const currentPath = hash ? hash.replace('#', '') : window.location.pathname;
@@ -182,6 +164,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ProtectedClientPageRoute pageKey="campaigns-status"><ClientCampaignsStatus /></ProtectedClientPageRoute>} />
                     <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
+                    <Route path="crm" element={<ProtectedClientPageRoute pageKey="crm"><ClientCRM /></ProtectedClientPageRoute>} />
                   </Route>
                   <Route path="*" element={<Navigate to="/cliente/support" replace />} />
                 </>
@@ -195,6 +178,7 @@ import AILearningDashboard from '@/components/pages/AILearningDashboard';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
                     <Route path="pgm-panel" element={<PGMPanel />} />
+                    <Route path="crm" element={<ClientCRM />} />
                     <Route index element={<Navigate to="/client-area/support" replace />} />
                   </Route>
 

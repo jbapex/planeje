@@ -18,6 +18,7 @@ const CLIENT_PAGES = [
   { key: 'campaigns-status', label: 'Status das Campanhas', icon: ClipboardList },
   { key: 'apexia', label: 'ApexIA', icon: MessageSquare },
   { key: 'pgm-panel', label: 'Painel PGM', icon: Activity },
+  { key: 'crm', label: 'CRM', icon: Activity },
 ];
 
 const ClientUserManager = ({ clientId, clientName, onClose }) => {
