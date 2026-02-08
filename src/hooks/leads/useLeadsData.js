@@ -3,6 +3,7 @@ import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { startOfMonth, endOfMonth, parse } from 'date-fns';
+import { normalizePhoneNumber, getPhoneVariations } from '@/lib/leadUtils';
 
 const PAGE_SIZE = 50;
 
@@ -81,7 +82,34 @@ export const useLeadsData = () => {
 
         if (error) throw error;
 
-        setLeads((prev) => (isNewSearch ? data || [] : [...(prev || []), ...(data || [])]));
+        let leadsData = data || [];
+        const clienteId = isClient ? profile.cliente_id : (leadsData[0]?.cliente_id || null);
+        if (clienteId && leadsData.length > 0 && leadsData.some((l) => !l.profile_pic_url)) {
+          const { data: contacts } = await supabase
+            .from('cliente_whatsapp_contact')
+            .select('from_jid, phone, profile_pic_url')
+            .eq('cliente_id', clienteId)
+            .not('profile_pic_url', 'is', null);
+          const phoneToPic = new Map();
+          (contacts || []).forEach((c) => {
+            const pic = c.profile_pic_url;
+            if (!pic) return;
+            const fromNum = (c.phone || '').replace(/\D/g, '') || (c.from_jid || '').replace(/@.*$/, '').replace(/\D/g, '');
+            if (fromNum) {
+              const normalized = normalizePhoneNumber(fromNum) || fromNum;
+              phoneToPic.set(normalized, pic);
+              getPhoneVariations(normalized).forEach((v) => phoneToPic.set(v, pic));
+            }
+          });
+          leadsData = leadsData.map((lead) => {
+            if (lead.profile_pic_url) return lead;
+            const variations = getPhoneVariations(lead.whatsapp || '');
+            const pic = variations.map((v) => phoneToPic.get(v)).find(Boolean);
+            return pic ? { ...lead, profile_pic_url: pic } : lead;
+          });
+        }
+
+        setLeads((prev) => (isNewSearch ? leadsData : [...(prev || []), ...leadsData]));
         setHasMore((data?.length || 0) === PAGE_SIZE && (currentPage + 1) * PAGE_SIZE < (count || 0));
         setPage(currentPage + 1);
       } catch (err) {

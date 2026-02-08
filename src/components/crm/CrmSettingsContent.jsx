@@ -363,8 +363,8 @@ export default function CrmSettingsContent() {
   const descClass = 'text-xs text-muted-foreground dark:text-gray-400 mt-0.5';
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className={cardClass}>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 w-full min-w-0 pb-10 auto-rows-min">
+      <Card className={`${cardClass} md:col-span-2`}>
         <CardHeader className={headerClass}>
           <CardTitle className={titleClass}>Funis</CardTitle>
           <CardDescription className={descClass}>
@@ -436,7 +436,7 @@ export default function CrmSettingsContent() {
       </Card>
 
       {effectiveClienteId && !pipelineLoading && pipelines.length === 0 && (
-        <Alert variant="default" className="border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/10">
+        <Alert variant="default" className="md:col-span-2 border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/10">
           <Info className="h-4 w-4 text-amber-600 dark:text-amber-500" />
           <AlertTitle>Alternativa: criar a partir dos status</AlertTitle>
           <AlertDescription className="space-y-2">
@@ -607,62 +607,6 @@ export default function CrmSettingsContent() {
 
       <Card className={cardClass}>
         <CardHeader className={headerClass}>
-          <CardTitle className={titleClass}>Conexão WhatsApp</CardTitle>
-          <CardDescription className={descClass}>
-            Conecte o WhatsApp da sua empresa (uazapi) para uso no CRM. Informe o subdomínio e o token da sua instância em docs.uazapi.com. A configuração ficará salva para uso futuro (ex.: envio de mensagens para leads).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 p-3 sm:p-4 pt-0">
-          {whatsappLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Carregando...</span>
-            </div>
-          ) : (
-            <>
-              <div>
-                <Label htmlFor="whatsapp-subdomain">Subdomínio uazapi</Label>
-                <Input
-                  id="whatsapp-subdomain"
-                  placeholder="ex: minha-instancia"
-                  value={whatsappSubdomain}
-                  onChange={(e) => setWhatsappSubdomain(e.target.value)}
-                  className="mt-1"
-                />
-                <p className="text-xs text-muted-foreground mt-1">URL da API: https://{whatsappSubdomain || 'seu-subdomínio'}.uazapi.com</p>
-              </div>
-              <div>
-                <Label htmlFor="whatsapp-token">Token da instância</Label>
-                <Input
-                  id="whatsapp-token"
-                  type="password"
-                  placeholder={whatsappConfigured ? 'Deixe em branco para manter o atual' : 'Token da instância'}
-                  value={whatsappToken}
-                  onChange={(e) => setWhatsappToken(e.target.value)}
-                  className="mt-1"
-                  autoComplete="off"
-                />
-                {whatsappConfigured && whatsappTokenMasked && (
-                  <p className="text-xs text-muted-foreground mt-1">Token configurado: {whatsappTokenMasked}</p>
-                )}
-              </div>
-              <Button onClick={handleSaveWhatsapp} disabled={whatsappSaving}>
-                {whatsappSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Salvando...
-                  </>
-                ) : (
-                  'Salvar conexão WhatsApp'
-                )}
-              </Button>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className={cardClass}>
-        <CardHeader className={headerClass}>
           <CardTitle className={titleClass}>Status &quot;não compareceu&quot;</CardTitle>
           <CardDescription className={descClass}>Status que representa lead que não compareceu (usado em relatórios).</CardDescription>
         </CardHeader>
@@ -682,7 +626,7 @@ export default function CrmSettingsContent() {
         </CardContent>
       </Card>
 
-      <Button onClick={handleSave} disabled={saving}>
+      <Button onClick={handleSave} disabled={saving} className="md:col-span-2 w-full sm:w-auto">
         {saving ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />

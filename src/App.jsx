@@ -164,7 +164,8 @@ import ClientCRM from '@/components/pages/ClientCRM';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ProtectedClientPageRoute pageKey="campaigns-status"><ClientCampaignsStatus /></ProtectedClientPageRoute>} />
                     <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
-                    <Route path="crm" element={<ProtectedClientPageRoute pageKey="crm"><ClientCRM /></ProtectedClientPageRoute>} />
+                    <Route path="crm" element={<Navigate to="/cliente/crm/leads" replace />} />
+                    <Route path="crm/:tab" element={<ProtectedClientPageRoute pageKey="crm"><ClientCRM /></ProtectedClientPageRoute>} />
                   </Route>
                   <Route path="*" element={<Navigate to="/cliente/support" replace />} />
                 </>
@@ -178,7 +179,8 @@ import ClientCRM from '@/components/pages/ClientCRM';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
                     <Route path="pgm-panel" element={<PGMPanel />} />
-                    <Route path="crm" element={<ClientCRM />} />
+                    <Route path="crm" element={<Navigate to="/client-area/crm/leads" replace />} />
+                    <Route path="crm/:tab" element={<ClientCRM />} />
                     <Route index element={<Navigate to="/client-area/support" replace />} />
                   </Route>
 

@@ -53,6 +53,9 @@
       * {
         @apply border-border;
       }
+      html {
+        font-size: 80%;
+      }
       html, body {
         height: 100dvh;
         max-height: 100dvh;

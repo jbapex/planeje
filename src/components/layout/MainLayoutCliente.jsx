@@ -115,11 +115,12 @@ const MainLayoutCliente = memo(() => {
     : (clienteData?.empresa || clienteData?.nome_contato || 'JB APEX');
 
   // Colapsar automaticamente a sidebar quando estiver na rota de CRM
+  const path = location.pathname || '';
+  const isCrmRoute = path.startsWith('/cliente/crm') || path.startsWith('/client-area/crm');
+
   useEffect(() => {
-    const path = location.pathname || '';
-    const isCrmRoute = path.startsWith('/cliente/crm') || path.startsWith('/client-area/crm');
     setIsSidebarCollapsed(isCrmRoute);
-  }, [location.pathname]);
+  }, [path]);
 
   return (
     <div className="h-screen flex overflow-hidden bg-[#f8fafc]">
@@ -176,15 +177,13 @@ const MainLayoutCliente = memo(() => {
         </header>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <main
           ref={mainRef}
-          className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-8 pt-28 md:pt-4 sm:pt-6 md:py-8 pb-20 md:pb-6 min-h-0"
-          style={{ 
-            paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))'
-          }}
+          className={`flex-1 flex flex-col min-h-0 overflow-hidden ${isCrmRoute ? 'pt-24 md:pt-2 sm:pt-4 md:py-4 pb-20 md:pb-4' : 'overflow-y-auto px-3 sm:px-4 md:px-8 pt-28 md:pt-4 sm:pt-6 md:py-8 pb-20 md:pb-6'}`}
+          style={!isCrmRoute ? { paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))' } : undefined}
         >
-          <div className="max-w-7xl mx-auto">
+          <div className={isCrmRoute ? 'flex-1 flex flex-col min-h-0 w-full' : 'max-w-7xl mx-auto'}>
             <Outlet />
           </div>
         </main>

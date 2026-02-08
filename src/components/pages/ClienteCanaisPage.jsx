@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
@@ -8,14 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio } from 'lucide-react';
+import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase, supabaseUrl } from '@/lib/customSupabaseClient';
+import { extractPhoneAndNameFromRawPayload, getFromJidFromRawPayload, buildContactTrackingFromRawPayload, getProfilePicFromRawPayload } from '@/lib/contactFromWebhookPayload';
 
 const QR_REFRESH_SECONDS = 45;
 
@@ -59,6 +59,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
   const {
     effectiveClienteId,
     config,
+    configs,
     loading,
     isAdminWithoutCliente,
     selectedClienteId,
@@ -67,23 +68,35 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     updateInstanceStatus,
     generateWebhookSecret,
     setUseSse,
+    addConfig,
+    deleteConfig,
   } = useClienteWhatsAppConfig();
 
-  const [connecting, setConnecting] = useState(false);
-  const [connectResponse, setConnectResponse] = useState(null);
-  const [qrImageSrc, setQrImageSrc] = useState(null);
-  const [channelData, setChannelData] = useState(null);
-  const [webhookGenerating, setWebhookGenerating] = useState(false);
+  const [channelDataByConfigId, setChannelDataByConfigId] = useState({});
+  const [connectResponseByConfigId, setConnectResponseByConfigId] = useState({});
+  const [qrImageSrcByConfigId, setQrImageSrcByConfigId] = useState({});
+  const [connectingConfigId, setConnectingConfigId] = useState(null);
+  const [pullingConfigId, setPullingConfigId] = useState(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
   const [webhookConfiguring, setWebhookConfiguring] = useState(false);
-  const [webhookLogs, setWebhookLogs] = useState([]);
+  const [uazapiWebhookLogs, setUazapiWebhookLogs] = useState([]);
+  const [apicebotWebhookLogs, setApicebotWebhookLogs] = useState([]);
+  const [uazapiLogsLoadingMore, setUazapiLogsLoadingMore] = useState(false);
+  const [uazapiLogsRefreshing, setUazapiLogsRefreshing] = useState(false);
   const [webhookLogViewing, setWebhookLogViewing] = useState(null);
+  const [importContactLoading, setImportContactLoading] = useState(false);
   const [sseConnected, setSseConnected] = useState(false);
   const [sseEventCount, setSseEventCount] = useState(0);
   const [sseConnectionState, setSseConnectionState] = useState('idle');
   const [sseEventLog, setSseEventLog] = useState([]);
   const [now, setNow] = useState(() => Date.now());
+  const [addChannelOpen, setAddChannelOpen] = useState(false);
+  const [addChannelName, setAddChannelName] = useState('');
+  const [addChannelSubdomain, setAddChannelSubdomain] = useState('');
+  const [addChannelToken, setAddChannelToken] = useState('');
+  const [addChannelSaving, setAddChannelSaving] = useState(false);
   const qrRefreshIntervalRef = useRef(null);
+  const qrRefreshConfigIdRef = useRef(null);
   const sseRef = useRef(null);
   const sseFirstEventToastRef = useRef(false);
 
@@ -108,39 +121,82 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     };
   }, []);
 
+  const fetchWebhookLogs = useCallback(async () => {
+    if (!effectiveClienteId) return;
+    const [
+      { data: uazapiData },
+      { data: apicebotData },
+    ] = await Promise.all([
+      supabase
+        .from('cliente_whatsapp_webhook_log')
+        .select('id, created_at, status, source, from_jid, type, body_preview, error_message, raw_payload, body_keys')
+        .eq('cliente_id', effectiveClienteId)
+        .or('source.neq.apicebot,source.is.null')
+        .order('created_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('cliente_whatsapp_webhook_log')
+        .select('id, created_at, status, source, from_jid, type, body_preview, error_message, raw_payload, body_keys')
+        .eq('cliente_id', effectiveClienteId)
+        .eq('source', 'apicebot')
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (uazapiData) setUazapiWebhookLogs(uazapiData);
+    if (apicebotData) setApicebotWebhookLogs(apicebotData);
+  }, [effectiveClienteId]);
+
   useEffect(() => {
     if (!effectiveClienteId) return;
-    const fetchLogs = async () => {
-      const { data } = await supabase
-        .from('cliente_whatsapp_webhook_log')
-        .select('id, created_at, status, from_jid, type, body_preview, error_message, raw_payload')
-        .eq('cliente_id', effectiveClienteId)
-        .order('created_at', { ascending: false })
-        .limit(30);
-      if (data) setWebhookLogs(data);
+    fetchWebhookLogs();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchWebhookLogs();
     };
-    fetchLogs();
+    document.addEventListener('visibilitychange', onVisibilityChange);
     const channel = supabase
       .channel(`webhook-log:${effectiveClienteId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'cliente_whatsapp_webhook_log', filter: `cliente_id=eq.${effectiveClienteId}` },
         (payload) => {
-          const row = payload.new;
-          setWebhookLogs((prev) => [{ ...row }, ...prev].slice(0, 50));
+          const row = { ...payload.new };
+          const isApicebot = (row.source || '').toLowerCase() === 'apicebot';
+          if (isApicebot) {
+            setApicebotWebhookLogs((prev) => [row, ...prev].slice(0, 100));
+          } else {
+            setUazapiWebhookLogs((prev) => [row, ...prev].slice(0, 100));
+          }
         }
       )
       .subscribe();
     return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       supabase.removeChannel(channel);
     };
-  }, [effectiveClienteId]);
+  }, [effectiveClienteId, fetchWebhookLogs]);
+
+  const loadMoreUazapiLogs = useCallback(async () => {
+    if (!effectiveClienteId || uazapiWebhookLogs.length === 0) return;
+    const oldest = uazapiWebhookLogs[uazapiWebhookLogs.length - 1]?.created_at;
+    if (!oldest) return;
+    setUazapiLogsLoadingMore(true);
+    const { data } = await supabase
+      .from('cliente_whatsapp_webhook_log')
+      .select('id, created_at, status, source, from_jid, type, body_preview, error_message, raw_payload, body_keys')
+      .eq('cliente_id', effectiveClienteId)
+      .or('source.neq.apicebot,source.is.null')
+      .lt('created_at', oldest)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    setUazapiLogsLoadingMore(false);
+    if (data?.length) setUazapiWebhookLogs((prev) => [...prev, ...data]);
+  }, [effectiveClienteId, uazapiWebhookLogs]);
 
   useEffect(() => {
-    if (webhookLogs.length === 0) return;
+    if (uazapiWebhookLogs.length === 0 && apicebotWebhookLogs.length === 0) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [webhookLogs.length]);
+  }, [uazapiWebhookLogs.length, apicebotWebhookLogs.length]);
 
   useEffect(() => {
     if (!config?.use_sse || !config?.subdomain?.trim() || !config?.token?.trim() || !effectiveClienteId) {
@@ -152,199 +208,329 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       }
       return;
     }
-    setSseConnectionState('connecting');
-    setSseEventCount(0);
-    setSseEventLog([]);
     const baseUrl = `https://${config.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
     const token = encodeURIComponent(config.token.trim());
-    const sseUrl = `${baseUrl}/sse?token=${token}`;
-    console.log('[SSE uazapi] Conectando:', sseUrl);
-    const es = new EventSource(sseUrl);
-    sseRef.current = es;
+    const ssePaths = ['/instance/sse', '/sse'];
+    let pathIndex = 0;
+    let cancelled = false;
+    let currentCleanup = null;
 
-    es.onopen = () => {
-      setSseConnected(true);
-      setSseConnectionState('connected');
-      console.log('[SSE uazapi] Conexão aberta. Envie uma mensagem no WhatsApp e veja aqui se chega algum evento.');
-    };
-    es.onerror = () => {
-      setSseConnected(false);
-      setSseConnectionState('error');
-      console.warn('[SSE uazapi] Erro ou stream fechado. Confira em docs.uazapi.com se o path do SSE é /sse ou outro (ex.: /instance/sse).');
-    };
+    const connect = () => {
+      if (cancelled) return;
+      setSseConnectionState('connecting');
+      if (pathIndex === 0) {
+        setSseEventCount(0);
+        setSseEventLog([]);
+      }
+      const path = ssePaths[pathIndex];
+      const sseUrl = `${baseUrl}${path}?token=${token}`;
+      console.log('[SSE uazapi] Conectando:', sseUrl, pathIndex === 0 ? '(primeiro path)' : '(fallback)');
+      const es = new EventSource(sseUrl);
+      sseRef.current = es;
 
-    const handleEvent = async (event) => {
-      const eventType = event.type || 'message';
-      const dataStr = event.data;
-      console.log('[SSE uazapi] Evento recebido:', eventType, dataStr?.slice?.(0, 300) ?? dataStr);
-      setSseEventLog((prev) => [
-        {
-          id: `ev-${Date.now()}-${prev.length}`,
-          time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          from_jid: null,
-          phone: null,
-          bodyPreview: `[${eventType}] ${(dataStr && String(dataStr).slice(0, 50)) || '—'}`,
-          eventType,
-        },
-        ...prev,
-      ].slice(0, 30));
+      es.onopen = () => {
+        if (cancelled) return;
+        setSseConnected(true);
+        setSseConnectionState('connected');
+        console.log('[SSE uazapi] Conexão aberta em', path, '- Envie uma mensagem no WhatsApp para testar.');
+      };
+      es.onerror = () => {
+        if (cancelled) return;
+        if (currentCleanup) {
+          currentCleanup();
+          currentCleanup = null;
+        }
+        es.close();
+        sseRef.current = null;
+        setSseConnected(false);
+        if (pathIndex + 1 < ssePaths.length) {
+          pathIndex += 1;
+          console.warn('[SSE uazapi] Erro em', path, '- tentando', ssePaths[pathIndex]);
+          connect();
+        } else {
+          setSseConnectionState('error');
+          console.warn('[SSE uazapi] Ambos os paths falharam. Use o webhook para receber mensagens.');
+        }
+      };
 
-      try {
-        const data = dataStr ? JSON.parse(dataStr) : {};
-        const payload = data.data ?? data.payload ?? data;
-        const raw = typeof payload === 'object' && payload !== null ? payload : { body: payload };
-        const row = normalizeUazapiPayload(raw);
-        if (!row.from_jid || row.from_jid === 'unknown') return;
-        await supabase.from('cliente_whatsapp_inbox').upsert(
-          {
-            cliente_id: effectiveClienteId,
-            message_id: row.message_id,
-            from_jid: row.from_jid,
-            sender_name: row.sender_name,
-            msg_timestamp: row.msg_timestamp,
-            type: row.type || 'text',
-            body: row.body,
-            phone: row.phone,
-            profile_pic_url: row.profile_pic_url,
-            is_group: row.is_group,
-            group_name: row.group_name,
-            raw_payload: raw,
-          },
-          { onConflict: 'cliente_id,message_id' }
-        );
-        setSseEventCount((c) => c + 1);
+      const handleEvent = async (event) => {
+        const eventType = event.type || 'message';
+        const dataStr = event.data;
+        console.log('[SSE uazapi] Evento recebido:', eventType, dataStr?.slice?.(0, 300) ?? dataStr);
         setSseEventLog((prev) => [
           {
-            id: `${Date.now()}-${row.message_id}`,
+            id: `ev-${Date.now()}-${prev.length}`,
             time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            from_jid: row.from_jid,
-            phone: row.phone,
-            bodyPreview: (row.body || '').slice(0, 60) || `[${eventType}]`,
+            from_jid: null,
+            phone: null,
+            bodyPreview: `[${eventType}] ${(dataStr && String(dataStr).slice(0, 50)) || '—'}`,
             eventType,
+            savedToInbox: false,
           },
           ...prev,
         ].slice(0, 30));
-        if (!sseFirstEventToastRef.current) {
-          sseFirstEventToastRef.current = true;
-          toast({ title: 'SSE ativo', description: 'Primeira mensagem recebida via SSE. Veja na Caixa de entrada.' });
+
+        try {
+          const data = dataStr ? JSON.parse(dataStr) : {};
+          const payload = data.data ?? data.payload ?? data;
+          const raw = typeof payload === 'object' && payload !== null ? payload : { body: payload };
+          const row = normalizeUazapiPayload(raw);
+          if (!row.from_jid || row.from_jid === 'unknown') return;
+          await supabase.from('cliente_whatsapp_inbox').upsert(
+            {
+              cliente_id: effectiveClienteId,
+              message_id: row.message_id,
+              from_jid: row.from_jid,
+              sender_name: row.sender_name,
+              msg_timestamp: row.msg_timestamp,
+              type: row.type || 'text',
+              body: row.body,
+              phone: row.phone,
+              profile_pic_url: row.profile_pic_url,
+              is_group: row.is_group,
+              group_name: row.group_name,
+              raw_payload: raw,
+            },
+            { onConflict: 'cliente_id,message_id' }
+          );
+          setSseEventCount((c) => c + 1);
+          setSseEventLog((prev) => [
+            {
+              id: `msg-${Date.now()}-${row.message_id}`,
+              time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              from_jid: row.from_jid,
+              phone: row.phone,
+              bodyPreview: (row.body || '').slice(0, 60) || `[${eventType}]`,
+              eventType,
+              savedToInbox: true,
+            },
+            ...prev,
+          ].slice(0, 30));
+          if (!sseFirstEventToastRef.current) {
+            sseFirstEventToastRef.current = true;
+            toast({ title: 'SSE ativo', description: 'Primeira mensagem recebida via SSE. Veja na Caixa de entrada.' });
+          }
+        } catch (err) {
+          console.warn('[SSE uazapi] Erro ao processar evento:', err);
         }
-      } catch (err) {
-        console.warn('[SSE uazapi] Erro ao processar evento:', err);
-      }
+      };
+
+      const eventTypes = ['message', 'messages', 'notification', 'event', 'message.upsert', 'upsert', 'update', 'chat', 'conversation'];
+      eventTypes.forEach((type) => es.addEventListener(type, handleEvent));
+
+      return () => {
+        eventTypes.forEach((type) => es.removeEventListener(type, handleEvent));
+        es.close();
+        sseRef.current = null;
+        sseFirstEventToastRef.current = false;
+        setSseConnected(false);
+        setSseConnectionState('idle');
+      };
     };
 
-    es.addEventListener('message', handleEvent);
-    es.addEventListener('messages', handleEvent);
-    es.addEventListener('notification', handleEvent);
-    es.addEventListener('event', handleEvent);
-
+    currentCleanup = connect();
     return () => {
-      es.removeEventListener('message', handleEvent);
-      es.removeEventListener('messages', handleEvent);
-      es.removeEventListener('notification', handleEvent);
-      es.removeEventListener('event', handleEvent);
-      es.close();
-      sseRef.current = null;
-      sseFirstEventToastRef.current = false;
+      cancelled = true;
+      if (typeof currentCleanup === 'function') currentCleanup();
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
       setSseConnected(false);
       setSseConnectionState('idle');
     };
   }, [config?.use_sse, config?.subdomain, config?.token, effectiveClienteId]);
 
   useEffect(() => {
-    if (!config?.subdomain?.trim() || !config?.token?.trim()) return;
-    const baseUrl = `https://${config.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
+    if (!configs?.length) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${baseUrl}/instance/status`, {
-          method: 'GET',
-          headers: { token: config.token.trim() },
-        });
-        if (cancelled) return;
-        const data = await res.json().catch(() => ({}));
-        const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
-        if (channel?.number || channel?.profileName) setChannelData(channel);
-      } catch {
-        if (!cancelled) {
-          const resConnect = await fetch(`${baseUrl}/instance/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', token: config.token.trim() },
-            body: '{}',
+    configs.forEach((cfg) => {
+      if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return;
+      const baseUrl = `https://${cfg.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
+      (async () => {
+        try {
+          const res = await fetch(`${baseUrl}/instance/status`, {
+            method: 'GET',
+            headers: { token: cfg.token.trim() },
           });
           if (cancelled) return;
-          const data = await resConnect.json().catch(() => ({}));
-          const channel = parseChannelData(data);
-          if (channel?.number || channel?.profileName) setChannelData(channel);
+          const data = await res.json().catch(() => ({}));
+          const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
+          if (channel?.number || channel?.profileName) {
+            setChannelDataByConfigId((prev) => ({ ...prev, [cfg.id]: channel }));
+          }
+        } catch {
+          // ignore
         }
-      }
-    })();
+      })();
+    });
     return () => { cancelled = true; };
-  }, [config?.subdomain, config?.token]);
+  }, [configs]);
 
-  const fetchConnect = async (isInitial = true) => {
-    if (!config?.subdomain?.trim() || !config?.token?.trim()) return null;
-    const baseUrl = `https://${config.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
+  const getBaseUrlForConfig = (cfg) => {
+    if (!cfg?.subdomain?.trim()) return '';
+    return `https://${cfg.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
+  };
+
+  const getWebhookUrlForConfig = (cfg) => {
+    if (!effectiveClienteId || !cfg?.webhook_secret) return '';
+    const q = new URLSearchParams({
+      cliente_id: effectiveClienteId,
+      secret: cfg.webhook_secret,
+    });
+    return `${supabaseUrl}/functions/v1/uazapi-inbox-webhook?${q.toString()}`;
+  };
+
+  const fetchConnect = useCallback(async (cfg, isInitial = true) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return null;
+    const baseUrl = getBaseUrlForConfig(cfg);
     const url = `${baseUrl}/instance/connect`;
+    const cid = cfg.id;
     if (isInitial) {
-      setConnecting(true);
-      setConnectResponse(null);
-      setQrImageSrc(null);
-      setChannelData(null);
+      setConnectingConfigId(cid);
+      setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: null }));
+      setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+      setChannelDataByConfigId((prev) => ({ ...prev, [cid]: null }));
     }
     try {
-      if (isInitial) updateInstanceStatus('connecting');
+      if (isInitial) updateInstanceStatus('connecting', cid);
       const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          token: config.token.trim(),
-        },
+        headers: { 'Content-Type': 'application/json', token: cfg.token.trim() },
         body: '{}',
       });
       const data = await res.json().catch(async () => ({ _raw: await res.text() }));
       const payload = { status: res.status, ok: res.ok, url: `${baseUrl}/instance/connect`, ...data };
-      setConnectResponse(payload);
+      setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: payload }));
       const channel = parseChannelData(payload);
       if (channel) {
-        setChannelData(channel);
-        setQrImageSrc(null);
+        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
+        setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
       } else {
-        parseAndSetQr(data, setQrImageSrc);
+        parseAndSetQr(data, (qr) => setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: qr })));
       }
-      if (res.ok) updateInstanceStatus('connected');
-      else updateInstanceStatus('disconnected');
+      if (res.ok) updateInstanceStatus('connected', cid);
+      else updateInstanceStatus('disconnected', cid);
       return { data, res };
     } catch (err) {
       if (isInitial) {
         const message = err.message || 'Erro de rede ou CORS. Em produção pode ser necessário usar um proxy.';
         toast({ variant: 'destructive', title: 'Erro ao conectar', description: message });
-        setConnectResponse({
-          error: message,
-          url: `${baseUrl}/instance/connect`,
-          hint: 'Verifique subdomínio, token e se a API permite requisições do navegador (CORS).',
-        });
-        updateInstanceStatus('disconnected');
+        setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: { error: message, url: `${baseUrl}/instance/connect`, hint: 'Verifique subdomínio, token e se a API permite requisições do navegador (CORS).' } }));
+        updateInstanceStatus('disconnected', cid);
       }
       return null;
     } finally {
-      if (isInitial) setConnecting(false);
+      if (isInitial) setConnectingConfigId(null);
     }
-  };
+  }, [updateInstanceStatus, toast]);
 
-  const getWebhookUrl = () => {
-    if (!effectiveClienteId || !config?.webhook_secret) return '';
-    const q = new URLSearchParams({
-      cliente_id: effectiveClienteId,
-      secret: config.webhook_secret,
-    });
-    return `${supabaseUrl}/functions/v1/uazapi-inbox-webhook?${q.toString()}`;
-  };
+  const fetchStatusOnly = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return;
+    const baseUrl = getBaseUrlForConfig(cfg);
+    const cid = cfg.id;
+    setPullingConfigId(cid);
+    try {
+      const res = await fetch(`${baseUrl}/instance/status`, {
+        method: 'GET',
+        headers: { token: cfg.token.trim() },
+      });
+      const data = await res.json().catch(() => ({}));
+      const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
+      if (channel?.number || channel?.profileName) {
+        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
+        setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+        setConnectResponseByConfigId((prev) => (prev[cid] ? { ...prev, [cid]: { ...prev[cid], ...data } } : { ...prev, [cid]: { status: res.status, ok: res.ok, ...data } }));
+        toast({ title: 'Canal atualizado', description: 'Dados da instância foram atualizados.' });
+      } else {
+        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: null }));
+        toast({ title: 'Canal não conectado', description: 'Conecte o WhatsApp para ver os dados da instância.', variant: 'destructive' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Erro ao puxar canal', description: 'Não foi possível obter o status da instância.' });
+    } finally {
+      setPullingConfigId(null);
+    }
+  }, [toast]);
 
-  const setWebhookInUazapi = async () => {
-    if (!config?.subdomain?.trim() || !config?.token?.trim() || !config?.webhook_secret || !effectiveClienteId) return;
-    const baseUrl = `https://${config.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
-    const webhookUrl = getWebhookUrl();
+  const handleConnectWhatsAppWithStatusFirst = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
+      toast({ variant: 'destructive', title: 'Configure a API', description: 'Subdomínio e token são obrigatórios.' });
+      return;
+    }
+    const baseUrl = getBaseUrlForConfig(cfg);
+    const cid = cfg.id;
+    setConnectingConfigId(cid);
+    setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: null }));
+    setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+    try {
+      const res = await fetch(`${baseUrl}/instance/status`, {
+        method: 'GET',
+        headers: { token: cfg.token.trim() },
+      });
+      const data = await res.json().catch(() => ({}));
+      const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
+      if (channel?.number || channel?.profileName) {
+        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
+        setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: { status: res.status, ok: res.ok, ...data } }));
+        updateInstanceStatus('connected', cid);
+        toast({ title: 'Canal já conectado', description: 'A instância está vinculada. Dados exibidos acima.' });
+        setConnectingConfigId(null);
+        return;
+      }
+    } catch {
+      // fall through to connect
+    }
+    await handleConnectWhatsApp(cfg);
+    setConnectingConfigId(null);
+  }, [toast, updateInstanceStatus]);
+
+  const handleConnectWhatsApp = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
+      toast({ variant: 'destructive', title: 'Configure a API', description: 'Subdomínio e token são obrigatórios.' });
+      return;
+    }
+    if (qrRefreshIntervalRef.current) {
+      clearInterval(qrRefreshIntervalRef.current);
+      qrRefreshIntervalRef.current = null;
+    }
+    qrRefreshConfigIdRef.current = cfg.id;
+    const result = await fetchConnect(cfg, true);
+    if (!result) return;
+    const { data } = result;
+    const instanceStatus = data?.instance?.status ?? data?.status?.connected;
+    const isConnecting = instanceStatus === 'connecting' || (data?.connected === false && data?.instance?.qrcode);
+    if (isConnecting && (data?.instance?.qrcode ?? data?.qrcode)) {
+      qrRefreshIntervalRef.current = setInterval(async () => {
+        const currentCfg = configs?.find((c) => c.id === qrRefreshConfigIdRef.current);
+        if (!currentCfg) return;
+        const next = await fetchConnect(currentCfg, false);
+        if (!next) return;
+        const nextData = next.data;
+        const nextConnected = nextData?.connected === true || nextData?.status?.loggedIn === true;
+        if (nextConnected) {
+          if (qrRefreshIntervalRef.current) {
+            clearInterval(qrRefreshIntervalRef.current);
+            qrRefreshIntervalRef.current = null;
+          }
+          const channel = parseChannelData(nextData);
+          if (channel) {
+            setChannelDataByConfigId((prev) => ({ ...prev, [currentCfg.id]: channel }));
+            setQrImageSrcByConfigId((prev) => ({ ...prev, [currentCfg.id]: null }));
+            setConnectResponseByConfigId((prev) => (prev[currentCfg.id] ? { ...prev, [currentCfg.id]: { ...prev[currentCfg.id], ...nextData } } : prev));
+          }
+          return;
+        }
+        if (!nextData?.instance?.qrcode && !nextData?.qrcode) return;
+        parseAndSetQr(nextData, (qr) => setQrImageSrcByConfigId((prev) => ({ ...prev, [currentCfg.id]: qr })));
+      }, QR_REFRESH_SECONDS * 1000);
+    }
+  }, [configs, fetchConnect, toast]);
+
+  const setWebhookInUazapi = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim() || !cfg?.webhook_secret || !effectiveClienteId) return;
+    const baseUrl = getBaseUrlForConfig(cfg);
+    const webhookUrl = getWebhookUrlForConfig(cfg);
     setWebhookConfiguring(true);
     const endpoints = [
       { method: 'POST', path: '/webhook', body: { url: webhookUrl, events: ['messages'], excludeMessages: ['wasSentByApi'] } },
@@ -357,7 +543,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       try {
         const res = await fetch(`${baseUrl}${ep.path}`, {
           method: ep.method,
-          headers: { 'Content-Type': 'application/json', token: config.token.trim() },
+          headers: { 'Content-Type': 'application/json', token: cfg.token.trim() },
           body: JSON.stringify(ep.body),
         });
         const data = await res.json().catch(() => ({}));
@@ -377,46 +563,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       description: 'Copie a URL acima e configure manualmente no painel uazapi (Webhooks e SSE). Último erro: ' + (lastError || 'desconhecido'),
     });
     setWebhookConfiguring(false);
-  };
-
-  const handleConnectWhatsApp = async () => {
-    if (!config?.subdomain?.trim() || !config?.token?.trim()) {
-      toast({ variant: 'destructive', title: 'Configure a API', description: 'Subdomínio e token são obrigatórios. Configure na aba API.' });
-      return;
-    }
-    if (qrRefreshIntervalRef.current) {
-      clearInterval(qrRefreshIntervalRef.current);
-      qrRefreshIntervalRef.current = null;
-    }
-    const result = await fetchConnect(true);
-    if (!result) return;
-    const { data } = result;
-    const instanceStatus = data?.instance?.status ?? data?.status?.connected;
-    const isConnecting = instanceStatus === 'connecting' || (data?.connected === false && data?.instance?.qrcode);
-    if (isConnecting && (data?.instance?.qrcode ?? data?.qrcode)) {
-      qrRefreshIntervalRef.current = setInterval(async () => {
-        const next = await fetchConnect(false);
-        if (!next) return;
-        const nextData = next.data;
-        const nextConnected = nextData?.connected === true || nextData?.status?.loggedIn === true;
-        if (nextConnected) {
-          if (qrRefreshIntervalRef.current) {
-            clearInterval(qrRefreshIntervalRef.current);
-            qrRefreshIntervalRef.current = null;
-          }
-          const channel = parseChannelData(nextData);
-          if (channel) {
-            setChannelData(channel);
-            setQrImageSrc(null);
-            setConnectResponse((prev) => (prev ? { ...prev, ...nextData } : prev));
-          }
-          return;
-        }
-        if (!nextData?.instance?.qrcode && !nextData?.qrcode) return;
-        parseAndSetQr(nextData, setQrImageSrc);
-      }, QR_REFRESH_SECONDS * 1000);
-    }
-  };
+  }, [effectiveClienteId, toast]);
 
   if (!effectiveClienteId && !isAdminWithoutCliente) {
     return (
@@ -442,43 +589,12 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
           <div>
             <h1 className="text-xl font-semibold">Canais</h1>
             <p className="text-sm text-muted-foreground">
-              Conecte o WhatsApp usando a API configurada na aba API. O QR code será exibido após solicitar a conexão.
+              Conecte mais de uma API (uazapi) para rodar vários canais WhatsApp. Adicione um canal e configure subdomínio e token.
             </p>
           </div>
         )}
-
-        {channelData && (channelData.number || channelData.profileName || channelData.instanceName) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-green-600" />
-                Canal conectado
-              </CardTitle>
-              <CardDescription>Dados do WhatsApp vinculado a esta instância</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-4">
-              <Avatar className="h-14 w-14">
-                <AvatarImage src={channelData.profilePicUrl || undefined} alt={channelData.profileName || ''} />
-                <AvatarFallback>
-                  {channelData.profileName ? channelData.profileName.charAt(0).toUpperCase() : channelData.number ? channelData.number.slice(-2) : '?'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="space-y-1">
-                {channelData.number && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">{formatPhoneDisplay(channelData.number)}</span>
-                  </div>
-                )}
-                {(channelData.profileName || channelData.instanceName) && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-4 w-4" />
-                    <span>{[channelData.profileName, channelData.instanceName].filter(Boolean).join(' · ')}</span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        {embeddedInCrm && (
+          <p className="text-sm text-muted-foreground">Conecte mais de uma API para rodar vários canais. Adicione um canal abaixo.</p>
         )}
 
         {isAdminWithoutCliente && (
@@ -504,330 +620,332 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
           </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5" />
-              WhatsApp (uazapi)
-            </CardTitle>
-            <CardDescription>
-              Gera o QR code para vincular a instância WhatsApp. Requer API configurada na aba API.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Alert className="bg-muted/50 border-muted-foreground/20">
-              <AlertDescription className="text-xs">
-                Se no celular aparecer &quot;impossível conectar novos números no momento&quot;, é uma limitação temporária do WhatsApp (não do sistema). Tente de novo em algumas horas; no WhatsApp vá em Aparelhos conectados e desvincile um dispositivo se já tiver vários.
-              </AlertDescription>
-            </Alert>
-            {loading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Carregando…
-              </div>
-            ) : !config?.subdomain || !config?.token ? (
-              <div className="rounded-lg border bg-muted/50 p-4 text-sm text-muted-foreground">
-                <p>Configure a API na aba API (subdomínio e token) para este cliente.</p>
-                {onGoToApi ? (
-                  <Button variant="link" className="px-0 mt-2" onClick={onGoToApi}>
-                    Ir para aba API
-                  </Button>
-                ) : (
-                  <Button variant="link" className="px-0 mt-2" asChild>
-                    <Link to={`${prefix}/crm`}>Ir para CRM (aba API)</Link>
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <>
-                <Button onClick={handleConnectWhatsApp} disabled={connecting}>
-                  {connecting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Conectando…
-                    </>
-                  ) : (
-                    'Conectar WhatsApp'
-                  )}
-                </Button>
-
-                {connectResponse && (
-                  <div className="space-y-4 pt-4 border-t">
-                    <p className="text-sm font-medium text-muted-foreground">Resultado da conexão</p>
-                    {qrImageSrc ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <QrCode className="h-8 w-8 text-muted-foreground" />
-                        <p className="text-sm font-medium">Escaneie o QR code no WhatsApp</p>
-                        <p className="text-xs text-muted-foreground">O QR expira em ~1 minuto. Ele é renovado automaticamente a cada {QR_REFRESH_SECONDS}s até você escanear.</p>
-                        <img src={qrImageSrc} alt="QR Code WhatsApp" className="max-w-[240px] h-auto border rounded" />
-                      </div>
-                    ) : connectResponse.error ? (
-                      <p className="text-sm text-destructive">
-                        {connectResponse.error}
-                        {connectResponse.hint && (
-                          <span className="block mt-1 text-muted-foreground font-normal">{connectResponse.hint}</span>
-                        )}
-                      </p>
-                    ) : null}
-                    <details className="w-full">
-                      <summary className="text-xs text-muted-foreground cursor-pointer hover:underline">
-                        Ver log da resposta (status, URL, corpo)
-                      </summary>
-                      <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-48 mt-2">
-                        {JSON.stringify(connectResponse, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {config?.subdomain && config?.token && effectiveClienteId && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Link2 className="h-4 w-4" />
-                Webhook (Caixa de entrada)
-              </CardTitle>
-              <CardDescription>
-                Configure na uazapi a URL abaixo para receber mensagens na Caixa de entrada. Em docs uazapi: POST /webhook com url, events: [&quot;messages&quot;], excludeMessages: [&quot;wasSentByApi&quot;].
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-0.5">
-                  <Label htmlFor="use-sse" className="text-sm font-medium flex items-center gap-2">
-                    <Radio className="h-4 w-4" />
-                    Usar também SSE (Server-Sent Events)
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Conecta ao fluxo da uazapi no navegador e grava mensagens na Caixa de entrada. Útil se o webhook não estiver recebendo.
-                  </p>
-                  {config.use_sse && (
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded ${
-                          sseConnectionState === 'connected'
-                            ? 'bg-green-500/20 text-green-700 dark:text-green-400'
-                            : sseConnectionState === 'connecting'
-                              ? 'bg-muted text-muted-foreground'
-                              : sseConnectionState === 'error'
-                                ? 'bg-destructive/20 text-destructive'
-                                : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {sseConnectionState === 'connected'
-                          ? 'SSE: Conectado'
-                          : sseConnectionState === 'connecting'
-                            ? 'SSE: Conectando…'
-                            : sseConnectionState === 'error'
-                              ? 'SSE: Desconectado (verifique docs.uazapi.com)'
-                              : 'SSE: Desligado'}
-                      </span>
-                      {sseEventCount > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          {sseEventCount} evento{sseEventCount !== 1 ? 's' : ''} recebido{sseEventCount !== 1 ? 's' : ''} nesta sessão
-                        </span>
-                      )}
-                      {sseConnectionState === 'connected' && sseEventCount === 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          Nenhum evento ainda. Abra o console (F12) e envie uma mensagem para o número conectado para ver se a uazapi envia eventos.
-                        </span>
-                      )}
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b bg-muted/30">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" />
+              Canais
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Conecte e gerencie suas APIs WhatsApp (uazapi). Cada canal pode ter sua própria instância.</p>
+          </div>
+          <div className="p-4 space-y-6">
+        {loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando…
+          </div>
+        ) : configs.length === 0 ? (
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-4">Nenhum canal ainda. Adicione uma API (uazapi) com subdomínio e token para conectar um canal WhatsApp.</p>
+            <Button onClick={() => setAddChannelOpen(true)}>
+              Adicionar canal
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {configs.map((cfg, idx) => {
+              const channelDataC = channelDataByConfigId[cfg.id];
+              const connectResponseC = connectResponseByConfigId[cfg.id];
+              const qrImageSrcC = qrImageSrcByConfigId[cfg.id];
+              const connecting = connectingConfigId === cfg.id;
+              const pulling = pullingConfigId === cfg.id;
+              const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
+              const isConnected = channelDataC && (channelDataC.number || channelDataC.profileName || channelDataC.instanceName);
+              return (
+                <Card key={cfg.id} className="flex flex-col">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base truncate">
+                        <MessageCircle className="h-5 w-5 shrink-0" />
+                        <span className="truncate">{canalLabel}</span>
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        API uazapi
+                      </CardDescription>
                     </div>
-                  )}
-                  {config.use_sse && sseEventLog.length > 0 && (
-                    <div className="mt-2 rounded-md border bg-muted/30 max-h-32 overflow-y-auto p-2 space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground sticky top-0 bg-muted/80 py-0.5">Eventos SSE nesta sessão</p>
-                      {sseEventLog.map((ev) => (
-                        <div key={ev.id} className="text-xs rounded px-2 py-1 bg-background border">
-                          <span className="text-muted-foreground shrink-0">{ev.time}</span>
-                          {' · '}
-                          {ev.phone && <span className="font-mono">{ev.phone}</span>}
-                          {ev.from_jid && !ev.phone && <span className="font-mono truncate max-w-[100px] inline-block" title={ev.from_jid}>{ev.from_jid}</span>}
-                          {ev.bodyPreview && (
-                            <>
-                              {' · '}
-                              <span className="text-muted-foreground truncate max-w-[180px] inline-block" title={ev.bodyPreview}>{ev.bodyPreview}</span>
-                            </>
+                    {configs.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive shrink-0"
+                        onClick={async () => {
+                          if (window.confirm(`Remover o canal "${canalLabel}"?`)) await deleteConfig(cfg.id);
+                        }}
+                      >
+                        Remover
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-3 flex-1 flex flex-col min-h-0">
+                    {!isConnected && (
+                      <>
+                        <Alert className="bg-muted/50 border-muted-foreground/20 py-2">
+                          <AlertDescription className="text-xs">
+                            Se aparecer &quot;impossível conectar&quot; no celular, é limitação do WhatsApp. Tente em algumas horas ou desvincile um dispositivo.
+                          </AlertDescription>
+                        </Alert>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" onClick={() => handleConnectWhatsAppWithStatusFirst(cfg)} disabled={connecting}>
+                            {connecting ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Conectando…</> : 'Conectar WhatsApp'}
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || connecting}>
+                            {pulling ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> …</> : 'Puxar canal'}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                    {isConnected && (
+                      <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-2">
+                        <Avatar className="h-10 w-10 shrink-0">
+                          <AvatarImage src={channelDataC.profilePicUrl || undefined} alt={channelDataC.profileName || ''} />
+                          <AvatarFallback className="text-xs">
+                            {channelDataC.profileName ? channelDataC.profileName.charAt(0).toUpperCase() : channelDataC.number ? channelDataC.number.slice(-2) : '?'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          {channelDataC.number && (
+                            <div className="flex items-center gap-1.5 text-sm">
+                              <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-medium truncate">{formatPhoneDisplay(channelDataC.number)}</span>
+                            </div>
+                          )}
+                          {(channelDataC.profileName || channelDataC.instanceName) && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground truncate">
+                              <User className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{[channelDataC.profileName, channelDataC.instanceName].filter(Boolean).join(' · ')}</span>
+                            </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        <Button variant="outline" size="sm" className="shrink-0 h-8" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || connecting}>
+                          {pulling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Atualizar'}
+                        </Button>
+                      </div>
+                    )}
+                    {connectResponseC && !isConnected && (
+                      <div className="space-y-2 pt-2 border-t">
+                        {qrImageSrcC ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <img src={qrImageSrcC} alt="QR Code" className="max-w-[160px] h-auto border rounded" />
+                            <p className="text-xs text-muted-foreground">Escaneie no WhatsApp</p>
+                          </div>
+                        ) : connectResponseC.error ? (
+                          <p className="text-xs text-destructive">{connectResponseC.error}</p>
+                        ) : null}
+                        <details className="w-full">
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:underline">Ver log</summary>
+                          <pre className="text-[10px] bg-muted p-2 rounded overflow-auto max-h-24 mt-1">{JSON.stringify(connectResponseC, null, 2)}</pre>
+                        </details>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+            </div>
+            <div className="pt-2">
+              <Button variant="outline" onClick={() => setAddChannelOpen(true)}>
+                Adicionar outro canal
+              </Button>
+            </div>
+
+            {configs.length > 0 && effectiveClienteId && (
+              <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden mt-6">
+                <div className="px-4 py-3 border-b bg-muted/30">
+                  <h2 className="text-base font-semibold flex items-center gap-2">
+                    <Link2 className="h-4 w-4" />
+                    Webhook uazapi (Caixa de entrada)
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Configure na uazapi a URL de cada canal para receber mensagens na Caixa de entrada. Evento: messages.</p>
                 </div>
-                <Switch
-                  id="use-sse"
-                  checked={!!config.use_sse}
-                  onCheckedChange={(checked) => setUseSse(checked)}
-                />
-              </div>
-              {!config.webhook_secret ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={webhookGenerating}
-                  onClick={async () => {
-                    setWebhookGenerating(true);
-                    await generateWebhookSecret();
-                    setWebhookGenerating(false);
-                    toast({ title: 'URL gerada', description: 'Copie a URL abaixo e configure na uazapi.' });
-                  }}
-                >
-                  {webhookGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  Gerar URL do webhook
-                </Button>
-              ) : (
-                <>
-                  <div className="flex gap-2 flex-wrap">
-                    <Input
-                      readOnly
-                      value={getWebhookUrl()}
-                      className="font-mono text-xs flex-1 min-w-0"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      title="Copiar"
-                      onClick={() => {
-                        navigator.clipboard.writeText(getWebhookUrl());
-                        toast({ title: 'URL copiada' });
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={webhookTesting}
-                      onClick={async () => {
-                        const url = getWebhookUrl();
-                        setWebhookTesting(true);
-                        try {
-                          const res = await fetch(url, { method: 'GET' });
-                          const data = await res.json().catch(() => ({}));
-                          if (res.ok) {
-                            toast({ title: 'URL acessível', description: 'O webhook respondeu. Configure esta URL na uazapi e ative o evento "messages".' });
-                          } else if (res.status === 401) {
-                            toast({
-                              variant: 'destructive',
-                              title: '401 - Acesso negado',
-                              description: 'A Edge Function está exigindo login. No Supabase: Edge Functions → uazapi-inbox-webhook → Configurações → desative "Enforce JWT" (permitir chamadas anônimas).',
-                            });
-                          } else {
-                            toast({ variant: 'destructive', title: 'Erro', description: data?.error || `Status ${res.status}` });
-                          }
-                        } catch (e) {
-                          toast({ variant: 'destructive', title: 'Falha ao testar', description: e?.message || 'Verifique sua conexão e se a Edge Function está publicada.' });
-                        }
-                        setWebhookTesting(false);
-                      }}
-                    >
-                      {webhookTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      Testar URL
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      disabled={webhookConfiguring}
-                      onClick={setWebhookInUazapi}
-                      title="Registra a URL do webhook na instância uazapi via API (evento messages)"
-                    >
-                      {webhookConfiguring ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      Configurar webhook na uazapi
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Cole esta URL no painel uazapi ao configurar o webhook. Evento: <code className="bg-muted px-1 rounded">messages</code>. Opcional: excludeMessages = wasSentByApi.
-                  </p>
-                  <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-2.5">
-                    <p className="text-xs font-medium text-amber-800 dark:text-amber-200 mb-1">Canal conectado mas não recebe eventos?</p>
-                    <ul className="text-xs text-amber-700 dark:text-amber-300 list-disc list-inside space-y-0.5">
-                      <li><strong>Clique em &quot;Configurar webhook na uazapi&quot;</strong> para registrar a URL na instância via API (evento messages).</li>
-                      <li>Se não funcionar, copie a URL e configure manualmente em docs.uazapi.com → Webhooks e SSE.</li>
-                      <li>Use &quot;Testar URL&quot; para confirmar que a Edge Function está no ar.</li>
-                      <li>Veja os logs em Supabase → Edge Functions → uazapi-inbox-webhook para saber se algum POST está chegando.</li>
-                    </ul>
-                  </div>
-                  <div className="border-t pt-3 mt-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <p className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground">
-                        <Activity className="h-3.5 w-3.5" />
-                        Log em tempo real
-                      </p>
-                      {webhookLogs.length === 0 ? (
-                        <span className="text-xs flex items-center gap-1.5 text-muted-foreground">
-                          <Clock className="h-3.5 w-3.5" />
-                          Aguardando primeiro evento…
-                        </span>
-                      ) : webhookLogs[0]?.status === 'error' ? (
-                        <span className="text-xs flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
-                          <Clock className="h-3.5 w-3.5 shrink-0" />
-                          Webhook ativo · Último evento com erro
-                          {webhookLogs[0]?.created_at && (
-                            <span className="text-muted-foreground font-normal">
-                              ({formatLastEventAgo(webhookLogs[0].created_at)})
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-xs flex items-center gap-1.5 text-green-600 dark:text-green-400 font-medium">
-                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                          Webhook recebendo eventos
-                          {webhookLogs[0]?.created_at && (
-                            <span className="text-muted-foreground font-normal">
-                              · Último: {formatLastEventAgo(webhookLogs[0].created_at)}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    <div className="rounded-md border bg-muted/30 max-h-48 overflow-y-auto p-2 space-y-1.5">
-                      {webhookLogs.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2 text-center">Configure a URL na uazapi e envie uma mensagem no WhatsApp para testar a conexão.</p>
-                      ) : (
-                        webhookLogs.map((log) => (
-                          <div key={log.id} className="text-xs rounded px-2 py-1.5 bg-background border">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-muted-foreground shrink-0">
-                                {log.created_at ? new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
-                              </span>
-                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${log.status === 'ok' ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-destructive/20 text-destructive'}`}>
-                                {log.status}
-                              </span>
-                              {log.from_jid && <span className="font-mono truncate max-w-[120px]" title={log.from_jid}>{log.from_jid}</span>}
-                              {log.type && <span className="text-muted-foreground">{log.type}</span>}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-1.5 text-[10px] shrink-0"
-                                onClick={() => setWebhookLogViewing(log)}
-                              >
-                                Ver corpo
+                <div className="p-4 space-y-4">
+                  {configs.filter((c) => c.subdomain && c.token).map((cfg, idx) => {
+                    const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
+                    return (
+                      <div key={cfg.id} className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{canalLabel}</span>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs flex items-center gap-1.5 text-muted-foreground">
+                              <Radio className="h-3.5 w-3.5" />
+                              Usar SSE
+                            </Label>
+                            <Switch
+                              checked={!!cfg.use_sse}
+                              onCheckedChange={(checked) => setUseSse(checked, cfg.id)}
+                            />
+                          </div>
+                        </div>
+                        {cfg.webhook_secret ? (
+                          <div className="space-y-2">
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <Input
+                                readOnly
+                                value={getWebhookUrlForConfig(cfg)}
+                                className="font-mono text-xs flex-1 min-w-0 max-w-full"
+                              />
+                              <Button variant="outline" size="icon" title="Copiar URL" onClick={() => { navigator.clipboard.writeText(getWebhookUrlForConfig(cfg)); toast({ title: 'URL copiada' }); }}>
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              <Button variant="outline" size="sm" disabled={webhookTesting} onClick={async () => {
+                                setWebhookTesting(true);
+                                try {
+                                  const res = await fetch(getWebhookUrlForConfig(cfg), { method: 'GET' });
+                                  const data = await res.json().catch(() => ({}));
+                                  if (res.ok) toast({ title: 'URL acessível' });
+                                  else toast({ variant: 'destructive', title: 'Erro', description: data?.error || `Status ${res.status}` });
+                                } catch (e) { toast({ variant: 'destructive', title: 'Falha', description: e?.message }); }
+                                setWebhookTesting(false);
+                              }}>
+                                {webhookTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                                Testar
+                              </Button>
+                              <Button variant="default" size="sm" disabled={webhookConfiguring} onClick={() => setWebhookInUazapi(cfg)} title="Registrar URL na uazapi">
+                                {webhookConfiguring ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                                Configurar na uazapi
                               </Button>
                             </div>
-                            {(log.body_preview || log.error_message) && (
-                              <p className="mt-1 text-muted-foreground truncate max-w-full" title={log.body_preview || log.error_message}>
-                                {log.error_message || log.body_preview}
-                              </p>
-                            )}
                           </div>
-                        ))
-                      )}
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => generateWebhookSecret(cfg.id)}>
+                            Gerar secret e ver URL do webhook
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div className="border-t pt-4 mt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                        <Activity className="h-4 w-4" />
+                        Eventos recebidos no webhook (uazapi)
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {uazapiWebhookLogs.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Nenhum evento ainda</span>
+                        ) : (
+                          <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                            Último: {formatLastEventAgo(uazapiWebhookLogs[0].created_at)}
+                          </span>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={uazapiLogsRefreshing}
+                          onClick={async () => { setUazapiLogsRefreshing(true); await fetchWebhookLogs(); setUazapiLogsRefreshing(false); }}
+                        >
+                          {uazapiLogsRefreshing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                          Atualizar
+                        </Button>
+                        {uazapiWebhookLogs.length >= 100 && (
+                          <Button variant="outline" size="sm" className="h-7 text-xs" disabled={uazapiLogsLoadingMore} onClick={loadMoreUazapiLogs}>
+                            {uazapiLogsLoadingMore ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            Carregar mais
+                          </Button>
+                        )}
+                      </div>
                     </div>
+                    {uazapiWebhookLogs.length > 0 ? (
+                      <div className="rounded-md border bg-muted/30 p-2 space-y-1 max-h-64 overflow-y-auto">
+                        <p className="text-[11px] font-medium text-muted-foreground sticky top-0 bg-muted/80 py-1">Histórico — últimos eventos (Webhook uazapi · Caixa de entrada)</p>
+                        {uazapiWebhookLogs.slice(0, 50).map((log) => (
+                          <div key={log.id} className="text-xs rounded px-2 py-1.5 bg-background border flex items-center gap-2 flex-wrap">
+                            <span className="text-muted-foreground shrink-0">
+                              {log.created_at ? new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                            </span>
+                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${log.status === 'ok' ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-destructive/20 text-destructive'}`}>
+                              {log.status}
+                            </span>
+                            {log.from_jid && <span className="font-mono truncate max-w-[140px]" title={log.from_jid}>{log.from_jid}</span>}
+                            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => setWebhookLogViewing(log)}>
+                              Ver corpo
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground py-2">Configure a URL na uazapi e envie uma mensagem; os eventos recebidos aparecem aqui.</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Eventos salvos em <code className="bg-muted px-1 rounded">cliente_whatsapp_webhook_log</code>.
+                    </p>
                   </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                </div>
+              </div>
+            )}
+          </>
         )}
+          </div>
+        </div>
+
+        <Dialog open={addChannelOpen} onOpenChange={(open) => { setAddChannelOpen(open); if (!open) { setAddChannelName(''); setAddChannelSubdomain(''); setAddChannelToken(''); } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Adicionar canal</DialogTitle>
+              <p className="text-sm text-muted-foreground">Nova API uazapi (subdomínio e token). Cada canal pode ter sua própria instância WhatsApp.</p>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="add-channel-name">Nome do canal (opcional)</Label>
+                <Input
+                  id="add-channel-name"
+                  placeholder="Ex: Vendas, Suporte"
+                  value={addChannelName}
+                  onChange={(e) => setAddChannelName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-channel-subdomain">Subdomínio uazapi</Label>
+                <Input
+                  id="add-channel-subdomain"
+                  placeholder="seu-subdominio (de https://seu-subdominio.uazapi.com)"
+                  value={addChannelSubdomain}
+                  onChange={(e) => setAddChannelSubdomain(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-channel-token">Token</Label>
+                <Input
+                  id="add-channel-token"
+                  type="password"
+                  placeholder="Token da instância"
+                  value={addChannelToken}
+                  onChange={(e) => setAddChannelToken(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setAddChannelOpen(false)}>Cancelar</Button>
+                <Button
+                  disabled={addChannelSaving || !addChannelSubdomain?.trim() || !addChannelToken?.trim()}
+                  onClick={async () => {
+                    setAddChannelSaving(true);
+                    const { success } = await addConfig(addChannelSubdomain.trim(), addChannelToken.trim(), addChannelName.trim() || undefined);
+                    setAddChannelSaving(false);
+                    if (success) {
+                      setAddChannelOpen(false);
+                      setAddChannelName('');
+                      setAddChannelSubdomain('');
+                      setAddChannelToken('');
+                    }
+                  }}
+                >
+                  {addChannelSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Adicionar canal
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={!!webhookLogViewing} onOpenChange={(open) => !open && setWebhookLogViewing(null)}>
           <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Corpo recebido pelo webhook</DialogTitle>
+              <DialogTitle>
+                Corpo inteiro recebido pelo webhook
+                {webhookLogViewing?.source ? ` (${webhookLogViewing.source})` : ''}
+              </DialogTitle>
               {webhookLogViewing && (
                 <p className="text-xs text-muted-foreground">
                   {webhookLogViewing.created_at && new Date(webhookLogViewing.created_at).toLocaleString('pt-BR')}
@@ -835,7 +953,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                 </p>
               )}
             </DialogHeader>
-            <ScrollArea className="flex-1 rounded-md border bg-muted/30 p-3 min-h-[200px]">
+            <div className="flex-1 min-h-[200px] max-h-[60vh] rounded-md border bg-muted/30 p-3 overflow-y-auto overflow-x-hidden">
               {webhookLogViewing?.raw_payload != null ? (
                 <pre className="text-xs font-mono whitespace-pre-wrap break-words">
                   {typeof webhookLogViewing.raw_payload === 'object'
@@ -851,11 +969,104 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                     </p>
                   )}
                   <p className="text-xs mt-2 border-t pt-2">
-                    Para passar a ver o JSON completo: (1) rode a migration que adiciona a coluna <code>raw_payload</code>; (2) publique de novo a Edge Function <strong>uazapi-inbox-webhook</strong> no Supabase; (3) envie uma nova mensagem no WhatsApp e abra &quot;Ver corpo&quot; no evento novo.
+                    Para ver o JSON completo: publique as Edge Functions <strong>uazapi-inbox-webhook</strong> e <strong>apicebot-inbox-webhook</strong> (com raw_payload e source) e envie uma nova mensagem; depois abra &quot;Ver corpo&quot; no evento novo.
                   </p>
                 </div>
               )}
-            </ScrollArea>
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t mt-3">
+              <Button
+                variant="default"
+                size="sm"
+                disabled={importContactLoading || !effectiveClienteId || !((webhookLogViewing?.from_jid && webhookLogViewing.from_jid !== 'unknown') || getFromJidFromRawPayload(webhookLogViewing?.raw_payload))}
+                onClick={async () => {
+                  const log = webhookLogViewing;
+                  const effectiveFromJid = (log?.from_jid && log.from_jid !== 'unknown') ? log.from_jid : getFromJidFromRawPayload(log?.raw_payload);
+                  if (!effectiveFromJid || !effectiveClienteId) {
+                    toast({ variant: 'destructive', title: 'Não é possível importar', description: 'Este evento não tem remetente válido para importar.' });
+                    return;
+                  }
+                  setImportContactLoading(true);
+                  const tracking = buildContactTrackingFromRawPayload(log?.raw_payload);
+                  const { phone, sender_name } = extractPhoneAndNameFromRawPayload(log.raw_payload, effectiveFromJid);
+                  const now = new Date().toISOString();
+
+                  const { data: existingContact } = await supabase
+                    .from('cliente_whatsapp_contact')
+                    .select('id, tracking_data, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term')
+                    .eq('cliente_id', effectiveClienteId)
+                    .eq('from_jid', effectiveFromJid)
+                    .maybeSingle();
+
+                  const existingHasTracking = existingContact?.tracking_data && typeof existingContact.tracking_data === 'object' && Object.keys(existingContact.tracking_data).length > 0;
+                  const finalTracking = existingHasTracking ? existingContact.tracking_data : (tracking.tracking_data || null);
+                  const finalOrigin = existingHasTracking ? (existingContact.origin_source ?? tracking.origin_source) : tracking.origin_source;
+                  const finalUtm = existingHasTracking
+                    ? { utm_source: existingContact.utm_source ?? tracking.utm_source, utm_medium: existingContact.utm_medium ?? tracking.utm_medium, utm_campaign: existingContact.utm_campaign ?? tracking.utm_campaign, utm_content: existingContact.utm_content ?? tracking.utm_content, utm_term: existingContact.utm_term ?? tracking.utm_term }
+                    : { utm_source: tracking.utm_source, utm_medium: tracking.utm_medium, utm_campaign: tracking.utm_campaign, utm_content: tracking.utm_content, utm_term: tracking.utm_term };
+                  const mergedTracking = !existingHasTracking && existingContact?.tracking_data?.meta_ad_details
+                    ? { ...(tracking.tracking_data || {}), meta_ad_details: existingContact.tracking_data.meta_ad_details, meta_ad_details_history: existingContact.tracking_data.meta_ad_details_history }
+                    : finalTracking;
+
+                  const profilePicUrl = getProfilePicFromRawPayload(log?.raw_payload) || null;
+                  const row = {
+                    cliente_id: effectiveClienteId,
+                    from_jid: effectiveFromJid,
+                    phone: phone || null,
+                    sender_name: sender_name || null,
+                    origin_source: finalOrigin,
+                    utm_source: finalUtm.utm_source,
+                    utm_medium: finalUtm.utm_medium,
+                    utm_campaign: finalUtm.utm_campaign,
+                    utm_content: finalUtm.utm_content,
+                    utm_term: finalUtm.utm_term,
+                    tracking_data: mergedTracking,
+                    profile_pic_url: profilePicUrl,
+                    last_message_at: log.created_at || now,
+                    updated_at: now,
+                  };
+                  const { error } = await supabase
+                    .from('cliente_whatsapp_contact')
+                    .upsert(row, {
+                      onConflict: 'cliente_id,from_jid',
+                      updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'profile_pic_url', 'last_message_at', 'updated_at'],
+                    });
+                  setImportContactLoading(false);
+                  if (error) {
+                    toast({ variant: 'destructive', title: 'Erro ao importar contato', description: error.message });
+                    return;
+                  }
+                  toast({
+                    title: existingContact ? 'Contato atualizado' : 'Contato importado',
+                    description: existingContact ? (existingHasTracking ? 'Contato atualizado (dados de rastreamento e Meta preservados).' : 'Os dados do contato foram atualizados com as informações do evento.') : 'O contato foi adicionado à lista de contatos.',
+                  });
+                  const { data: leadFromContact } = await supabase.functions.invoke('create-lead-from-contact', {
+                    body: { from_jid: effectiveFromJid, phone: row.phone || null, sender_name: row.sender_name || null, profile_pic_url: profilePicUrl || null },
+                  });
+                  if (leadFromContact?.created) {
+                    toast({ title: 'Adicionado ao funil', description: 'O contato foi exportado para o funil configurado nas automações.' });
+                  }
+                  if ((finalOrigin === 'meta_ads' || tracking.origin_source === 'meta_ads') && log.id) {
+                    const phoneNorm = (effectiveFromJid.replace(/@.*$/, '').trim() || '').replace(/\D/g, '');
+                    const { data: leads } = await supabase
+                      .from('leads')
+                      .select('id, whatsapp')
+                      .eq('cliente_id', effectiveClienteId)
+                      .limit(200);
+                    const lead = (leads || []).find((l) => {
+                      const w = (l.whatsapp || '').replace(/\D/g, '');
+                      return w === phoneNorm || w.endsWith(phoneNorm) || phoneNorm.endsWith(w);
+                    });
+                    if (lead) {
+                      await supabase.from('lead_webhook_event').insert({ lead_id: lead.id, webhook_log_id: log.id });
+                    }
+                  }
+                }}
+              >
+                {importContactLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                Importar como contato
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

@@ -9,19 +9,26 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Phone, Mail, Calendar, Edit, ArrowRightLeft } from 'lucide-react';
+import { Phone, Mail, Calendar, Edit, ArrowRightLeft, Activity, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/lib/customSupabaseClient';
+import { useToast } from '@/components/ui/use-toast';
+import { buildContactTrackingFromRawPayload, extractPhoneAndNameFromRawPayload } from '@/lib/contactFromWebhookPayload';
 
 const LeadDetailModal = ({ lead, isOpen, onClose, onEdit, pipelines = [], onTransfer }) => {
   const { settings } = useClienteCrmSettings();
+  const { toast } = useToast();
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferPipelineId, setTransferPipelineId] = useState('');
   const [transferStageId, setTransferStageId] = useState('');
   const [transferStages, setTransferStages] = useState([]);
   const [loadingStages, setLoadingStages] = useState(false);
   const [transferring, setTransferring] = useState(false);
+  const [webhookEvents, setWebhookEvents] = useState([]);
+  const [webhookEventsLoading, setWebhookEventsLoading] = useState(false);
+  const [webhookBodyViewing, setWebhookBodyViewing] = useState(null);
+  const [applyTrackingLoading, setApplyTrackingLoading] = useState(false);
 
   useEffect(() => {
     if (!transferPipelineId) {
@@ -48,8 +55,31 @@ const LeadDetailModal = ({ lead, isOpen, onClose, onEdit, pipelines = [], onTran
       setShowTransfer(false);
       setTransferPipelineId('');
       setTransferStageId('');
+      setWebhookBodyViewing(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !lead?.id) {
+      setWebhookEvents([]);
+      return;
+    }
+    setWebhookEventsLoading(true);
+    supabase
+      .from('lead_webhook_event')
+      .select('id, webhook_log_id, cliente_whatsapp_webhook_log(created_at, source, body_preview, status, raw_payload)')
+      .eq('lead_id', lead.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const rows = (data || []).map((r) => ({
+          id: r.id,
+          webhook_log_id: r.webhook_log_id,
+          ...(r.cliente_whatsapp_webhook_log || {}),
+        }));
+        setWebhookEvents(rows);
+      })
+      .finally(() => setWebhookEventsLoading(false));
+  }, [isOpen, lead?.id]);
 
   if (!lead) return null;
 
@@ -122,6 +152,49 @@ const LeadDetailModal = ({ lead, isOpen, onClose, onEdit, pipelines = [], onTran
             </div>
           )}
 
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+              <Activity className="h-4 w-4" />
+              Histórico de eventos (webhook)
+            </p>
+            {webhookEventsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando…
+              </div>
+            ) : webhookEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">Nenhum evento webhook vinculado.</p>
+            ) : (
+              <div className="rounded-md border bg-muted/30 max-h-48 overflow-y-auto divide-y">
+                {webhookEvents.map((ev) => (
+                  <div key={ev.id || ev.webhook_log_id} className="p-2 text-sm">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-muted-foreground shrink-0">
+                        {ev.created_at ? formatDate(ev.created_at) : '-'}
+                      </span>
+                      {ev.source && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted font-medium">{ev.source}</span>
+                      )}
+                      {ev.raw_payload != null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => setWebhookBodyViewing(ev)}
+                        >
+                          Ver corpo
+                        </Button>
+                      )}
+                    </div>
+                    {ev.body_preview && (
+                      <p className="text-xs mt-1 text-foreground/90 line-clamp-2">{ev.body_preview}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {pipelines.length > 1 && onTransfer && (
             <div className="border-t pt-4 space-y-3">
               {!showTransfer ? (
@@ -187,6 +260,82 @@ const LeadDetailModal = ({ lead, isOpen, onClose, onEdit, pipelines = [], onTran
           </Button>
         </div>
       </DialogContent>
+
+      <Dialog open={!!webhookBodyViewing} onOpenChange={(open) => !open && setWebhookBodyViewing(null)}>
+        <DialogContent className="max-w-xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Corpo do evento</DialogTitle>
+            {webhookBodyViewing?.created_at && (
+              <p className="text-xs text-muted-foreground">{formatDate(webhookBodyViewing.created_at)}</p>
+            )}
+          </DialogHeader>
+          <div className="flex-1 min-h-[120px] max-h-[50vh] rounded-md border bg-muted/30 p-3 overflow-y-auto overflow-x-hidden">
+            {webhookBodyViewing?.raw_payload != null ? (
+              <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+                {typeof webhookBodyViewing.raw_payload === 'object'
+                  ? JSON.stringify(webhookBodyViewing.raw_payload, null, 2)
+                  : String(webhookBodyViewing.raw_payload)}
+              </pre>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum corpo salvo.</p>
+            )}
+          </div>
+          {lead?.cliente_id && lead?.whatsapp && webhookBodyViewing?.raw_payload != null && (
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                variant="default"
+                size="sm"
+                disabled={applyTrackingLoading}
+                onClick={async () => {
+                  const phoneNorm = (lead.whatsapp || '').replace(/\D/g, '').trim();
+                  const fromJid = phoneNorm ? `${phoneNorm}@s.whatsapp.net` : null;
+                  if (!fromJid) return;
+                  setApplyTrackingLoading(true);
+                  const tracking = buildContactTrackingFromRawPayload(webhookBodyViewing.raw_payload);
+                  const { phone, sender_name } = extractPhoneAndNameFromRawPayload(webhookBodyViewing.raw_payload, fromJid);
+                  const now = new Date().toISOString();
+                  const row = {
+                    cliente_id: lead.cliente_id,
+                    from_jid: fromJid,
+                    phone: phone || lead.whatsapp || null,
+                    sender_name: sender_name || lead.nome || null,
+                    origin_source: tracking.origin_source,
+                    utm_source: tracking.utm_source,
+                    utm_medium: tracking.utm_medium,
+                    utm_campaign: tracking.utm_campaign,
+                    utm_content: tracking.utm_content,
+                    utm_term: tracking.utm_term,
+                    tracking_data: tracking.tracking_data,
+                    last_message_at: webhookBodyViewing.created_at || now,
+                    updated_at: now,
+                  };
+                  const { error } = await supabase
+                    .from('cliente_whatsapp_contact')
+                    .upsert(row, {
+                      onConflict: 'cliente_id,from_jid',
+                      updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'last_message_at', 'updated_at'],
+                    });
+                  if (error) {
+                    setApplyTrackingLoading(false);
+                    toast({ variant: 'destructive', title: 'Erro ao aplicar rastreamento', description: error.message });
+                    return;
+                  }
+                  if (!lead.origem && tracking.origin_source === 'meta_ads') {
+                    await supabase.from('leads').update({ origem: 'Meta Ads' }).eq('id', lead.id);
+                  }
+                  setApplyTrackingLoading(false);
+                  toast({ title: 'Rastreamento aplicado', description: 'O contato foi atualizado com os dados de rastreamento deste evento.' });
+                  setWebhookBodyViewing(null);
+                  onClose();
+                }}
+              >
+                {applyTrackingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Aplicar rastreamento ao contato
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 };

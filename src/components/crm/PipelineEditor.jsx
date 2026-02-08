@@ -13,7 +13,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
-
 const TIPOS = [
   { value: 'intermediaria', label: 'Intermediária' },
   { value: 'ganho', label: 'Ganho' },
@@ -21,8 +20,7 @@ const TIPOS = [
 ];
 
 /**
- * Editor de funil (pipeline): nome, descrição, etapas com reordenar (subir/descer), tipo, cor.
- * Usado em modal a partir de Configurações para criar ou editar um funil.
+ * Editor de funil (pipeline): nome, descrição, etapas com reordenar, tipo, cor.
  */
 export default function PipelineEditor({
   open,
@@ -116,9 +114,7 @@ export default function PipelineEditor({
       }))
       .filter((s) => s.nome);
 
-    if (validStages.length === 0) {
-      return;
-    }
+    if (validStages.length === 0) return;
 
     setSaving(true);
     try {
@@ -178,61 +174,84 @@ export default function PipelineEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isNew ? 'Novo funil' : `Editar: ${(pipeline?.nome || '').replace(/_/g, ' ')}`}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl p-0 gap-0 border border-gray-200/90 dark:border-gray-700 shadow-xl">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-200/80 dark:border-gray-700/80">
+          <DialogTitle className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+            {isNew ? 'Novo funil' : `Editar: ${(pipeline?.nome || '').replace(/_/g, ' ')}`}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground mt-1">
             Nome e etapas do funil. A ordem das etapas define as colunas do Kanban.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="pipeline-nome">Nome do funil</Label>
-            <Input
-              id="pipeline-nome"
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex: Vendas principais"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pipeline-desc">Descrição (opcional)</Label>
-            <Input
-              id="pipeline-desc"
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Ex: Funil de vendas B2B"
-            />
+        <div className="px-6 py-5 space-y-6 overflow-y-auto">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="pipeline-nome" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Nome do funil
+              </Label>
+              <Input
+                id="pipeline-nome"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Ex: Vendas principais"
+                className="h-10 rounded-lg border-gray-200 dark:border-gray-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pipeline-desc" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Descrição <span className="text-muted-foreground font-normal">(opcional)</span>
+              </Label>
+              <Input
+                id="pipeline-desc"
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                placeholder="Ex: Funil de vendas B2B"
+                className="h-10 rounded-lg border-gray-200 dark:border-gray-600"
+              />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Etapas</Label>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddStage}>
-                <Plus className="h-4 w-4 mr-1" />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Etapas
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">Use as setas para reordenar.</p>
+              </div>
+              <Button
+                type="button"
+                onClick={handleAddStage}
+                className="bg-violet-600 hover:bg-violet-700 text-white rounded-lg h-9 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
                 Adicionar etapa
               </Button>
             </div>
 
             {loadingStages ? (
-              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground text-sm rounded-xl border border-dashed border-gray-200 dark:border-gray-600">
+                <Loader2 className="h-5 w-5 animate-spin" />
                 Carregando etapas...
               </div>
+            ) : displayStages.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground rounded-xl border border-dashed border-gray-200 dark:border-gray-600 bg-slate-50/50 dark:bg-slate-800/20">
+                Nenhuma etapa. Clique em &quot;Adicionar etapa&quot; para começar.
+              </div>
             ) : (
-              <div className="space-y-2 rounded-md border p-2">
+              <ul className="space-y-3">
                 {displayStages.map((stage, index) => (
-                  <div
+                  <li
                     key={stage.id}
-                    className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2"
+                    className="flex items-center gap-3 rounded-xl border border-gray-200/80 dark:border-gray-600/80 bg-white dark:bg-gray-800/40 p-3 shadow-sm"
                   >
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex flex-col gap-0.5 shrink-0">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
                         onClick={() => moveStage(index, -1)}
                         disabled={index === 0}
                         title="Subir"
@@ -243,7 +262,7 @@ export default function PipelineEditor({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
                         onClick={() => moveStage(index, 1)}
                         disabled={index === displayStages.length - 1}
                         title="Descer"
@@ -251,9 +270,12 @@ export default function PipelineEditor({
                         <ArrowDown className="h-4 w-4" />
                       </Button>
                     </div>
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-sm font-semibold text-slate-600 dark:text-slate-300 shrink-0">
+                      {index + 1}
+                    </div>
                     <Input
-                      className="w-32 shrink-0"
-                      placeholder="Nome"
+                      className="flex-1 min-w-0 h-9 rounded-lg text-sm border-gray-200 dark:border-gray-600"
+                      placeholder="Nome da etapa"
                       value={(stage.nome || '').replace(/_/g, ' ')}
                       onChange={(e) => handleStageChange(index, 'nome', e.target.value.replace(/\s+/g, '_'))}
                     />
@@ -261,7 +283,7 @@ export default function PipelineEditor({
                       value={stage.tipo || 'intermediaria'}
                       onValueChange={(v) => handleStageChange(index, 'tipo', v)}
                     >
-                      <SelectTrigger className="w-[130px] shrink-0">
+                      <SelectTrigger className="w-[130px] h-9 rounded-lg shrink-0 border-gray-200 dark:border-gray-600">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -272,47 +294,48 @@ export default function PipelineEditor({
                         ))}
                       </SelectContent>
                     </Select>
-                    <input
-                      type="color"
-                      className="h-9 w-12 rounded border cursor-pointer shrink-0"
-                      value={stage.color || '#6b7280'}
-                      onChange={(e) => handleStageChange(index, 'color', e.target.value)}
-                      title="Cor"
-                    />
-                    <Input
-                      type="number"
-                      className="w-20 shrink-0"
-                      placeholder="h"
-                      min={0}
-                      value={stage.tempo_max_horas ?? ''}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        handleStageChange(index, 'tempo_max_horas', v === '' ? null : parseInt(v, 10));
-                      }}
-                      title="Tempo máx. (horas)"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-destructive"
-                      onClick={() => handleRemoveStage(index)}
-                      title="Remover etapa"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="color"
+                        className="h-9 w-9 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer bg-transparent"
+                        value={stage.color || '#6b7280'}
+                        onChange={(e) => handleStageChange(index, 'color', e.target.value)}
+                        title="Cor"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                        onClick={() => handleRemoveStage(index)}
+                        title="Remover etapa"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </div>
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter className="px-6 py-4 border-t border-gray-200/80 dark:border-gray-700/80 bg-slate-50/50 dark:bg-slate-900/30 rounded-b-2xl gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+            className="rounded-lg"
+          >
             Cancelar
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || !(nome || '').trim() || !hasStages}>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !(nome || '').trim() || !hasStages}
+            className="bg-violet-600 hover:bg-violet-700 text-white rounded-lg"
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Salvar
           </Button>

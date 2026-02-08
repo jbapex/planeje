@@ -1,0 +1,9 @@
+# Permite que os webhooks recebam chamadas sem header Authorization (Apicebot e uazapi chamam a URL sem JWT).
+# Sem isso, ao abrir a URL no navegador ou ao receber POST do Apicebot aparece: {"code":401,"message":"Missing authorization header"}
+# Ref: https://supabase.com/docs/guides/functions/auth
+
+[functions.apicebot-inbox-webhook]
+verify_jwt = false
+
+[functions.uazapi-inbox-webhook]
+verify_jwt = false

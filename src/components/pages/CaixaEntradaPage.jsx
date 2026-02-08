@@ -30,9 +30,9 @@ function parseInboxRow(row) {
     ? String(row.from_jid).replace(/@.*$/, '').trim()
     : '';
   const phoneRaw = (row.phone && String(row.phone).trim()) || phoneFromJid;
-  const phone = phoneRaw && phoneRaw !== 'unknown' ? phoneRaw : (phoneFromJid || '');
+  const phone = (phoneRaw && phoneRaw !== 'unknown' ? phoneRaw : phoneFromJid) || '';
   const nameRaw = row.sender_name || phone || '';
-  const name = (nameRaw && nameRaw !== 'unknown') ? nameRaw : (phone || 'Sem nome');
+  const name = (nameRaw && nameRaw !== 'unknown') ? nameRaw : (phone ? `+${phone.replace(/^\+/, '')}` : 'Sem nome');
   return {
     id: row.id,
     from_jid: row.from_jid,

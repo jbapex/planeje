@@ -111,7 +111,7 @@ serve(async (req) => {
       // Simple validation: try to get user info from Meta API
       try {
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/me?access_token=${metaToken}`
+          `https://graph.facebook.com/v24.0/me?access_token=${metaToken}`
         );
         const data = await response.json();
 
@@ -154,6 +154,61 @@ serve(async (req) => {
       }
     }
 
+    if (action === "get-ad-by-id") {
+      const { adId } = body;
+      if (!adId || typeof adId !== "string" || !adId.trim()) {
+        return new Response(
+          JSON.stringify({ error: { message: "adId is required", code: "MISSING_AD_ID" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const id = String(adId).trim();
+      try {
+        const fields = "name,campaign{name,account_id},adset{name}";
+        const url = `https://graph.facebook.com/v24.0/${id}?fields=${encodeURIComponent(fields)}&access_token=${metaToken}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.error) {
+          console.error("[get-ad-by-id] Meta API error:", data.error);
+          return new Response(
+            JSON.stringify({ error: { message: data.error.message || "Erro ao buscar anúncio", code: data.error.code || "META_API_ERROR" } }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const campaign = data.campaign || {};
+        let accountName: string | null = null;
+        if (campaign.account_id) {
+          const actId = campaign.account_id.toString().startsWith("act_") ? campaign.account_id : `act_${campaign.account_id}`;
+          try {
+            const accUrl = `https://graph.facebook.com/v24.0/${actId}?fields=name&access_token=${metaToken}`;
+            const accRes = await fetch(accUrl);
+            const accData = await accRes.json();
+            if (!accData.error && accData.name) accountName = accData.name;
+          } catch (_) {
+            // ignore
+          }
+        }
+        return new Response(
+          JSON.stringify({
+            ad: {
+              id: data.id,
+              name: data.name || null,
+              campaign: { name: campaign.name || null },
+              adset: (data.adset && { name: data.adset.name || null }) || null,
+            },
+            accountName: accountName || null,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        console.error("[get-ad-by-id] Exception:", err);
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Falha ao buscar dados do anúncio", code: "REQUEST_FAILED" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     if (action === "get-ad-accounts") {
       try {
         console.log("🔍 Fetching ad accounts...");
@@ -167,7 +222,7 @@ serve(async (req) => {
           // Try to get from user's businesses
           console.log("Fetching user businesses...");
           const userResponse = await fetch(
-            `https://graph.facebook.com/v18.0/me?fields=businesses&access_token=${metaToken}`
+            `https://graph.facebook.com/v24.0/me?fields=businesses&access_token=${metaToken}`
           );
           const userData = await userResponse.json();
           
@@ -233,7 +288,7 @@ serve(async (req) => {
           // Method 1: Try to get ad accounts directly from user (includes all accessible accounts)
           try {
             console.log("🔍 Fetching ad accounts directly from user (me/adaccounts)...");
-            const directAccountsUrl = `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const directAccountsUrl = `https://graph.facebook.com/v24.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
             const directAccounts = await fetchAllPages(directAccountsUrl);
             
             if (directAccounts.length > 0) {
@@ -251,7 +306,7 @@ serve(async (req) => {
             console.log("🔍 Fetching ad accounts from System User assigned assets...");
             // Get the System User ID first
             const systemUserResponse = await fetch(
-              `https://graph.facebook.com/v18.0/me?fields=id&access_token=${metaToken}`
+              `https://graph.facebook.com/v24.0/me?fields=id&access_token=${metaToken}`
             );
             const systemUserData = await systemUserResponse.json();
             
@@ -260,7 +315,7 @@ serve(async (req) => {
               console.log(`System User ID: ${systemUserId}`);
               
               // Try to get ad accounts assigned to this system user
-              const assignedAccountsUrl = `https://graph.facebook.com/v18.0/${systemUserId}/assigned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+              const assignedAccountsUrl = `https://graph.facebook.com/v24.0/${systemUserId}/assigned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
               const assignedAccounts = await fetchAllPages(assignedAccountsUrl);
               
               if (assignedAccounts.length > 0) {
@@ -282,7 +337,7 @@ serve(async (req) => {
                 console.log(`  📦 Processing business: ${business.id} (${business.name || 'no name'})`);
                 
                 // Get owned accounts
-                const ownedUrl = `https://graph.facebook.com/v18.0/${business.id}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                const ownedUrl = `https://graph.facebook.com/v24.0/${business.id}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
                 const ownedAccounts = await fetchAllPages(ownedUrl);
                 if (ownedAccounts.length > 0) {
                   console.log(`    ✅ Found ${ownedAccounts.length} owned accounts from business ${business.id}`);
@@ -293,7 +348,7 @@ serve(async (req) => {
 
                 // Get assigned accounts (accounts the System User has access to but doesn't own)
                 // This is the key endpoint - it returns ALL accounts the System User can access
-                const assignedUrl = `https://graph.facebook.com/v18.0/${business.id}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                const assignedUrl = `https://graph.facebook.com/v24.0/${business.id}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
                 const assignedAccounts = await fetchAllPages(assignedUrl);
                 if (assignedAccounts.length > 0) {
                   console.log(`    ✅ Found ${assignedAccounts.length} assigned accounts from business ${business.id}`);
@@ -305,7 +360,7 @@ serve(async (req) => {
                 
                 // Also try the client_ad_accounts endpoint (for client accounts)
                 try {
-                  const clientAccountsUrl = `https://graph.facebook.com/v18.0/${business.id}/client_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+                  const clientAccountsUrl = `https://graph.facebook.com/v24.0/${business.id}/client_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
                   const clientAccounts = await fetchAllPages(clientAccountsUrl);
                   if (clientAccounts.length > 0) {
                     console.log(`    ✅ Found ${clientAccounts.length} client accounts from business ${business.id}`);
@@ -401,7 +456,7 @@ serve(async (req) => {
 
           // Get owned accounts
           try {
-            const ownedUrl = `https://graph.facebook.com/v18.0/${businessId}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const ownedUrl = `https://graph.facebook.com/v24.0/${businessId}/owned_ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
             const ownedAccounts = await fetchAllPages(ownedUrl);
             if (ownedAccounts.length > 0) {
               console.log(`✅ Found ${ownedAccounts.length} owned accounts`);
@@ -413,7 +468,7 @@ serve(async (req) => {
 
           // Get assigned accounts (accounts the System User has access to)
           try {
-            const assignedUrl = `https://graph.facebook.com/v18.0/${businessId}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const assignedUrl = `https://graph.facebook.com/v24.0/${businessId}/ad_accounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
             const assignedAccounts = await fetchAllPages(assignedUrl);
             if (assignedAccounts.length > 0) {
               console.log(`✅ Found ${assignedAccounts.length} assigned accounts`);
@@ -425,7 +480,7 @@ serve(async (req) => {
 
           // Also try direct method as fallback
           try {
-            const directUrl = `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
+            const directUrl = `https://graph.facebook.com/v24.0/me/adaccounts?fields=id,name,account_id,currency&limit=500&access_token=${metaToken}`;
             const directAccounts = await fetchAllPages(directUrl);
             if (directAccounts.length > 0) {
               console.log(`✅ Found ${directAccounts.length} accounts directly from user`);
@@ -503,7 +558,7 @@ serve(async (req) => {
         const level = action === "get-campaign-insights" ? "campaign" : "ad";
         const fields = Array.isArray(metrics) ? metrics.join(",") : metrics || "spend,impressions,clicks";
 
-        const url = `https://graph.facebook.com/v18.0/${ad_account_id}/insights?level=${level}&fields=${fields}&time_range=${JSON.stringify(time_range)}&access_token=${metaToken}`;
+        const url = `https://graph.facebook.com/v24.0/${ad_account_id}/insights?level=${level}&fields=${fields}&time_range=${JSON.stringify(time_range)}&access_token=${metaToken}`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -552,7 +607,7 @@ serve(async (req) => {
       try {
         const accountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
         const campaignFields = "id,name,status,effective_status,objective,created_time,updated_time";
-        let url = `https://graph.facebook.com/v18.0/${accountId}/campaigns?fields=${campaignFields}&access_token=${metaToken}`;
+        let url = `https://graph.facebook.com/v24.0/${accountId}/campaigns?fields=${campaignFields}&access_token=${metaToken}`;
         
         const campaignsResponse = await fetch(url);
         const campaignsData = await campaignsResponse.json();
@@ -597,7 +652,7 @@ serve(async (req) => {
           try {
             // Busca insights
             const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
-            const insightsUrl = `https://graph.facebook.com/v18.0/${campaign.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
+            const insightsUrl = `https://graph.facebook.com/v24.0/${campaign.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
             
             const insightsResponse = await fetch(insightsUrl);
             const insightsData = await insightsResponse.json();
@@ -612,7 +667,7 @@ serve(async (req) => {
             let finalCampaign = { ...campaign };
             if (!finalCampaign.effective_status) {
               try {
-                const campaignDetailsUrl = `https://graph.facebook.com/v18.0/${campaign.id}?fields=effective_status&access_token=${metaToken}`;
+                const campaignDetailsUrl = `https://graph.facebook.com/v24.0/${campaign.id}?fields=effective_status&access_token=${metaToken}`;
                 const campaignDetailsResponse = await fetch(campaignDetailsUrl);
                 const campaignDetailsData = await campaignDetailsResponse.json();
                 
@@ -674,7 +729,7 @@ serve(async (req) => {
           ? time_range 
           : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
         const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
-        const url = `https://graph.facebook.com/v18.0/${accountId}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
+        const url = `https://graph.facebook.com/v24.0/${accountId}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -716,7 +771,7 @@ serve(async (req) => {
         // Se campaignId fornecido, busca ad sets da campanha; senão, busca da conta
         const entityId = campaignId || adAccountId;
         const endpoint = campaignId ? `${campaignId}/adsets` : `${adAccountId}/adsets`;
-        let url = `https://graph.facebook.com/v18.0/${endpoint}?fields=${adsetFields}&access_token=${metaToken}`;
+        let url = `https://graph.facebook.com/v24.0/${endpoint}?fields=${adsetFields}&access_token=${metaToken}`;
         
         const adsetsResponse = await fetch(url);
         const adsetsData = await adsetsResponse.json();
@@ -754,7 +809,7 @@ serve(async (req) => {
               ? time_range 
               : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
             const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
-            const insightsUrl = `https://graph.facebook.com/v18.0/${adset.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
+            const insightsUrl = `https://graph.facebook.com/v24.0/${adset.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
             const insightsResponse = await fetch(insightsUrl);
             const insightsData = await insightsResponse.json();
             
@@ -814,7 +869,7 @@ serve(async (req) => {
         // Se adsetId fornecido, busca ads do ad set; senão, busca da conta
         const entityId = adsetId || adAccountId;
         const endpoint = adsetId ? `${adsetId}/ads` : `${adAccountId}/ads`;
-        let url = `https://graph.facebook.com/v18.0/${endpoint}?fields=${adFields}&access_token=${metaToken}`;
+        let url = `https://graph.facebook.com/v24.0/${endpoint}?fields=${adFields}&access_token=${metaToken}`;
         
         const adsResponse = await fetch(url);
         const adsData = await adsResponse.json();
@@ -845,7 +900,7 @@ serve(async (req) => {
               ? time_range 
               : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
             const timeRangeParam = encodeURIComponent(JSON.stringify(validTimeRange));
-            const insightsUrl = `https://graph.facebook.com/v18.0/${ad.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
+            const insightsUrl = `https://graph.facebook.com/v24.0/${ad.id}/insights?fields=${metricsStr}&time_range=${timeRangeParam}&access_token=${metaToken}`;
             const insightsResponse = await fetch(insightsUrl);
             const insightsData = await insightsResponse.json();
             
@@ -866,7 +921,7 @@ serve(async (req) => {
             let finalAd = { ...ad };
             if (!finalAd.effective_status) {
               try {
-                const adDetailsUrl = `https://graph.facebook.com/v18.0/${ad.id}?fields=id,name,status,effective_status&access_token=${metaToken}`;
+                const adDetailsUrl = `https://graph.facebook.com/v24.0/${ad.id}?fields=id,name,status,effective_status&access_token=${metaToken}`;
                 const adDetailsResponse = await fetch(adDetailsUrl);
                 const adDetailsData = await adDetailsResponse.json();
                 
@@ -909,7 +964,7 @@ serve(async (req) => {
         console.log("🔍 Fetching Facebook pages...");
         
         // Busca páginas do System User
-        const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,access_token,category,picture&limit=500&access_token=${metaToken}`;
+        const pagesUrl = `https://graph.facebook.com/v24.0/me/accounts?fields=id,name,access_token,category,picture&limit=500&access_token=${metaToken}`;
         const pagesResponse = await fetch(pagesUrl);
         const pagesData = await pagesResponse.json();
 
@@ -963,7 +1018,7 @@ serve(async (req) => {
         console.log("🔍 Fetching Instagram Business accounts...");
         
         // Primeiro busca as páginas do Facebook (que podem ter Instagram conectado)
-        const pagesUrl = `https://graph.facebook.com/v18.0/me/accounts?fields=id,name,instagram_business_account&limit=500&access_token=${metaToken}`;
+        const pagesUrl = `https://graph.facebook.com/v24.0/me/accounts?fields=id,name,instagram_business_account&limit=500&access_token=${metaToken}`;
         const pagesResponse = await fetch(pagesUrl);
         const pagesData = await pagesResponse.json();
 
@@ -989,7 +1044,7 @@ serve(async (req) => {
           if (page.instagram_business_account) {
             try {
               // Busca detalhes da conta Instagram
-              const instagramUrl = `https://graph.facebook.com/v18.0/${page.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${metaToken}`;
+              const instagramUrl = `https://graph.facebook.com/v24.0/${page.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${metaToken}`;
               const instagramResponse = await fetch(instagramUrl);
               const instagramData = await instagramResponse.json();
               
@@ -1056,7 +1111,7 @@ serve(async (req) => {
         
         // Para insights de página, precisamos chamar cada métrica separadamente se houver erro
         // Tenta buscar insights - se uma métrica falhar, tenta individualmente
-        let url = `https://graph.facebook.com/v18.0/${page_id}/insights?metric=${metricsStr}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+        let url = `https://graph.facebook.com/v24.0/${page_id}/insights?metric=${metricsStr}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
         
         let response = await fetch(url);
         let data = await response.json();
@@ -1069,7 +1124,7 @@ serve(async (req) => {
           
           for (const metric of validMetrics) {
             try {
-              const singleMetricUrl = `https://graph.facebook.com/v18.0/${page_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+              const singleMetricUrl = `https://graph.facebook.com/v24.0/${page_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
               const singleResponse = await fetch(singleMetricUrl);
               const singleData = await singleResponse.json();
               
@@ -1119,7 +1174,7 @@ serve(async (req) => {
 
       try {
         // Primeiro precisa obter o access_token da página
-        const pageUrl = `https://graph.facebook.com/v18.0/${page_id}?fields=access_token&access_token=${metaToken}`;
+        const pageUrl = `https://graph.facebook.com/v24.0/${page_id}?fields=access_token&access_token=${metaToken}`;
         const pageResponse = await fetch(pageUrl);
         const pageData = await pageResponse.json();
 
@@ -1136,7 +1191,7 @@ serve(async (req) => {
           : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
         
         // Busca posts com insights básicos
-        const postsUrl = `https://graph.facebook.com/v18.0/${page_id}/posts?fields=id,message,created_time,type,permalink_url,insights.metric(reach,post_engagements)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${pageAccessToken}`;
+        const postsUrl = `https://graph.facebook.com/v24.0/${page_id}/posts?fields=id,message,created_time,type,permalink_url,insights.metric(reach,post_engagements)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${pageAccessToken}`;
         const postsResponse = await fetch(postsUrl);
         const postsData = await postsResponse.json();
 
@@ -1203,7 +1258,7 @@ serve(async (req) => {
         // Busca métricas que precisam de period (dia a dia)
         for (const metric of metricsNeedingPeriod) {
           try {
-            const periodUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
+            const periodUrl = `https://graph.facebook.com/v24.0/${instagram_account_id}/insights?metric=${metric}&period=day&since=${validTimeRange.since}&until=${validTimeRange.until}&access_token=${metaToken}`;
             const periodResponse = await fetch(periodUrl);
             const periodData = await periodResponse.json();
             
@@ -1237,7 +1292,7 @@ serve(async (req) => {
               timeframe = 'last_30_days'; // Limita a 30 dias para total_value
             }
             
-            const totalValueUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/insights?metric=${metric}&metric_type=total_value&timeframe=${timeframe}&access_token=${metaToken}`;
+            const totalValueUrl = `https://graph.facebook.com/v24.0/${instagram_account_id}/insights?metric=${metric}&metric_type=total_value&timeframe=${timeframe}&access_token=${metaToken}`;
             const totalValueResponse = await fetch(totalValueUrl);
             const totalValueData = await totalValueResponse.json();
             
@@ -1283,7 +1338,7 @@ serve(async (req) => {
           : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], until: new Date().toISOString().split('T')[0] };
         
         // Busca mídia do Instagram (impressions foi deprecado, usar reach e total_interactions)
-        const mediaUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media?fields=id,media_type,media_url,thumbnail_url,caption,permalink,timestamp,like_count,comments_count,insights.metric(reach,engagement)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${metaToken}`;
+        const mediaUrl = `https://graph.facebook.com/v24.0/${instagram_account_id}/media?fields=id,media_type,media_url,thumbnail_url,caption,permalink,timestamp,like_count,comments_count,insights.metric(reach,engagement)&since=${validTimeRange.since}&until=${validTimeRange.until}&limit=100&access_token=${metaToken}`;
         const mediaResponse = await fetch(mediaUrl);
         const mediaData = await mediaResponse.json();
 
@@ -1335,7 +1390,7 @@ serve(async (req) => {
 
       try {
         // Primeiro precisa obter o access_token da página
-        const pageUrl = `https://graph.facebook.com/v18.0/${page_id}?fields=access_token&access_token=${metaToken}`;
+        const pageUrl = `https://graph.facebook.com/v24.0/${page_id}?fields=access_token&access_token=${metaToken}`;
         const pageResponse = await fetch(pageUrl);
         const pageData = await pageResponse.json();
 
@@ -1354,7 +1409,7 @@ serve(async (req) => {
         if (link) postBody.link = link;
         if (scheduled_publish_time) postBody.scheduled_publish_time = scheduled_publish_time;
 
-        const publishUrl = `https://graph.facebook.com/v18.0/${page_id}/feed?${new URLSearchParams(postBody).toString()}&access_token=${pageAccessToken}`;
+        const publishUrl = `https://graph.facebook.com/v24.0/${page_id}/feed?${new URLSearchParams(postBody).toString()}&access_token=${pageAccessToken}`;
         const publishResponse = await fetch(publishUrl, {
           method: 'POST',
         });
@@ -1392,7 +1447,7 @@ serve(async (req) => {
 
       try {
         // Instagram Graph API requer criação de container primeiro
-        const containerUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media?image_url=${encodeURIComponent(image_url)}&caption=${encodeURIComponent(caption || '')}&access_token=${metaToken}`;
+        const containerUrl = `https://graph.facebook.com/v24.0/${instagram_account_id}/media?image_url=${encodeURIComponent(image_url)}&caption=${encodeURIComponent(caption || '')}&access_token=${metaToken}`;
         const containerResponse = await fetch(containerUrl, {
           method: 'POST',
         });
@@ -1408,7 +1463,7 @@ serve(async (req) => {
         const creationId = containerData.id;
 
         // Publica o conteúdo
-        const publishUrl = `https://graph.facebook.com/v18.0/${instagram_account_id}/media_publish?creation_id=${creationId}&access_token=${metaToken}`;
+        const publishUrl = `https://graph.facebook.com/v24.0/${instagram_account_id}/media_publish?creation_id=${creationId}&access_token=${metaToken}`;
         const publishResponse = await fetch(publishUrl, {
           method: 'POST',
         });

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, LayoutGrid, List, Settings, BarChart3, PlusCircle, Download, Filter, Search, Link2, Radio, Inbox } from 'lucide-react';
+import { Loader2, LayoutGrid, List, Settings, BarChart3, PlusCircle, Filter, Search, Link2, Radio, Inbox, MessageSquare, Bot, Users, Star, Bell, RefreshCw, HelpCircle, User, ChevronDown, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import { ClienteCrmSettingsProvider } from '@/contexts/ClienteCrmSettingsContext';
@@ -9,6 +10,7 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useLeads } from '@/hooks/useLeads';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,6 +24,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useClienteCrmSettings } from '@/contexts/ClienteCrmSettingsContext';
+import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon } from 'lucide-react';
@@ -36,7 +39,8 @@ import AddLeadModal from '@/components/crm/AddLeadModal';
 import EditLeadModal from '@/components/crm/EditLeadModal';
 import LeadDetailModal from '@/components/crm/LeadDetailModal';
 import ImportLeadsModal from '@/components/crm/ImportLeadsModal';
-import CrmSettingsContent from '@/components/crm/CrmSettingsContent';
+import CrmSettingsFunil from '@/components/crm/CrmSettingsFunil';
+import CrmSettingsUsuarios from '@/components/crm/CrmSettingsUsuarios';
 import CrmVisaoGeral from '@/components/crm/CrmVisaoGeral';
 import MoveToStageModal from '@/components/crm/MoveToStageModal';
 import PipelineEditor from '@/components/crm/PipelineEditor';
@@ -44,7 +48,11 @@ import { useCrmPipeline } from '@/hooks/useCrmPipeline';
 import { useClientMembers } from '@/hooks/useClientMembers';
 import ClienteApiPage from '@/components/pages/ClienteApiPage';
 import ClienteCanaisPage from '@/components/pages/ClienteCanaisPage';
+import ApicebotIntegracaoPage from '@/components/pages/ApicebotIntegracaoPage';
 import CaixaEntradaPage from '@/components/pages/CaixaEntradaPage';
+import CrmWhatsAppPage from '@/components/pages/CrmWhatsAppPage';
+import ContatosPage from '@/components/pages/ContatosPage';
+import AutomacoesPage from '@/components/pages/AutomacoesPage';
 
 const ClientCRMWrapper = () => {
   const { profile } = useAuth();
@@ -67,13 +75,53 @@ const ClientCRMWrapper = () => {
 
 const CRM_TAB_LEADS = 'leads';
 const CRM_TAB_VISAO_GERAL = 'visao-geral';
-const CRM_TAB_CONFIGURACOES = 'configuracoes';
+const CRM_TAB_AJUSTES_FUNIL = 'ajustes-funil';
+const CRM_TAB_AJUSTES_USUARIOS = 'ajustes-usuarios';
 const CRM_TAB_API = 'api';
 const CRM_TAB_CANAIS = 'canais';
 const CRM_TAB_CAIXA_ENTRADA = 'caixa-entrada';
+const CRM_TAB_WHATSAPP = 'whatsapp';
+const CRM_TAB_APICEBOT = 'apicebot';
+const CRM_TAB_CONTATOS = 'contatos';
+const CRM_TAB_AUTOMACOES = 'automacoes';
+
+const CRM_TABS_BY_PATH = {
+  [CRM_TAB_LEADS]: true,
+  [CRM_TAB_VISAO_GERAL]: true,
+  [CRM_TAB_CONTATOS]: true,
+  [CRM_TAB_CANAIS]: true,
+  [CRM_TAB_AJUSTES_FUNIL]: true,
+  [CRM_TAB_AJUSTES_USUARIOS]: true,
+  [CRM_TAB_API]: true,
+  [CRM_TAB_APICEBOT]: true,
+  [CRM_TAB_AUTOMACOES]: true,
+  [CRM_TAB_CAIXA_ENTRADA]: true,
+  [CRM_TAB_WHATSAPP]: true,
+};
+
+// Ocultar por hora: Caixa de entrada e WhatsApp (abas e conteúdo)
+const HIDE_INBOX_AND_WHATSAPP_TABS = true;
 
 const ClientCRMContent = () => {
-  const [activeTab, setActiveTab] = useState(CRM_TAB_LEADS);
+  const { tab: tabParam } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : '/cliente';
+
+  const resolvedTab = CRM_TABS_BY_PATH[tabParam] ? tabParam : CRM_TAB_LEADS;
+  const [activeTab, setActiveTab] = useState(resolvedTab);
+
+  useEffect(() => {
+    if (tabParam && CRM_TABS_BY_PATH[tabParam] && tabParam !== activeTab) setActiveTab(tabParam);
+  }, [tabParam]);
+
+  const setActiveTabAndNavigate = useCallback(
+    (value) => {
+      setActiveTab(value);
+      navigate(`${basePath}/crm/${value}`, { replace: true });
+    },
+    [navigate, basePath]
+  );
   const leadsHook = useLeads();
   const {
     filteredLeads: leads,
@@ -123,6 +171,7 @@ const ClientCRMContent = () => {
   const [showLeadDetail, setShowLeadDetail] = useState(null);
   const [duplicateLeadInfo, setDuplicateLeadInfo] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
+  const [whatsAppInitialJid, setWhatsAppInitialJid] = useState(null);
   const { members: clientMembers } = useClientMembers();
   const isMobile = useMediaQuery('(max-width: 767px)');
   const lastLeadElementRef = useRef(null);
@@ -259,83 +308,199 @@ const ClientCRMContent = () => {
       </Helmet>
 
       <div className="flex flex-col flex-1 min-h-0 space-y-3 sm:space-y-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0 w-full">
-          <div className="flex items-center justify-between w-full gap-3">
-            <TabsList className="grid max-w-2xl grid-cols-6 h-10 bg-slate-200/80 dark:bg-slate-800/50 p-1 rounded-lg shrink-0">
-              <TabsTrigger
-                value={CRM_TAB_LEADS}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
-                title="Leads e Kanban"
-              >
-                <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
-                <span>Leads</span>
-              </TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTabAndNavigate} className="flex flex-col flex-1 min-h-0 w-full">
+          {/* Cabeçalho largura total, mais alto, espaçamento entre abas */}
+          <header
+            className="flex items-center gap-6 w-full min-w-0 py-4 bg-white dark:bg-card border-b border-gray-200/80 dark:border-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.08)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.35)] px-4 sm:px-6 md:px-8"
+            style={{ fontFamily: "'Inter', sans-serif" }}
+          >
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <LayoutGrid className="h-5 w-5" />
+              </div>
+              <span className="font-semibold text-base text-foreground hidden sm:inline">CRM</span>
+            </div>
+            <TabsList className="flex flex-1 min-w-0 h-auto p-0 bg-transparent gap-2 flex-wrap justify-center sm:justify-start">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    title="Leads – Funil e Contatos"
+                    className={cn(
+                      'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
+                      (activeTab === CRM_TAB_LEADS || activeTab === CRM_TAB_CONTATOS)
+                        ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
+                    )}
+                  >
+                    <LayoutGrid className="h-4 w-4 shrink-0" />
+                    <span>Leads</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={6}
+                  className="min-w-[11rem] rounded-xl bg-white dark:bg-gray-900 border border-gray-200/90 dark:border-gray-700 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.2),0_10px_20px_-2px_rgba(0,0,0,0.35)] py-2"
+                >
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_LEADS)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_LEADS
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <LayoutGrid className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_LEADS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Funil
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_CONTATOS)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_CONTATOS
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <Users className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_CONTATOS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Contatos
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <TabsTrigger
                 value={CRM_TAB_VISAO_GERAL}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
+                className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors"
                 title="Métricas e resumo do funil"
               >
-                <BarChart3 className="h-3.5 w-3.5 shrink-0" />
-                <span>Visão geral</span>
+                <BarChart3 className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Visão geral</span>
               </TabsTrigger>
-              <TabsTrigger
-                value={CRM_TAB_CONFIGURACOES}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
-                title="Status, pipeline e WhatsApp"
-              >
-                <Settings className="h-3.5 w-3.5 shrink-0" />
-                <span>Config.</span>
-              </TabsTrigger>
-              <TabsTrigger
-                value={CRM_TAB_API}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
-                title="API uazapi (subdomínio e token)"
-              >
-                <Link2 className="h-3.5 w-3.5 shrink-0" />
-                <span>API</span>
-              </TabsTrigger>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    title="Ajustes – Funil, Usuários, API e Apicebot"
+                    className={cn(
+                      'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
+                      [CRM_TAB_AJUSTES_FUNIL, CRM_TAB_AJUSTES_USUARIOS, CRM_TAB_API, CRM_TAB_APICEBOT, CRM_TAB_AUTOMACOES].includes(activeTab)
+                        ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
+                    )}
+                  >
+                    <Settings className="h-4 w-4 shrink-0" />
+                    <span className="hidden sm:inline">Ajustes</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={6}
+                  className="min-w-[11rem] rounded-xl bg-white dark:bg-gray-900 border border-gray-200/90 dark:border-gray-700 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.2),0_10px_20px_-2px_rgba(0,0,0,0.35)] py-2"
+                >
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AJUSTES_FUNIL)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_AJUSTES_FUNIL
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <LayoutGrid className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AJUSTES_FUNIL ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Funil
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AJUSTES_USUARIOS)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_AJUSTES_USUARIOS
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <Users className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AJUSTES_USUARIOS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Usuários
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_API)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_API
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <Link2 className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_API ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    API
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_APICEBOT)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_APICEBOT
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <Bot className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_APICEBOT ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Apicebot
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AUTOMACOES)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
+                      activeTab === CRM_TAB_AUTOMACOES
+                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                    )}
+                  >
+                    <Zap className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AUTOMACOES ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                    Automações
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <TabsTrigger
                 value={CRM_TAB_CANAIS}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
-                title="Conectar WhatsApp (QR code)"
+                className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors"
+                title="Conectar WhatsApp"
               >
-                <Radio className="h-3.5 w-3.5 shrink-0" />
-                <span>Canais</span>
+                <Radio className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Canais</span>
               </TabsTrigger>
-              <TabsTrigger
-                value={CRM_TAB_CAIXA_ENTRADA}
-                className="flex items-center justify-center gap-1.5 text-xs rounded-md text-slate-600 dark:text-slate-400 data-[state=active]:bg-blue-600 data-[state=active]:text-white min-w-0 px-2"
-                title="Mensagens recebidas no WhatsApp"
-              >
-                <Inbox className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">Caixa de entrada</span>
-                <span className="sm:hidden">Inbox</span>
-              </TabsTrigger>
+              {!HIDE_INBOX_AND_WHATSAPP_TABS && (
+                <>
+                  <TabsTrigger value={CRM_TAB_CAIXA_ENTRADA} className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors" title="Caixa de entrada">
+                    <Inbox className="h-4 w-4 shrink-0" />
+                    <span className="hidden sm:inline">Inbox</span>
+                  </TabsTrigger>
+                  <TabsTrigger value={CRM_TAB_WHATSAPP} className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors" title="Chat WhatsApp">
+                    <MessageSquare className="h-4 w-4 shrink-0" />
+                    <span className="hidden sm:inline">WhatsApp</span>
+                  </TabsTrigger>
+                </>
+              )}
             </TabsList>
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={onExport} title="Exportar">
-                <Download className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
+              <Button variant="outline" size="sm" className="h-10 rounded-full text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hidden sm:inline-flex px-4" onClick={() => window.open('/cliente/support', '_self')}>
+                <Star className="h-4 w-4 mr-1.5" />
+                Sugira melhorias
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => setShowImportLeads(true)}
-              >
-                Importar
+              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground" title="Notificações">
+                <Bell className="h-4 w-4" />
               </Button>
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => setShowAddLead(true)}
-              >
-                <PlusCircle className="h-3.5 w-3.5 mr-1.5" />
-                Novo
+              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground" title="Atualizar" onClick={() => refetchLeads()}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground hidden sm:flex" title="Ajuda">
+                <HelpCircle className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </header>
 
-          <TabsContent value={CRM_TAB_LEADS} className="mt-4 flex flex-col flex-1 min-h-0 data-[state=inactive]:hidden">
+          <div className="px-2 sm:px-3 md:px-4 flex flex-col flex-1 min-h-0">
+          <TabsContent value={CRM_TAB_LEADS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-0 py-2.5 -mx-3 sm:-mx-4 md:-mx-8 px-3 sm:px-4 md:px-8 rounded-none bg-slate-100 dark:bg-slate-800/60">
               <div className="flex flex-1 flex-wrap items-center gap-3 min-w-0">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
@@ -497,6 +662,10 @@ const ClientCRMContent = () => {
                 <Button variant="outline" size="icon" className={`h-8 w-8 shrink-0 ${viewMode === 'kanban' ? 'bg-muted' : ''}`} onClick={() => setViewMode('kanban')} title="Kanban">
                   <LayoutGrid className="h-3.5 w-3.5" />
                 </Button>
+                <Button size="sm" className="h-9 text-sm rounded-lg bg-violet-600 hover:bg-violet-700 text-white shrink-0" onClick={() => setShowAddLead(true)}>
+                  <PlusCircle className="h-4 w-4 mr-1.5" />
+                  Novo
+                </Button>
               </div>
             </div>
 
@@ -530,22 +699,42 @@ const ClientCRMContent = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value={CRM_TAB_VISAO_GERAL} className="mt-4">
+          <TabsContent value={CRM_TAB_VISAO_GERAL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
             <CrmVisaoGeral metrics={leadsHook.metrics} loading={loading} />
           </TabsContent>
 
-          <TabsContent value={CRM_TAB_CONFIGURACOES} className="mt-4">
-            <CrmSettingsContent />
+          <TabsContent value={CRM_TAB_AJUSTES_FUNIL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <CrmSettingsFunil />
           </TabsContent>
-          <TabsContent value={CRM_TAB_API} className="mt-4 data-[state=inactive]:hidden">
-            <ClienteApiPage onGoToCanais={() => setActiveTab(CRM_TAB_CANAIS)} embeddedInCrm />
+          <TabsContent value={CRM_TAB_AJUSTES_USUARIOS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <CrmSettingsUsuarios />
           </TabsContent>
-          <TabsContent value={CRM_TAB_CANAIS} className="mt-4 data-[state=inactive]:hidden">
-            <ClienteCanaisPage onGoToApi={() => setActiveTab(CRM_TAB_API)} embeddedInCrm />
+          <TabsContent value={CRM_TAB_API} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <ClienteApiPage onGoToCanais={() => setActiveTabAndNavigate(CRM_TAB_CANAIS)} embeddedInCrm />
           </TabsContent>
-          <TabsContent value={CRM_TAB_CAIXA_ENTRADA} className="mt-4 data-[state=inactive]:hidden">
-            <CaixaEntradaPage embeddedInCrm />
+          <TabsContent value={CRM_TAB_CANAIS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <ClienteCanaisPage onGoToApi={() => setActiveTabAndNavigate(CRM_TAB_API)} embeddedInCrm />
           </TabsContent>
+          <TabsContent value={CRM_TAB_APICEBOT} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <ApicebotIntegracaoPage embeddedInCrm />
+          </TabsContent>
+          <TabsContent value={CRM_TAB_AUTOMACOES} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <AutomacoesPage />
+          </TabsContent>
+          {!HIDE_INBOX_AND_WHATSAPP_TABS && (
+            <>
+              <TabsContent value={CRM_TAB_CAIXA_ENTRADA} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+                <CaixaEntradaPage embeddedInCrm />
+              </TabsContent>
+              <TabsContent value={CRM_TAB_WHATSAPP} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+                <CrmWhatsAppPage embeddedInCrm initialFromJid={whatsAppInitialJid} onInitialChatSelected={() => setWhatsAppInitialJid(null)} />
+              </TabsContent>
+            </>
+          )}
+          <TabsContent value={CRM_TAB_CONTATOS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <ContatosPage embeddedInCrm onOpenConversation={HIDE_INBOX_AND_WHATSAPP_TABS ? undefined : (jid) => { setActiveTabAndNavigate(CRM_TAB_WHATSAPP); setWhatsAppInitialJid(jid); }} />
+          </TabsContent>
+          </div>
         </Tabs>
       </div>
 
