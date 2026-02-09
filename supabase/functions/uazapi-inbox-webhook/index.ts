@@ -113,9 +113,26 @@ function findJidOrPhoneInObject(obj: unknown, depth = 0): string | null {
   return null;
 }
 
+const DEBUG_LOG_URL = 'http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13';
+function debugLog(location: string, message: string, data: Record<string, unknown>, hypothesisId: string) {
+  fetch(DEBUG_LOG_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location, message, data, timestamp: Date.now(), hypothesisId }),
+  }).catch(() => {});
+}
+
 serve(async (req) => {
   const url = new URL(req.url);
-  console.log('[uazapi-inbox-webhook] Requisição:', req.method, url.pathname, 'query:', { cliente_id: url.searchParams.get('cliente_id'), has_secret: !!url.searchParams.get('secret') });
+  // #region agent log
+  debugLog('uazapi-inbox-webhook/index.ts:entry', 'webhook_request', {
+    method: req.method,
+    pathname: url.pathname,
+    cliente_id_from_url: url.searchParams.get('cliente_id') ?? null,
+    hasSecret: !!url.searchParams.get('secret'),
+  }, 'H1');
+  // #endregion
+  console.log('[uazapi-inbox-webhook] Requisição:', req.method, url.pathname, 'cliente_id=', url.searchParams.get('cliente_id'), 'has_secret=', !!url.searchParams.get('secret'));
 
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -163,6 +180,11 @@ serve(async (req) => {
 
   if (configError || !config?.webhook_secret) {
     // #region agent log
+    debugLog('uazapi-inbox-webhook/index.ts:auth', 'webhook_auth_failed', {
+      configError: configError?.message ?? null,
+      hasSecret: !!config?.webhook_secret,
+      clienteId: clienteId ?? null,
+    }, 'H2');
     console.log('[uazapi-inbox-webhook] DEBUG auth failed', JSON.stringify({ configError: configError?.message, hasSecret: !!config?.webhook_secret, clienteId }));
     // #endregion
     return new Response(JSON.stringify({ error: 'Secret inválido' }), {
@@ -171,6 +193,7 @@ serve(async (req) => {
     });
   }
   // #region agent log
+  debugLog('uazapi-inbox-webhook/index.ts:auth', 'webhook_auth_ok', { clienteId }, 'H2');
   console.log('[uazapi-inbox-webhook] DEBUG auth OK, parsing body', JSON.stringify({ clienteId }));
   // #endregion
 
@@ -178,13 +201,20 @@ serve(async (req) => {
   try {
     const raw = await req.json();
     body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  } catch {
+  } catch (e) {
+    // #region agent log
+    debugLog('uazapi-inbox-webhook/index.ts:body', 'webhook_body_parse_failed', { error: String(e) }, 'H4');
+    // #endregion
     console.log('[uazapi-inbox-webhook] Body não é JSON válido ou está vazio');
     return new Response(JSON.stringify({ error: 'Body JSON inválido' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+
+  // #region agent log
+  debugLog('uazapi-inbox-webhook/index.ts:body', 'webhook_body_parsed', { bodyKeysCount: Object.keys(body).length }, 'H4');
+  // #endregion
 
   const payload = (body.data && typeof body.data === 'object' ? body.data as Record<string, unknown> : body) as Record<string, unknown>;
   const chat = (body.chat ?? payload.chat ?? (body.data as Record<string, unknown>)?.chat) as Record<string, unknown> | undefined;
@@ -199,9 +229,15 @@ serve(async (req) => {
       const v = obj[k];
       if (v != null && typeof v === 'string' && v.trim()) return v.trim();
       if (v != null && typeof v === 'number') return String(v);
+      if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+        const urlVal = (v as Record<string, unknown>)['URL'] ?? (v as Record<string, unknown>)['url'];
+        if (urlVal != null && typeof urlVal === 'string' && urlVal.trim()) return urlVal.trim();
+      }
     }
     return '';
   };
+
+  const PROFILE_PIC_KEYS = ['imagePreview', 'image', 'pictureUrl', 'profilePictureUrl', 'avatar', 'URL'] as const;
 
   const fromRaw =
     getStr(chat as Record<string, unknown>, 'wa_chatid', 'id', 'phone') ||
@@ -251,7 +287,20 @@ serve(async (req) => {
 
   const leadName = (chat?.lead_name ?? body?.lead_name ?? payload?.lead_name ?? chat?.leadName ?? body?.leadName ?? payload?.leadName ?? '') as string;
   const nameRaw = (leadName && String(leadName).trim()) || (chat?.name ?? chat?.wa_name ?? payload.notifyName ?? payload.pushName ?? payload.senderName ?? payload.contactName ?? payload.name ?? payload.verifiedName ?? body.notifyName ?? body.pushName ?? body.name ?? body.senderName ?? '') as string;
-  const profilePicUrl = (chat?.imagePreview ?? chat?.image ?? chat?.pictureUrl ?? payload.imagePreview ?? payload.image ?? payload.pictureUrl ?? payload.profilePictureUrl ?? payload.avatar ?? '') as string;
+  const dataObj = body?.data && typeof body.data === 'object' ? (body.data as Record<string, unknown>) : undefined;
+  const contactObj = (body?.contact ?? payload?.contact ?? dataObj?.contact) as Record<string, unknown> | undefined;
+  const senderObj = (body?.sender ?? payload?.sender ?? dataObj?.sender) as Record<string, unknown> | undefined;
+  const profilePicUrl = (
+    getStr(chat as Record<string, unknown>, ...PROFILE_PIC_KEYS) ||
+    getStr(payload, ...PROFILE_PIC_KEYS) ||
+    getStr(body, ...PROFILE_PIC_KEYS) ||
+    (contactObj ? getStr(contactObj, ...PROFILE_PIC_KEYS) : '') ||
+    (senderObj ? getStr(senderObj, ...PROFILE_PIC_KEYS) : '') ||
+    (dataObj ? getStr(dataObj, ...PROFILE_PIC_KEYS) : '') ||
+    ''
+  ).trim() || '';
+
+  const instanceName = (getStr(body, 'instanceName') || getStr(payload, 'instanceName') || (dataObj ? getStr(dataObj, 'instanceName') : '')).trim() || null;
 
   const logRow = {
     cliente_id: clienteId,
@@ -364,11 +413,12 @@ serve(async (req) => {
         utm_term: finalUtm.utm_term,
         tracking_data: finalTracking,
         profile_pic_url: contactProfilePic,
+        instance_name: instanceName,
         first_seen_at: ts,
         last_message_at: ts,
         updated_at: now,
       },
-      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'profile_pic_url', 'last_message_at', 'updated_at'] }
+      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'profile_pic_url', 'instance_name', 'last_message_at', 'updated_at'] }
     );
     // #region agent log
     if (contactError) console.error('[uazapi-inbox-webhook] DEBUG contact upsert error', JSON.stringify({ message: contactError.message, code: contactError.code, details: contactError.details }));
@@ -403,7 +453,32 @@ serve(async (req) => {
     console.log('[uazapi-inbox-webhook] Contato não criado: fromJid ausente ou unknown. body_keys:', bodyKeys.slice(0, 20));
   }
 
-  await supabase.from('cliente_whatsapp_webhook_log').insert(logRow);
+  // #region agent log
+  debugLog('uazapi-inbox-webhook/index.ts:webhook_log', 'webhook_before_insert_log', { cliente_id: logRow.cliente_id, source: logRow.source }, 'H5');
+  // #endregion
+  const { data: insertedRow, error: webhookLogError } = await supabase
+    .from('cliente_whatsapp_webhook_log')
+    .insert(logRow)
+    .select('id, cliente_id')
+    .single();
+  // #region agent log
+  debugLog('uazapi-inbox-webhook/index.ts:webhook_log', 'webhook_log_insert_result', {
+    success: !webhookLogError,
+    cliente_id: clienteId,
+    inserted_id: insertedRow?.id ?? null,
+    inserted_cliente_id: insertedRow?.cliente_id ?? null,
+    error: webhookLogError?.message ?? null,
+    code: webhookLogError?.code ?? null,
+  }, 'H5');
+  // #endregion
+  if (webhookLogError) {
+    console.error('[uazapi-inbox-webhook] cliente_whatsapp_webhook_log insert failed', webhookLogError);
+    return new Response(JSON.stringify({ error: webhookLogError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  console.log('[uazapi-inbox-webhook] EVENTO_GRAVADO cliente_id=', clienteId, 'log_id=', insertedRow?.id, '— Se o cliente não vê na tela, a URL do webhook na uazapi deve usar esse cliente_id.');
   return new Response(JSON.stringify({ success: true }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });

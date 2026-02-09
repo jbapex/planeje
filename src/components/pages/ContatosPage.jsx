@@ -148,7 +148,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
     setLoading(true);
     let q = supabase
       .from('cliente_whatsapp_contact')
-      .select('id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url')
+      .select('id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url, instance_name')
       .eq('cliente_id', effectiveClienteId)
       .order('last_message_at', { ascending: false });
     if (originFilter === ORIGIN_FILTER_META) q = q.eq('origin_source', 'meta_ads');
@@ -593,7 +593,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Origem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Primeira mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Última mensagem</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Rastreio</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Conta</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider w-24">Ações</th>
                       </tr>
                     </thead>
@@ -652,9 +652,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                               {formatDate(c.last_message_at)}
                             </td>
                             <td className="py-3 px-4 hidden sm:table-cell text-muted-foreground text-xs">
-                              {c.utm_source && <span>{c.utm_source}</span>}
-                              {c.utm_campaign && <span className="ml-1"> · {c.utm_campaign}</span>}
-                              {!c.utm_source && !c.utm_campaign && (c.origin_source === 'meta_ads' ? 'Meta Ads' : '—')}
+                              {c.instance_name?.trim() || '—'}
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-0.5">

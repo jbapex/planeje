@@ -3,13 +3,17 @@
  * Usado em ContatosPage (preencher a partir do log) e no modal "Ver corpo" (importar como contato).
  */
 
-/** Retorna o primeiro valor string não vazio encontrado em obj[keys]. */
+/** Retorna o primeiro valor string não vazio encontrado em obj[keys]. Se o valor for objeto com URL/url, retorna essa URL. */
 function getStr(obj, ...keys) {
   if (!obj || typeof obj !== 'object') return null;
   for (const k of keys) {
     const v = obj[k];
     if (v != null && typeof v === 'string' && String(v).trim()) return String(v).trim();
     if (v != null && typeof v === 'number') return String(v);
+    if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+      const u = v.URL ?? v.url;
+      if (u != null && typeof u === 'string' && String(u).trim()) return String(u).trim();
+    }
   }
   return null;
 }
@@ -42,9 +46,9 @@ export function getProfilePicFromRawPayload(rawPayload) {
   const body = rawPayload;
   const payload = (body.data && typeof body.data === 'object' ? body.data : body) || {};
   const chat = body.chat ?? payload.chat ?? (body.data && body.data.chat);
-  const url = getStr(chat, 'imagePreview', 'image', 'pictureUrl', 'profilePictureUrl')
-    ?? getStr(payload, 'imagePreview', 'image', 'pictureUrl', 'profilePictureUrl', 'avatar')
-    ?? getStr(body, 'imagePreview', 'image', 'pictureUrl', 'avatar');
+  const url = getStr(chat, 'imagePreview', 'image', 'pictureUrl', 'profilePictureUrl', 'URL')
+    ?? getStr(payload, 'imagePreview', 'image', 'pictureUrl', 'profilePictureUrl', 'avatar', 'URL')
+    ?? getStr(body, 'imagePreview', 'image', 'pictureUrl', 'avatar', 'URL');
   return url || null;
 }
 
