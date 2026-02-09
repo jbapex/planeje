@@ -145,9 +145,6 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
       setContacts([]);
       return;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ContatosPage.jsx:loadContacts', message: 'loadContacts called', data: { effectiveClienteId, originFilter }, timestamp: Date.now(), hypothesisId: 'H3,H4' }) }).catch(() => {});
-    // #endregion
     setLoading(true);
     let q = supabase
       .from('cliente_whatsapp_contact')
@@ -158,9 +155,6 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
     if (originFilter === ORIGIN_FILTER_NAO_IDENT) q = q.eq('origin_source', 'nao_identificado');
     const { data, error } = await q;
     setLoading(false);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ContatosPage.jsx:loadContacts', message: 'loadContacts result', data: { contactCount: (data || []).length, error: error?.message || null, firstFromJid: (data || [])[0]?.from_jid?.slice(0, 40) }, timestamp: Date.now(), hypothesisId: 'H3,H4' }) }).catch(() => {});
-    // #endregion
     if (error) {
       toast({ variant: 'destructive', title: 'Erro ao carregar contatos', description: error.message });
       setContacts([]);
@@ -175,18 +169,12 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
 
   useEffect(() => {
     if (!effectiveClienteId) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ContatosPage.jsx:realtime', message: 'realtime subscription setup', data: { effectiveClienteId }, timestamp: Date.now(), hypothesisId: 'H3' }) }).catch(() => {});
-    // #endregion
     const channel = supabase
       .channel(`contatos:${effectiveClienteId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'cliente_whatsapp_contact', filter: `cliente_id=eq.${effectiveClienteId}` },
         (payload) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ContatosPage.jsx:realtime', message: 'realtime event received', data: { eventType: payload.eventType, table: payload.table }, timestamp: Date.now(), hypothesisId: 'H3' }) }).catch(() => {});
-          // #endregion
           loadContacts();
         }
       )
@@ -409,15 +397,33 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
           <title>Contatos - CRM</title>
         </Helmet>
       )}
-      <div className="space-y-5">
-        {/* Cabeçalho estilo CRM referência: título grande + ações à direita */}
+      <div className={embeddedInCrm ? 'space-y-6' : 'space-y-5'}>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">
-              Contatos
-            </h1>
+          {embeddedInCrm && isAdminWithoutCliente && clientesForAdmin?.length > 0 && (
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/50 bg-white dark:bg-card p-4 shadow-sm">
+              <Label className="text-sm font-medium text-muted-foreground block mb-2">Cliente</Label>
+              <Select value={selectedClienteId || ''} onValueChange={(v) => setSelectedClienteId(v || null)}>
+                <SelectTrigger className="w-full sm:w-[280px] h-10 rounded-lg">
+                  <SelectValue placeholder="Selecione o cliente para ver os contatos" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientesForAdmin.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.empresa || c.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className={`flex flex-col sm:flex-row sm:items-center gap-3 ${embeddedInCrm && isAdminWithoutCliente ? 'sm:justify-end' : 'sm:justify-between'}`}>
+            {(!embeddedInCrm || !isAdminWithoutCliente) && (
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">
+                Contatos
+              </h1>
+            )}
             <div className="flex flex-wrap items-center gap-2">
-              {isAdminWithoutCliente && clientesForAdmin?.length > 0 && (
+              {!embeddedInCrm && isAdminWithoutCliente && clientesForAdmin?.length > 0 && (
                 <Select value={selectedClienteId || ''} onValueChange={(v) => setSelectedClienteId(v || null)}>
                   <SelectTrigger className="w-[200px] h-9">
                     <SelectValue placeholder="Selecione o cliente" />
@@ -489,19 +495,25 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
         </div>
 
         {!effectiveClienteId ? (
-          <Card className="rounded-xl border-gray-200/50 dark:border-gray-700/50">
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">
-                {isAdminWithoutCliente ? 'Selecione um cliente acima.' : 'Cliente não identificado.'}
+          <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 bg-white dark:bg-card shadow-sm">
+            <CardContent className="py-12 px-6 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 mb-4">
+                <Users className="h-7 w-7" />
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                {isAdminWithoutCliente ? 'Selecione um cliente' : 'Cliente não identificado'}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+                {isAdminWithoutCliente ? 'Use o seletor acima para escolher o cliente e visualizar os contatos.' : 'Não foi possível identificar o cliente.'}
               </p>
             </CardContent>
           </Card>
         ) : (
-          <Card className="rounded-xl border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
+          <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-card shadow-sm">
             <CardContent className="p-0">
-              <div className="p-5 pb-4 border-b border-gray-200/50 dark:border-gray-700/50">
+              <div className="p-5 pb-4 border-b border-slate-200/60 dark:border-slate-700/50">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                <div className="rounded-xl border bg-card border-gray-200/50 dark:border-gray-700/50 p-5 flex items-center gap-4">
+                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-muted">
                     <MessageCircle className="h-8 w-8 text-foreground" />
                   </div>
@@ -510,7 +522,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                     <p className="text-xl font-semibold tabular-nums">{contacts.length}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-card border-gray-200/50 dark:border-gray-700/50 p-5 flex items-center gap-4">
+                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center">
                     <MetaLogoIcon className="h-14 w-14" />
                   </div>
@@ -519,7 +531,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                     <p className="text-xl font-semibold tabular-nums">{metaCount}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-card border-gray-200/50 dark:border-gray-700/50 p-5 flex items-center gap-4">
+                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-20 w-20 shrink-0 items-center justify-center">
                     <GoogleAdsIcon className="h-20 w-20" />
                   </div>
@@ -528,7 +540,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                     <p className="text-xl font-semibold tabular-nums">{googleAdsCount}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-card border-gray-200/50 dark:border-gray-700/50 p-5 flex items-center gap-4">
+                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800">
                     <Globe className="h-8 w-8 text-slate-600 dark:text-slate-400" />
                   </div>
@@ -537,7 +549,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                     <p className="text-xl font-semibold tabular-nums">{outrasOrigensCount}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-card border-gray-200/50 dark:border-gray-700/50 p-5 flex items-center gap-4">
+                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-orange-100 dark:bg-orange-900/30">
                     <UserX className="h-8 w-8 text-orange-700 dark:text-orange-400" />
                   </div>

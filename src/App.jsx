@@ -81,8 +81,7 @@ import ClientCRM from '@/components/pages/ClientCRM';
         <Route path="/data-deletion" element={<DataDeletion />} />
         <Route path="/diagnostico" element={<MarketingDiagnostic />} />
         {/* Rotas públicas do ApexIA (acesso via link) - MANTIDAS */}
-        <Route path="/chat/:clientId" element={<PublicClientChat />} />
-        <Route path="/chat/:clientId/:sessionId" element={<PublicClientChat />} />
+        <Route path="/chat/:clientId/:sessionId?" element={<PublicClientChat />} />
         <Route path="/chat-launcher" element={<ChatLauncher />} />
         {/* Nova rota de login para clientes */}
         <Route path="/login-cliente" element={<ClientLogin />} />

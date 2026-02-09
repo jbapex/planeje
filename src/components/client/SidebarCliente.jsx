@@ -78,8 +78,8 @@ const getMenuItems = (profile) => {
     },
     {
       key: 'crm',
-      label: 'CRM',
-      path: `${prefix}/crm`,
+      label: isAdmin ? 'Contatos' : 'CRM',
+      path: isAdmin ? `${prefix}/crm/contatos` : `${prefix}/crm`,
       icon: BarChart3,
     },
   ];

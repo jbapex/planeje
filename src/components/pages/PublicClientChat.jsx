@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, startTransition } from 'react';
     import { useParams, useNavigate, useLocation } from 'react-router-dom';
     import { Helmet } from 'react-helmet';
     import { supabase } from '@/lib/customSupabaseClient';
@@ -218,7 +218,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         useEffect(() => {
             if (textareaRef.current) {
                 // Reset height para calcular corretamente
-                textareaRef.current.style.height = '52px';
+                textareaRef.current.style.height = '56px';
                 const scrollHeight = textareaRef.current.scrollHeight;
                 const maxHeight = 200; // Limite máximo em pixels (~8 linhas)
                 const newHeight = Math.min(scrollHeight, maxHeight);
@@ -251,6 +251,32 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
         const [isStandalone, setIsStandalone] = useState(false);
         const [showIOSInstructions, setShowIOSInstructions] = useState(false);
         const textareaRef = useRef(null);
+        const sidebarHistoryPushedRef = useRef(false);
+        const savedMessagesScrollTopRef = useRef(0);
+        const skipEnterAnimationRef = useRef(false);
+        
+        // No mobile: "voltar" do dispositivo fecha o menu em vez de recarregar/sair
+        useEffect(() => {
+            if (!isSidebarOpen) {
+                sidebarHistoryPushedRef.current = false;
+                return;
+            }
+            const isMobileView = typeof window !== 'undefined' && window.innerWidth < 768;
+            if (!isMobileView) return;
+            sidebarHistoryPushedRef.current = true;
+            history.pushState({ apexiaSidebar: true }, '', window.location.pathname + window.location.search);
+        }, [isSidebarOpen]);
+        
+        useEffect(() => {
+            const handlePopState = (e) => {
+                if (e.state?.apexiaSidebar || sidebarHistoryPushedRef.current) {
+                    setIsSidebarOpen(false);
+                    sidebarHistoryPushedRef.current = false;
+                }
+            };
+            window.addEventListener('popstate', handlePopState);
+            return () => window.removeEventListener('popstate', handlePopState);
+        }, []);
         
         // Estados para imagem anexada no chat
         const [attachedImage, setAttachedImage] = useState(null);
@@ -1411,6 +1437,7 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
         const fetchMessagesForSession = useCallback(async () => {
             if (!sessionId || !client) return;
             setLoading(true);
+            setMessages([]); // evita mostrar conversa anterior ao trocar de sessão
             
             // Timeout de segurança para mensagens
             const timeoutId = setTimeout(() => {
@@ -1543,11 +1570,48 @@ Retorne APENAS o título com 3 palavras, sem aspas, sem explicações, sem prefi
                 fetchMessagesForSession();
             }
         }, [sessionId, client, fetchMessagesForSession]);
-        
         useEffect(() => {
+            skipEnterAnimationRef.current = true;
+        }, [sessionId]);
+        useEffect(() => {
+            if (messages.length > 0) {
+                const id = requestAnimationFrame(() => {
+                    skipEnterAnimationRef.current = false;
+                });
+                return () => cancelAnimationFrame(id);
+            }
+        }, [messages.length]);
+        // Guardar posição de scroll da área de mensagens (para restaurar ao fechar o menu)
+        useEffect(() => {
+            const el = scrollAreaRef.current?.querySelector('div[data-radix-scroll-area-viewport]');
+            if (!el) return;
+            const save = () => { savedMessagesScrollTopRef.current = el.scrollTop; };
+            el.addEventListener('scroll', save, { passive: true });
+            return () => el.removeEventListener('scroll', save);
+        }, []);
+        // Restaurar posição ao fechar o menu (evita “rolar” ao voltar para a conversa)
+        useEffect(() => {
+            if (messages.length === 0 || skipEnterAnimationRef.current) return;
+            const el = scrollAreaRef.current?.querySelector('div[data-radix-scroll-area-viewport]');
+            if (!el) return;
+            const top = savedMessagesScrollTopRef.current;
+            const id = requestAnimationFrame(() => {
+                el.scrollTop = top;
+            });
+            return () => cancelAnimationFrame(id);
+        }, [isSidebarOpen, messages.length]);
+        // Ao abrir uma conversa: rolar para o fim antes da primeira pintura (já aparece na última mensagem)
+        useLayoutEffect(() => {
+            if (messages.length === 0 || !skipEnterAnimationRef.current) return;
+            const scrollContainer = scrollAreaRef.current?.querySelector('div[data-radix-scroll-area-viewport]');
+            if (scrollContainer) scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'auto' });
+        }, [messages, sessionId]);
+        // Novas mensagens / resposta da IA: rolar suave para o fim
+        useEffect(() => {
+            if (messages.length === 0) return;
             if (scrollAreaRef.current) {
                 const scrollContainer = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
-                if (scrollContainer) scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+                if (scrollContainer) scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: skipEnterAnimationRef.current ? 'auto' : 'smooth' });
             }
         }, [messages, currentAIMessage]);
         
@@ -2306,7 +2370,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.
                 await saveMessage(userMessage, sessionId);
                 setInput('');
                 if (textareaRef.current) {
-                    textareaRef.current.style.height = '52px';
+                    textareaRef.current.style.height = '56px';
                 }
                 
                 // Verificar se já menciona categoria específica
@@ -2343,7 +2407,7 @@ Seja específico, autêntico e direto. Evite clichês de marketing.
             setInput('');
             // Reset altura do textarea após enviar
             if (textareaRef.current) {
-                textareaRef.current.style.height = '52px';
+                textareaRef.current.style.height = '56px';
             }
             setIsGenerating(true);
             setCurrentAIMessage('');
@@ -3215,8 +3279,9 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
             }
         }, [currentAIMessage]);
         
-        // Verificações de segurança para evitar tela em branco
-        if (loading) { 
+        // Tela cheia só no carregamento inicial; ao trocar de conversa mantém o layout (fluidez)
+        const isInitialLoad = !client || sessions.length === 0;
+        if (loading && isInitialLoad) { 
             return (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
                     <Sparkles className="h-12 w-12 text-primary animate-pulse" />
@@ -3268,11 +3333,12 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
         const CurrentAgentIcon = currentAgent ? (ICONS[currentAgent.icon] || ICONS.Default) : Sparkles;
 
         const SessionSidebar = () => (
-          <aside className={`absolute md:relative z-20 md:z-auto h-full bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`} style={{ width: isSidebarExpanded ? '400px' : '256px', minWidth: isSidebarExpanded ? '400px' : '256px', maxWidth: isSidebarExpanded ? '400px' : '256px' }}>
-              <div className="p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
-                  <h2 className="font-semibold text-base sm:text-lg dark:text-white">Conversas</h2>
+          <aside className={`absolute md:relative z-20 md:z-auto h-full bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 w-full ${isSidebarExpanded ? 'md:w-[400px] md:min-w-[400px] md:max-w-[400px]' : 'md:w-[256px] md:min-w-[256px] md:max-w-[256px]'}`}>
+              <div className="p-5 md:p-4 border-b border-gray-300 dark:border-gray-800 flex justify-between items-center bg-gray-100 dark:bg-gray-900">
+                  <h2 className="font-semibold text-lg dark:text-white">Conversas</h2>
                   <div className="flex items-center gap-2">
                       <Button 
+                          type="button"
                           variant="ghost" 
                           size="icon" 
                           className="hidden md:flex rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" 
@@ -3281,44 +3347,48 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                       >
                           {isSidebarExpanded ? <ChevronLeft className="h-5 w-5"/> : <ChevronRight className="h-5 w-5"/>}
                       </Button>
-                      <Button variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => setIsSidebarOpen(false)}><X className="h-5 w-5"/></Button>
+                      <Button type="button" variant="ghost" size="icon" className="md:hidden rounded-full hover:bg-gray-200 dark:hover:bg-gray-800" onClick={() => { setIsSidebarOpen(false); if (sidebarHistoryPushedRef.current) history.back(); }}><X className="h-5 w-5"/></Button>
                   </div>
               </div>
-              <div className="p-3 bg-gray-100 dark:bg-gray-900 space-y-2">
-                <Button onClick={() => handleNewSession(client, sessions)} className="w-full justify-start rounded-full bg-primary hover:bg-primary/90 shadow-sm">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Nova Conversa
-                </Button>
-                <Button 
-                    onClick={() => {
-                        navigate('/cliente/support');
-                        if(isSidebarOpen) setIsSidebarOpen(false);
-                    }} 
-                    variant="outline" 
-                    className="w-full justify-start rounded-full border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 shadow-sm"
+              <div className="px-4 py-3 md:p-3 space-y-3 md:space-y-2 bg-gray-100 dark:bg-gray-900">
+                <Button type="button" onClick={() => handleNewSession(client, sessions)} className="w-full justify-start rounded-full bg-primary hover:bg-primary/90 shadow-sm text-sm max-md:text-base">
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Nova Conversa
+                                </Button>
+                                <Button 
+                                    type="button"
+                                    onClick={() => {
+                                        navigate('/cliente/support');
+                                        if(isSidebarOpen) setIsSidebarOpen(false);
+                                    }} 
+                                    variant="outline"
+                    className="w-full justify-start rounded-full border-gray-300 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 shadow-sm text-sm max-md:text-base"
                 >
                     <Home className="mr-2 h-4 w-4" /> Voltar ao Portal Parceiro
                 </Button>
               </div>
               <ScrollArea className="flex-1 bg-gray-100 dark:bg-gray-900">
-                  <div className="p-2 space-y-1">
+                  <div className="p-3 space-y-1.5 md:p-2 md:space-y-1">
                       {sessions.map(s => (
                           <div 
                               key={s.id} 
-                              className={`group flex items-center rounded-lg p-2 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} 
+                              className={`group flex items-center rounded-lg py-3 px-3 md:p-2 cursor-pointer transition-all ${s.id === sessionId ? 'bg-primary/15 dark:bg-primary/25 border border-primary/30' : 'hover:bg-gray-200 dark:hover:bg-gray-800/70 border border-transparent'}`} 
                               onClick={() => { 
-                                  if(s.id !== sessionId) navigate(`/chat/${clientId}/${s.id}`); 
-                                  if(isSidebarOpen) setIsSidebarOpen(false);
+                                  if (s.id !== sessionId) {
+                                      startTransition(() => navigate(`/chat/${clientId}/${s.id}`));
+                                  }
+                                  if (isSidebarOpen) setIsSidebarOpen(false);
                               }}
                               onMouseEnter={() => setExpandedSessionId(s.id)}
                               onMouseLeave={() => setExpandedSessionId(null)}
                           >
                               <span 
-                                  className={`text-xs font-medium dark:text-gray-200 flex-1 min-w-0 pr-2 block transition-all ${isSidebarExpanded || expandedSessionId === s.id ? 'whitespace-normal break-words' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}
+                                  className={`text-sm md:text-xs font-medium dark:text-gray-200 flex-1 min-w-0 pr-2 block transition-all ${isSidebarExpanded || expandedSessionId === s.id ? 'whitespace-normal break-words' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}
                                   title={s.title}
                               >
                                   {s.title}
                               </span>
                               <Button 
+                                  type="button"
                                   variant="ghost" 
                                   size="icon" 
                                   className="h-7 w-7 flex-shrink-0 opacity-90 group-hover:opacity-100 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-all hover:scale-105 active:scale-95" 
@@ -3340,7 +3410,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                       ))}
                   </div>
               </ScrollArea>
-              <footer className="p-3 border-t border-gray-300 dark:border-gray-800 text-center text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-900">
+              <footer className="py-4 px-3 md:p-3 border-t border-gray-300 dark:border-gray-800 text-center text-sm md:text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-900">
                   JB APEX
               </footer>
           </aside>
@@ -3397,7 +3467,11 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                     >
                         <header className="p-4 border-b border-gray-200/50 dark:border-gray-800/50 flex items-center justify-between flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm">
                             <div className="flex items-center gap-3 min-w-0">
-                               <Button variant="ghost" size="icon" className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full" onClick={() => setIsSidebarOpen(true)}><Menu className="h-5 w-5"/></Button>
+                               <Button type="button" variant="ghost" size="icon" className="md:hidden flex-shrink-0 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full" onClick={() => {
+                                    const el = scrollAreaRef.current?.querySelector('div[data-radix-scroll-area-viewport]');
+                                    if (el) savedMessagesScrollTopRef.current = el.scrollTop;
+                                    setIsSidebarOpen(true);
+                                }}><Menu className="h-5 w-5"/></Button>
                                <div className="rounded-2xl flex-shrink-0 shadow-sm overflow-hidden w-11 h-11 relative">
                                    {client?.logo_urls && client.logo_urls.length > 0 && !logoError ? (
                                        <img 
@@ -3419,9 +3493,15 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                         <main className="flex-1 overflow-hidden bg-transparent">
                             <ScrollArea className="h-full px-4 py-6" ref={scrollAreaRef}>
                                 <div className="max-w-3xl mx-auto space-y-8">
+                                    {loading && messages.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                                            <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                                            <p className="text-sm">Carregando conversa...</p>
+                                        </div>
+                                    ) : (
                                     <AnimatePresence initial={false}>
                                         {messages.map((msg, index) => (
-                                            <motion.div key={`${sessionId}-${index}`} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: 'easeOut' }} className={`flex items-start w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <motion.div key={`${sessionId}-${index}`} layout={!skipEnterAnimationRef.current} initial={skipEnterAnimationRef.current ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: 'easeOut' }} className={`flex items-start w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                                 <div 
                                                     className={`relative group max-w-xl px-4 py-3 rounded-3xl shadow-sm ${msg.role === 'user' 
                                                         ? 'rounded-br-md' 
@@ -3477,7 +3557,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                     </div>
                                                                 </div>
                                                             )}
-                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-sm sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
+                                                            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed text-base sm:text-base chat-message-content">{renderMessageContent(msg.content)}</div>
                                                             {msg.showCategoryButtons && (
                                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                                     {STORY_CATEGORIES.map((cat) => (
@@ -3555,7 +3635,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         </div>
                                                     )}
                                                     <div 
-                                                        className="prose prose-sm dark:prose-invert max-w-none text-sm sm:text-base"
+                                                        className="prose prose-sm dark:prose-invert max-w-none text-base chat-message-content"
                                                         style={{
                                                             minHeight: '1.5em',
                                                             lineHeight: '1.75'
@@ -3582,15 +3662,15 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         0%, 49% { opacity: 1; }
                                                         50%, 100% { opacity: 0.3; }
                                                     }
-                                                    /* Reduzir tamanho do texto no mobile */
+                                                    /* Aumentar tamanho do texto no mobile para melhor leitura (1.25rem ≈ 16px com html 80%) */
                                                     @media (max-width: 640px) {
                                                         .chat-message-content {
-                                                            font-size: 0.875rem !important;
-                                                            line-height: 1.5 !important;
+                                                            font-size: 1.25rem !important;
+                                                            line-height: 1.55 !important;
                                                         }
                                                         .chat-message-content p {
-                                                            font-size: 0.875rem !important;
-                                                            line-height: 1.5 !important;
+                                                            font-size: 1.25rem !important;
+                                                            line-height: 1.55 !important;
                                                         }
                                                         .chat-message-content h1,
                                                         .chat-message-content h2,
@@ -3598,38 +3678,39 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         .chat-message-content h4,
                                                         .chat-message-content h5,
                                                         .chat-message-content h6 {
-                                                            font-size: 1rem !important;
+                                                            font-size: 1.375rem !important;
                                                             line-height: 1.4 !important;
                                                         }
                                                         .chat-message-content ul,
                                                         .chat-message-content ol {
-                                                            font-size: 0.875rem !important;
+                                                            font-size: 1.25rem !important;
                                                         }
                                                         .chat-message-content li {
-                                                            font-size: 0.875rem !important;
-                                                            line-height: 1.5 !important;
+                                                            font-size: 1.25rem !important;
+                                                            line-height: 1.55 !important;
                                                         }
                                                         .chat-message-content code {
-                                                            font-size: 0.8125rem !important;
+                                                            font-size: 1.125rem !important;
                                                         }
                                                         .chat-message-content pre {
-                                                            font-size: 0.8125rem !important;
+                                                            font-size: 1.125rem !important;
                                                         }
                                                     }
                                                 `}</style>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
+                                    )}
                                 </div>
                             </ScrollArea>
                         </main>
-                        <footer className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm" style={{ 
+                        <footer className="border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-sm safe-area-padding-footer" style={{ 
                             paddingBottom: 'max(0.75rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))',
                             paddingTop: '1rem',
                             paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
                             paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))'
                         }}>
-                            <div className="max-w-3xl mx-auto w-full">
+                            <div className="max-w-3xl mx-auto w-full min-w-0 px-3 sm:px-0">
                                 {/* Botões de Acesso Rápido - Sempre visíveis */}
                                 <div className="mb-2 flex items-center gap-1.5 sm:gap-2 flex-nowrap overflow-x-auto">
                                     <DropdownMenu>
@@ -3637,7 +3718,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                                className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm flex-shrink-0 min-w-0 px-2 sm:px-3"
                                             >
                                                 {selectedTemplate ? (
                                                     <>
@@ -3665,8 +3746,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                 <ChevronDown className="h-3.5 w-3.5 ml-auto opacity-50 flex-shrink-0" />
                                             </Button>
                                         </DropdownMenuTrigger>
-                                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm max-h-[400px] overflow-y-auto">
-                                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                        <DropdownMenuContent className="min-w-[280px] sm:min-w-[320px] w-max max-w-[min(360px,90vw)] p-2 dark:bg-gray-800/95 dark:border-gray-700/50 rounded-2xl border-gray-200/50 backdrop-blur-sm max-h-[400px] overflow-y-auto">
+                                            <div className="px-3 py-2 text-sm font-semibold text-muted-foreground">
                                                 Escolha como você quer que o ApexIA converse com você:
                                             </div>
                                             <DropdownMenuItem 
@@ -3743,7 +3824,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                                 <Icon className="h-4 w-4" />
                                                                 <span className="font-medium">{template.name}</span>
                                                             </div>
-                                                            <span className="text-xs text-muted-foreground ml-6">{clientDescription}</span>
+                                                            <span className="text-sm text-muted-foreground ml-6">{clientDescription}</span>
                                                         </div>
                                                         {selectedTemplate === key && <Check className="h-4 w-4 ml-auto flex-shrink-0" />}
                                                     </DropdownMenuItem>
@@ -3757,7 +3838,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setIsStoryIdeasOpen(true)}
-                                        className="hidden sm:flex flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="hidden sm:flex flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent}
                                     >
                                         <Lightbulb className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-yellow-500 flex-shrink-0" />
@@ -3770,7 +3851,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             variant={isTrafficMode ? "default" : "ghost"}
                                             size="sm"
                                             onClick={() => setIsTrafficMode(!isTrafficMode)}
-                                            className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                            className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         >
                                             <TrafficIcon className="h-3.5 w-3.5 mr-1.5 sm:mr-2 flex-shrink-0" />
                                             <span className="truncate">{isTrafficMode ? 'Tráfego Ativo' : 'Tráfego'}</span>
@@ -3782,7 +3863,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowImageGenerator(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent || isGeneratingImage}
                                     >
                                         {isGeneratingImage ? (
@@ -3803,7 +3884,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowRunwareGenerator(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent || isGeneratingImage}
                                     >
                                         <Sparkles className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-blue-500 flex-shrink-0" />
@@ -3815,7 +3896,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setShowSocialMediaArt(true)}
-                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-xs sm:text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
+                                        className="flex-1 sm:flex-none sm:w-auto justify-center sm:justify-start dark:bg-gray-800/50 dark:border-gray-700/50 rounded-full border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/80 backdrop-blur-sm text-sm sm:text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex-shrink-0 min-w-0 px-2 sm:px-3"
                                         disabled={!currentAgent || isGeneratingImage}
                                     >
                                         <ImageIcon className="h-3.5 w-3.5 mr-1.5 sm:mr-2 text-purple-500 flex-shrink-0" />
@@ -3951,8 +4032,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                     </div>
                                 )}
                                 
-                                <form onSubmit={handleSendMessage} className="relative">
-                                    <div className={`relative bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() && !attachedImage ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
+                                <form onSubmit={handleSendMessage} className="relative min-w-0 w-full">
+                                    <div className={`relative w-full min-w-0 bg-white dark:bg-gray-800/50 rounded-3xl border shadow-sm backdrop-blur-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all overflow-hidden ${!input.trim() && !attachedImage ? 'border-glow-animation border-primary/40' : 'border-gray-200/50 dark:border-gray-700/30'}`}>
                                         {/* Seletor de Modelo de IA - no lugar do botão + (especialmente no celular) */}
                                         {hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 && (() => {
                                             const currentModel = selectedModelByUser || trafficConfig.allowed_ai_models[0];
@@ -4027,7 +4108,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             };
                                             
                                             return (
-                                                <div className="absolute left-2 bottom-2.5 z-10">
+                                                <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10">
                                                     <Select
                                                         value={currentModel}
                                                         onValueChange={(value) => {
@@ -4076,7 +4157,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                                         fileInputRef.current?.click();
                                                     }
                                                 }}
-                                                className={`absolute bottom-2.5 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800 ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'left-12' : 'left-2 sm:left-12'}`}
+                                                className={`absolute top-1/2 -translate-y-1/2 h-9 w-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all z-20 flex-shrink-0 bg-white dark:bg-gray-800 ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'left-12' : 'left-2 sm:left-12'}`}
                                                 disabled={isGenerating || !currentAgent}
                                                 title="Anexar imagem"
                                             >
@@ -4106,8 +4187,8 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                             value={input} 
                                             onChange={(e) => setInput(e.target.value)} 
                                             placeholder="Pergunte ao ApexIA..." 
-                                            className={`pr-14 py-3 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[52px] max-h-[200px] overflow-y-auto text-base sm:text-base ${hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'pl-12' : 'pl-12 sm:pl-14'}`}
-                                            style={{ height: 'auto', minHeight: '52px', maxHeight: '200px' }} 
+                                            className={`block w-full min-w-0 pr-12 sm:pr-14 resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-3xl min-h-[56px] max-h-[200px] overflow-y-auto text-[16px] leading-[1.5] box-border py-[14px] ${input.trim() ? (hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'pl-14' : 'pl-4 sm:pl-12') : (hasTrafficAccess && trafficConfig?.allowed_ai_models?.length > 0 ? 'pl-32' : 'pl-12 sm:pl-32')}`}
+                                            style={{ height: 'auto', minHeight: '56px', maxHeight: '200px' }} 
                                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }}} 
                                             disabled={isGenerating || !currentAgent} 
                                             rows={1}
@@ -4115,7 +4196,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                         <Button 
                                             type="submit" 
                                             size="icon" 
-                                            className="absolute right-2 bottom-2.5 h-9 w-9 rounded-full bg-primary hover:bg-primary/90 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all z-10 flex-shrink-0" 
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-primary hover:bg-primary/90 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all z-10 flex-shrink-0" 
                                             disabled={isGenerating || (!input.trim() && !(attachedImage && imageActionMode)) || !currentAgent}
                                         >
                                             {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

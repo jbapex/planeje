@@ -106,14 +106,24 @@ const ClientCRMContent = () => {
   const { tab: tabParam } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { profile } = useAuth();
   const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : '/cliente';
 
-  const resolvedTab = CRM_TABS_BY_PATH[tabParam] ? tabParam : CRM_TAB_LEADS;
+  const isAdminWithoutCliente = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
+
+  const resolvedTab = CRM_TABS_BY_PATH[tabParam] ? tabParam : (isAdminWithoutCliente ? CRM_TAB_CONTATOS : CRM_TAB_LEADS);
   const [activeTab, setActiveTab] = useState(resolvedTab);
 
   useEffect(() => {
     if (tabParam && CRM_TABS_BY_PATH[tabParam] && tabParam !== activeTab) setActiveTab(tabParam);
   }, [tabParam]);
+
+  // Administrador: só Contatos; redirecionar qualquer outra aba para contatos
+  useEffect(() => {
+    if (isAdminWithoutCliente && tabParam !== CRM_TAB_CONTATOS) {
+      navigate(`${basePath}/crm/${CRM_TAB_CONTATOS}`, { replace: true });
+    }
+  }, [isAdminWithoutCliente, tabParam, navigate, basePath]);
 
   const setActiveTabAndNavigate = useCallback(
     (value) => {
@@ -183,6 +193,40 @@ const ClientCRMContent = () => {
   useEffect(() => {
     setSelectedLeads([]);
   }, [leads, filters, searchTerm, viewMode]);
+
+  // Visão do administrador: apenas Contatos e filtros por cliente (sem abas do CRM)
+  if (isAdminWithoutCliente) {
+    return (
+      <>
+        <Helmet>
+          <title>Contatos - JB APEX</title>
+          <meta name="description" content="Contatos por cliente." />
+        </Helmet>
+        <div className="flex flex-col flex-1 min-h-0 bg-slate-50/60 dark:bg-slate-950/30">
+          <header className="shrink-0 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-card shadow-sm">
+            <div className="w-full px-3 sm:px-4 lg:px-5 py-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-semibold text-foreground tracking-tight">Contatos</h1>
+                    <p className="text-sm text-muted-foreground mt-0.5">Visualize e filtre contatos por cliente</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </header>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="w-full px-3 sm:px-4 lg:px-5 py-6">
+              <ContatosPage embeddedInCrm />
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const handleAddLeadWithDuplicateCheck = async (leadData) => {
     const result = await onAddLead(leadData);

@@ -364,14 +364,18 @@ import { executeAutomation } from '@/lib/workflow';
       }, [taskIdFromUrl, tasks, navigate, toast, isNewTask, activeTab]);
 
       const filteredTasks = useMemo(() => {
-        let currentTasks = [...tasks];
+        const taskList = Array.isArray(tasks) ? tasks : [];
+        let currentTasks = [...taskList];
         if (clientFilter !== 'all') currentTasks = currentTasks.filter(task => task.client_id === clientFilter);
         if (statusFilter !== 'all') currentTasks = currentTasks.filter(task => task.status === statusFilter);
         if (assigneeFilter !== 'all') currentTasks = currentTasks.filter(task => task.assignee_ids?.includes(assigneeFilter));
         return currentTasks;
       }, [tasks, clientFilter, statusFilter, assigneeFilter]);
-      
-      const filteredScheduleTasks = useMemo(() => scheduleTasks.filter(task => scheduleClientFilter === 'all' || task.client_id === scheduleClientFilter), [scheduleTasks, scheduleClientFilter]);
+
+      const filteredScheduleTasks = useMemo(() => {
+        const list = Array.isArray(scheduleTasks) ? scheduleTasks : [];
+        return list.filter(task => scheduleClientFilter === 'all' || task.client_id === scheduleClientFilter);
+      }, [scheduleTasks, scheduleClientFilter]);
 
       const handleSaveTask = async (taskData, isNew) => {
         const { subtasks, ...restOfTaskData } = taskData;
