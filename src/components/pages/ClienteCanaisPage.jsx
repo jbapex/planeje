@@ -664,18 +664,16 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                         API uazapi
                       </CardDescription>
                     </div>
-                    {configs.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive shrink-0"
-                        onClick={async () => {
-                          if (window.confirm(`Remover o canal "${canalLabel}"?`)) await deleteConfig(cfg.id);
-                        }}
-                      >
-                        Remover
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive shrink-0"
+                      onClick={async () => {
+                        if (window.confirm(`Remover o canal "${canalLabel}"? Esta ação não pode ser desfeita.`)) await deleteConfig(cfg.id);
+                      }}
+                    >
+                      Remover
+                    </Button>
                   </CardHeader>
                   <CardContent className="space-y-3 flex-1 flex flex-col min-h-0">
                     {!isConnected && (

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
   const { settings } = useClienteCrmSettings();
@@ -29,6 +30,7 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
         valor: lead.valor ?? '',
         observacoes: lead.observacoes || '',
         responsavel_id: lead.responsavel_id || '',
+        etiquetas: Array.isArray(lead.etiquetas) ? [...lead.etiquetas] : [],
       });
     }
   }, [lead, isOpen]);
@@ -61,6 +63,7 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
       responsavel_id: formData.responsavel_id || null,
       valor: parseFloat(formData.valor) || 0,
       observacoes: formData.observacoes,
+      etiquetas: Array.isArray(formData.etiquetas) ? formData.etiquetas : [],
     });
     onClose();
   };
@@ -71,6 +74,17 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
   const subOrigins = (formData.origem && settings?.sub_origins?.[formData.origem]) || [];
   const statuses = settings?.statuses || [];
   const sellers = settings?.sellers || [];
+  const tagDefs = settings?.tags || [];
+  const selectedEtiquetas = Array.isArray(formData.etiquetas) ? formData.etiquetas : [];
+  const toggleEtiqueta = (tagName) => {
+    const name = (tagName || '').trim().replace(/\s+/g, '_');
+    setFormData((prev) => {
+      const current = Array.isArray(prev.etiquetas) ? prev.etiquetas : [];
+      const has = current.some((n) => n === name || (n || '').replace(/_/g, ' ') === (tagName || '').replace(/_/g, ' '));
+      const next = has ? current.filter((n) => n !== name && (n || '').replace(/_/g, ' ') !== (tagName || '').replace(/_/g, ' ')) : [...current, name];
+      return { ...prev, etiquetas: next };
+    });
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -188,6 +202,23 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
             <Label>Valor (R$)</Label>
             <Input type="number" step="0.01" value={formData.valor ?? ''} onChange={(e) => handleValueChange('valor', e.target.value)} />
           </div>
+          {tagDefs.length > 0 && (
+            <div>
+              <Label>Etiquetas</Label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {tagDefs.map((t) => {
+                  const name = (t.name || '').replace(/_/g, ' ');
+                  const isChecked = selectedEtiquetas.some((n) => n === t.name || (n || '').replace(/_/g, ' ') === name);
+                  return (
+                    <label key={t.name} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox checked={isChecked} onCheckedChange={() => toggleEtiqueta(t.name)} />
+                      <span className="text-sm" style={{ color: t.color || '#6b7280' }}>{name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div>
             <Label>Observações</Label>
             <Textarea value={formData.observacoes || ''} onChange={(e) => handleValueChange('observacoes', e.target.value)} rows={3} />

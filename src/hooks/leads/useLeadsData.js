@@ -65,6 +65,7 @@ export const useLeadsData = () => {
 
         if (filters.status && filters.status !== 'todos') query = query.eq('status', filters.status);
         if (filters.vendedor && filters.vendedor !== 'todos') query = query.eq('vendedor', filters.vendedor);
+        if (filters.origem && filters.origem !== 'todos') query = query.eq('origem', filters.origem);
         if (filters.product) {
           let productQuery = supabase.from('crm_produtos').select('id').ilike('name', `%${filters.product}%`);
           if (isClient) productQuery = productQuery.eq('cliente_id', profile.cliente_id);

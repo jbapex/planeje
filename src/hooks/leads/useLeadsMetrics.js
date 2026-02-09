@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { parseISO, startOfMonth, endOfMonth, isWithinInterval, startOfWeek, endOfWeek, getWeek, getYear } from 'date-fns';
+import { parseISO, startOfMonth, endOfMonth, isWithinInterval, startOfWeek, endOfWeek, getWeek, getYear, eachDayOfInterval, startOfDay, format } from 'date-fns';
 import { useClienteCrmSettings } from '@/contexts/ClienteCrmSettingsContext';
 
 export default function useLeadsMetrics(leads, filters, extra = {}) {
@@ -63,11 +63,40 @@ export default function useLeadsMetrics(leads, filters, extra = {}) {
 
     const ganhoStageIds = new Set(stages.filter((s) => s.tipo === 'ganho').map((s) => s.id));
     const perdidoStageIds = new Set(stages.filter((s) => s.tipo === 'perdido').map((s) => s.id));
+    const concluidoStageIds = new Set([...ganhoStageIds, ...perdidoStageIds]);
     const funnelGanhos = funnelEvents.filter((e) => e.stage_nova_id && ganhoStageIds.has(e.stage_nova_id)).length;
     const funnelPerdas = funnelEvents.filter((e) => e.stage_nova_id && perdidoStageIds.has(e.stage_nova_id)).length;
     const funnelMotivosPerda = funnelEvents
       .filter((e) => e.stage_nova_id && perdidoStageIds.has(e.stage_nova_id) && e.motivo_ganho_perdido)
       .map((e) => e.motivo_ganho_perdido);
+
+    const startDay = startOfDay(startDate);
+    const endDay = startOfDay(endDate);
+    const days = eachDayOfInterval({ start: startDay, end: endDay });
+    const dailyData = days.map((day) => {
+      const dayStr = format(day, 'yyyy-MM-dd');
+      const novos = (leads || []).filter((lead) => {
+        if (!lead.data_entrada) return false;
+        try {
+          const d = typeof lead.data_entrada === 'string' && lead.data_entrada.includes('T')
+            ? parseISO(lead.data_entrada)
+            : new Date(lead.data_entrada);
+          return format(startOfDay(d), 'yyyy-MM-dd') === dayStr;
+        } catch {
+          return false;
+        }
+      }).length;
+      const concluidos = funnelEvents.filter((e) => {
+        if (!e.realizado_em || !e.stage_nova_id || !concluidoStageIds.has(e.stage_nova_id)) return false;
+        try {
+          const d = typeof e.realizado_em === 'string' ? parseISO(e.realizado_em) : new Date(e.realizado_em);
+          return format(startOfDay(d), 'yyyy-MM-dd') === dayStr;
+        } catch {
+          return false;
+        }
+      }).length;
+      return { dateKey: dayStr, date: day, novos, concluidos };
+    });
 
     return {
       totalLeads,
@@ -81,6 +110,7 @@ export default function useLeadsMetrics(leads, filters, extra = {}) {
       funnelGanhos,
       funnelPerdas,
       funnelMotivosPerda,
+      dailyData,
     };
   }, [leads, filters?.dateRange, settings?.noshow_status, funnelEvents, stages]);
 

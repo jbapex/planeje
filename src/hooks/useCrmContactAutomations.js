@@ -53,13 +53,14 @@ export function useCrmContactAutomations() {
   }, [fetchAutomations]);
 
   const create = useCallback(
-    async ({ pipeline_id, stage_id, is_active = true }) => {
+    async ({ pipeline_id, stage_id, is_active = true, trigger_type = 'new_contact' }) => {
       if (!clienteId) return null;
+      const triggerLabel = trigger_type === 'new_contact_meta_ads' ? 'Novo contato Meta Ads' : 'Novo contato';
       const { data, error } = await supabase
         .from('crm_contact_automations')
         .insert({
           cliente_id: clienteId,
-          trigger_type: 'new_contact',
+          trigger_type: trigger_type || 'new_contact',
           pipeline_id,
           stage_id,
           is_active,
@@ -72,7 +73,7 @@ export function useCrmContactAutomations() {
           toast({
             variant: 'destructive',
             title: 'Já existe uma automação ativa',
-            description: 'Desative a atual ou edite-a. Só é permitida uma regra ativa por "Novo contato".',
+            description: `Desative a atual ou edite-a. Só é permitida uma regra ativa por "${triggerLabel}".`,
           });
         } else {
           toast({ variant: 'destructive', title: 'Erro ao criar automação', description: error.message });
@@ -80,7 +81,7 @@ export function useCrmContactAutomations() {
         return null;
       }
       setAutomations((prev) => [data, ...prev]);
-      toast({ title: 'Automação criada', description: 'Novos contatos serão exportados para o funil escolhido.' });
+      toast({ title: 'Automação criada', description: 'Os contatos serão exportados para o funil escolhido.' });
       return data;
     },
     [clienteId, toast]

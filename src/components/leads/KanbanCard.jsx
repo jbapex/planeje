@@ -11,7 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
+import { useClienteCrmSettings } from '@/contexts/ClienteCrmSettingsContext';
 
 const KanbanCard = ({
   lead,
@@ -27,6 +29,10 @@ const KanbanCard = ({
 }) => {
   const [moving, setMoving] = useState(false);
   const { toast } = useToast();
+  const { settings } = useClienteCrmSettings();
+  const tagDefs = settings?.tags || [];
+  const leadTags = Array.isArray(lead.etiquetas) ? lead.etiquetas : [];
+  const isFromMeta = lead?.origem === 'Meta Ads' || (lead?.tracking_data && typeof lead.tracking_data === 'object' && (lead.tracking_data.meta_ad_details || (lead.utm_source && /facebook|meta|fb/i.test(String(lead.utm_source))) || lead.utm_campaign));
 
   const handleDragStart = (e) => {
     e.stopPropagation();
@@ -70,6 +76,7 @@ const KanbanCard = ({
       className={cn(
         'cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow text-sm',
         isDragging && 'opacity-50',
+        isFromMeta && 'bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/70 dark:border-violet-800/50',
         className
       )}
       onClick={() => onShowLeadDetail?.(lead)}
@@ -83,11 +90,16 @@ const KanbanCard = ({
         </Avatar>
         <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
           <p className="font-medium truncate text-xs">{lead.nome}</p>
-          {lead.data_entrada && (
-            <span className="text-[10px] text-muted-foreground shrink-0">
-              {formatDate(lead.data_entrada)}
-            </span>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {isFromMeta && (
+              <img src="/logos/meta%20ads.webp" alt="Meta Ads" className="h-4 w-4 object-contain" title="Lead do Meta Ads" />
+            )}
+            {lead.data_entrada && (
+              <span className="text-[10px] text-muted-foreground">
+                {formatDate(lead.data_entrada)}
+              </span>
+            )}
+          </div>
         </div>
         {canMove && (
           <DropdownMenu>
@@ -107,6 +119,19 @@ const KanbanCard = ({
         )}
       </CardHeader>
       <CardContent className="p-2 pt-0 space-y-0.5 text-xs text-muted-foreground">
+        {leadTags.length > 0 && (
+          <div className="flex flex-wrap gap-1 pb-1">
+            {leadTags.map((tagName) => {
+              const def = tagDefs.find((t) => (t.name || '').replace(/_/g, ' ') === (tagName || '').replace(/_/g, ' ') || t.name === tagName);
+              const color = def?.color || '#6b7280';
+              return (
+                <Badge key={tagName} variant="secondary" className="text-[9px] px-1 py-0" style={{ backgroundColor: `${color}20`, color, borderColor: color }}>
+                  {(tagName || '').replace(/_/g, ' ')}
+                </Badge>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-center gap-1.5 justify-between min-w-0">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <Phone className="h-3 w-3 shrink-0" />

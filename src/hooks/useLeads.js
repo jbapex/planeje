@@ -20,6 +20,7 @@ export const useLeads = () => {
     product: '',
     month: 'all',
     dateRange: undefined,
+    origem: 'todos',
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -54,14 +55,14 @@ export const useLeads = () => {
 
   useEffect(() => {
     if (profile !== undefined) fetchLeads(filters, debouncedSearchTerm, true, currentPipelineId);
-  }, [profile?.cliente_id, profile?.role, filters.month, filters.dateRange, filters.status, filters.vendedor, filters.product, currentPipelineId, debouncedSearchTerm]);
+  }, [profile?.cliente_id, profile?.role, filters.month, filters.dateRange, filters.status, filters.vendedor, filters.product, filters.origem, currentPipelineId, debouncedSearchTerm]);
 
   const loadMoreLeads = useCallback(() => {
     fetchLeads(filters, searchTerm, false, currentPipelineId);
   }, [fetchLeads, filters, searchTerm, currentPipelineId]);
 
   const { filteredLeads } = useLeadsFiltering(leads);
-  const metrics = useLeadsMetrics(leads, { dateRange: null }, { funnelEvents, stages });
+  const metrics = useLeadsMetrics(leads, { dateRange: filters.dateRange }, { funnelEvents, stages });
   const actions = useLeadsActions(setLeads, refetchLeads, {
     pipelineId: pipeline?.id ?? null,
     firstStageId: stages?.[0]?.id ?? null,

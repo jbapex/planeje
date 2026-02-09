@@ -6,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import StatusEditor from './StatusEditor';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useClienteCrmSettings } from '@/contexts/ClienteCrmSettingsContext';
 
 const formatDate = (dateString) => {
   if (!dateString) return '-';
@@ -23,11 +25,21 @@ const LeadCard = ({
   getStatusIcon,
   getStatusText,
   onUpdateLead,
+  stages,
+  moveLeadToStage,
 }) => {
+  const { settings } = useClienteCrmSettings();
+  const useStages = Array.isArray(stages) && stages.length > 0;
   const StatusIcon = getStatusIcon ? getStatusIcon(lead.status) : null;
+  const tagDefs = settings?.tags || [];
+  const leadTags = Array.isArray(lead.etiquetas) ? lead.etiquetas : [];
 
-  const handleStatusChange = (newStatus) => {
-    onUpdateLead?.(lead.id, { ...lead, status: newStatus });
+  const handleStatusChange = (newValue) => {
+    if (useStages && moveLeadToStage) {
+      moveLeadToStage(lead, newValue);
+    } else {
+      onUpdateLead?.(lead.id, { ...lead, status: newValue });
+    }
   };
 
   return (
@@ -58,8 +70,26 @@ const LeadCard = ({
           <p className="text-sm">{lead.agendamento ? `Ag: ${formatDate(lead.agendamento)}` : 'Sem agendamento'}</p>
           <div className="flex items-center gap-2">
             {StatusIcon && <StatusIcon className="h-4 w-4 shrink-0" />}
-            <StatusEditor value={lead.status} onChange={(v) => handleStatusChange(v)} className="flex-1 min-w-0" />
+            <StatusEditor
+              value={useStages ? lead.stage_id : lead.status}
+              onChange={handleStatusChange}
+              className="flex-1 min-w-0"
+              stages={stages}
+            />
           </div>
+          {leadTags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {leadTags.map((tagName) => {
+                const def = tagDefs.find((t) => (t.name || '').replace(/_/g, ' ') === (tagName || '').replace(/_/g, ' ') || t.name === tagName);
+                const color = def?.color || '#6b7280';
+                return (
+                  <Badge key={tagName} variant="secondary" className="text-[10px] px-1.5 py-0" style={{ backgroundColor: `${color}20`, color, borderColor: color }}>
+                    {(tagName || '').replace(/_/g, ' ')}
+                  </Badge>
+                );
+              })}
+            </div>
+          )}
           <div className="flex items-center gap-1 pt-2">
             <Button variant="ghost" size="sm" className="flex-1" onClick={() => onShowDetail?.(lead)}>
               <Eye className="h-4 w-4 mr-1" />

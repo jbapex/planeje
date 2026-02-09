@@ -142,10 +142,25 @@ serve(async (req) => {
   let profilePicUrl: string | null = typeof body.profile_pic_url === 'string' && body.profile_pic_url.trim() ? body.profile_pic_url.trim() : null;
   const contactId = typeof body.contact_id === 'string' && body.contact_id.trim() ? body.contact_id.trim() : null;
 
+  const bodyOriginSource = typeof body.origin_source === 'string' && body.origin_source.trim() ? body.origin_source.trim() : null;
+  let origemFromContact: string | null = bodyOriginSource === 'meta_ads' ? 'Meta Ads' : null;
+  let utmSource: string | null = null;
+  let utmMedium: string | null = null;
+  let utmCampaign: string | null = null;
+  let utmContent: string | null = null;
+  let utmTerm: string | null = null;
+  let trackingData: Record<string, unknown> | null = null;
+  if (typeof body.utm_source === 'string' && body.utm_source.trim()) utmSource = body.utm_source.trim();
+  if (typeof body.utm_medium === 'string' && body.utm_medium.trim()) utmMedium = body.utm_medium.trim();
+  if (typeof body.utm_campaign === 'string' && body.utm_campaign.trim()) utmCampaign = body.utm_campaign.trim();
+  if (typeof body.utm_content === 'string' && body.utm_content.trim()) utmContent = body.utm_content.trim();
+  if (typeof body.utm_term === 'string' && body.utm_term.trim()) utmTerm = body.utm_term.trim();
+  if (body.tracking_data && typeof body.tracking_data === 'object') trackingData = body.tracking_data as Record<string, unknown>;
+
   if (contactId) {
     const { data: contact, error: contactErr } = await supabase
       .from('cliente_whatsapp_contact')
-      .select('from_jid, phone, sender_name, profile_pic_url, cliente_id')
+      .select('from_jid, phone, sender_name, profile_pic_url, cliente_id, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, tracking_data')
       .eq('id', contactId)
       .eq('cliente_id', clienteId)
       .maybeSingle();
@@ -159,14 +174,28 @@ serve(async (req) => {
     phone = contact.phone ?? (fromJid ? extractPhoneFromJid(fromJid) : null) ?? null;
     if (contact.sender_name) senderName = contact.sender_name;
     if (contact.profile_pic_url) profilePicUrl = contact.profile_pic_url;
-  } else if (fromJid && !profilePicUrl) {
+    if (contact.origin_source === 'meta_ads') origemFromContact = 'Meta Ads';
+    if (!utmSource && contact.utm_source) utmSource = contact.utm_source;
+    if (!utmMedium && contact.utm_medium) utmMedium = contact.utm_medium;
+    if (!utmCampaign && contact.utm_campaign) utmCampaign = contact.utm_campaign;
+    if (!utmContent && contact.utm_content) utmContent = contact.utm_content;
+    if (!utmTerm && contact.utm_term) utmTerm = contact.utm_term;
+    if (!trackingData && contact.tracking_data && typeof contact.tracking_data === 'object') trackingData = contact.tracking_data as Record<string, unknown>;
+  } else if (fromJid) {
     const { data: contactByJid } = await supabase
       .from('cliente_whatsapp_contact')
-      .select('profile_pic_url')
+      .select('profile_pic_url, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, tracking_data')
       .eq('cliente_id', clienteId)
       .eq('from_jid', fromJid)
       .maybeSingle();
     if (contactByJid?.profile_pic_url) profilePicUrl = contactByJid.profile_pic_url;
+    if (!origemFromContact && contactByJid?.origin_source === 'meta_ads') origemFromContact = 'Meta Ads';
+    if (!utmSource && contactByJid?.utm_source) utmSource = contactByJid.utm_source;
+    if (!utmMedium && contactByJid?.utm_medium) utmMedium = contactByJid.utm_medium;
+    if (!utmCampaign && contactByJid?.utm_campaign) utmCampaign = contactByJid.utm_campaign;
+    if (!utmContent && contactByJid?.utm_content) utmContent = contactByJid.utm_content;
+    if (!utmTerm && contactByJid?.utm_term) utmTerm = contactByJid.utm_term;
+    if (!trackingData && contactByJid?.tracking_data && typeof contactByJid.tracking_data === 'object') trackingData = contactByJid.tracking_data as Record<string, unknown>;
   }
 
   const phoneNormalized = phone ? normalizePhone(phone) : (fromJid ? normalizePhone(extractPhoneFromJid(fromJid)) : '');
@@ -200,22 +229,25 @@ serve(async (req) => {
     pipelineId = manualPipelineId;
     stageId = manualStageId;
   } else {
-    const { data: automation } = await supabase
+    const isMetaAds = origemFromContact === 'Meta Ads';
+    const { data: automations } = await supabase
       .from('crm_contact_automations')
-      .select('id, pipeline_id, stage_id')
+      .select('id, pipeline_id, stage_id, trigger_type')
       .eq('cliente_id', clienteId)
-      .eq('trigger_type', 'new_contact')
-      .eq('is_active', true)
-      .maybeSingle();
+      .eq('is_active', true);
 
-    if (!automation) {
+    const metaAdsRule = (automations || []).find((a) => a.trigger_type === 'new_contact_meta_ads');
+    const defaultRule = (automations || []).find((a) => a.trigger_type === 'new_contact');
+    const chosen = isMetaAds && metaAdsRule ? metaAdsRule : defaultRule;
+
+    if (!chosen) {
       return new Response(JSON.stringify({ created: false, reason: 'no_automation' }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    pipelineId = automation.pipeline_id;
-    stageId = automation.stage_id;
+    pipelineId = chosen.pipeline_id;
+    stageId = chosen.stage_id;
   }
 
   const { data: existingLeads } = await supabase
@@ -242,7 +274,7 @@ serve(async (req) => {
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
 
-  const leadRow = {
+  const leadRow: Record<string, unknown> = {
     cliente_id: clienteId,
     nome: senderName || phoneNormalized || 'Contato WhatsApp',
     whatsapp: phoneNormalized,
@@ -257,6 +289,13 @@ serve(async (req) => {
     created_at: now,
     updated_at: now,
   };
+  if (origemFromContact) leadRow.origem = origemFromContact;
+  if (utmSource) leadRow.utm_source = utmSource;
+  if (utmMedium) leadRow.utm_medium = utmMedium;
+  if (utmCampaign) leadRow.utm_campaign = utmCampaign;
+  if (utmContent) leadRow.utm_content = utmContent;
+  if (utmTerm) leadRow.utm_term = utmTerm;
+  if (trackingData && Object.keys(trackingData).length > 0) leadRow.tracking_data = trackingData;
 
   const { data: inserted, error: insertError } = await supabase
     .from('leads')

@@ -28,6 +28,7 @@ const defaultSettings = {
   custom_fields_settings: {
     date_field: { is_active: true, label: 'Data de Venda' },
   },
+  tags: [],
 };
 
 export const getStatusText = (status) => {
@@ -67,6 +68,7 @@ export const ClienteCrmSettingsProvider = ({ children, clienteIdOverride = null 
         const custom_fields_settings = data.custom_fields_settings && typeof data.custom_fields_settings === 'object'
           ? data.custom_fields_settings
           : defaultSettings.custom_fields_settings;
+        const tags = Array.isArray(data.tags) ? data.tags : defaultSettings.tags;
         setSettings({
           ...defaultSettings,
           ...data,
@@ -75,6 +77,7 @@ export const ClienteCrmSettingsProvider = ({ children, clienteIdOverride = null 
           sub_origins,
           sellers,
           custom_fields_settings: { ...defaultSettings.custom_fields_settings, ...custom_fields_settings },
+          tags,
         });
       } else {
         setSettings({ ...defaultSettings });

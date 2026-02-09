@@ -44,6 +44,7 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
       updated_at: new Date().toISOString(),
       profile_pic_url: leadData.profile_pic_url || null,
       responsavel_id: leadData.responsavel_id || null,
+      etiquetas: Array.isArray(leadData.etiquetas) ? leadData.etiquetas : [],
     };
     if (pipelineId) newLeadData.pipeline_id = pipelineId;
     if (firstStageId) {

@@ -6,7 +6,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { useCrmPipeline } from '@/hooks/useCrmPipeline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -34,8 +33,8 @@ export default function CrmSettingsFunil() {
   const { settings, loading, saving, updateSettings, fetchSettings } = useClienteCrmSettings();
   const { toast } = useToast();
   const [statuses, setStatuses] = useState([]);
+  const [tags, setTags] = useState([]);
   const [origins, setOrigins] = useState([]);
-  const [noshow_status, setNoshow_status] = useState('nao_compareceu');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('todos');
 
@@ -61,8 +60,8 @@ export default function CrmSettingsFunil() {
   useEffect(() => {
     if (settings) {
       setStatuses(Array.isArray(settings.statuses) ? settings.statuses.map((s) => ({ ...s })) : []);
+      setTags(Array.isArray(settings.tags) ? settings.tags.map((t) => ({ ...t })) : []);
       setOrigins(Array.isArray(settings.origins) ? [...settings.origins] : []);
-      setNoshow_status(settings.noshow_status || 'nao_compareceu');
     }
   }, [settings]);
 
@@ -83,19 +82,25 @@ export default function CrmSettingsFunil() {
   const handleStatusChange = (i, field, value) => {
     setStatuses((p) => p.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)));
   };
+  const handleAddTag = () => setTags((p) => [...p, { name: '', color: '#6b7280' }]);
+  const handleRemoveTag = (i) => setTags((p) => p.filter((_, idx) => idx !== i));
+  const handleTagChange = (i, field, value) => {
+    setTags((p) => p.map((t, idx) => (idx === i ? { ...t, [field]: value } : t)));
+  };
   const handleAddOrigin = () => setOrigins((p) => [...p, '']);
   const handleRemoveOrigin = (i) => setOrigins((p) => p.filter((_, idx) => idx !== i));
   const handleOriginChange = (i, value) => setOrigins((p) => p.map((o, idx) => (idx === i ? value : o)));
 
   const handleSave = async () => {
     const validStatuses = statuses.filter((s) => s.name?.trim()).map((s) => ({ name: (s.name || '').trim().replace(/\s+/g, '_'), color: s.color || '#6b7280' }));
+    const validTags = tags.filter((t) => t.name?.trim()).map((t) => ({ name: (t.name || '').trim().replace(/\s+/g, '_'), color: t.color || '#6b7280' }));
     const validOrigins = origins.map((o) => (o || '').trim()).filter(Boolean);
     if (validStatuses.length === 0) {
-      toast({ variant: 'destructive', title: 'Status obrigatório', description: 'Adicione pelo menos um status.' });
+      toast({ variant: 'destructive', title: 'Status obrigatório', description: 'Adicione pelo menos um status no card Status padrão.' });
       return;
     }
     const ok = await updateSettings(
-      { ...settings, statuses: validStatuses, origins: validOrigins, noshow_status },
+      { ...settings, statuses: validStatuses, tags: validTags, origins: validOrigins },
       true
     );
     if (ok) await fetchSettings();
@@ -339,7 +344,7 @@ export default function CrmSettingsFunil() {
             <Info className="h-4 w-4 text-amber-600 dark:text-amber-500 shrink-0" />
             <AlertTitle>Alternativa: criar a partir dos status</AlertTitle>
             <AlertDescription className="space-y-2">
-              <p>Preencha os status na seção &quot;Status do funil&quot; abaixo e use o botão para criar um funil com essas etapas.</p>
+              <p>Preencha os status no card &quot;Status padrão&quot; abaixo e use o botão para criar um funil com essas etapas.</p>
               <Button
                 type="button"
                 size="sm"
@@ -398,34 +403,34 @@ export default function CrmSettingsFunil() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         <Card className={cardClass}>
           <CardHeader className={headerClass}>
-            <CardTitle className={titleClass}>Status do funil</CardTitle>
+            <CardTitle className={titleClass}>Etiquetas</CardTitle>
             <CardDescription className={descClass}>
-              Status que seus leads podem ter (ex: agendado, compareceu, vendeu). O Kanban usa as etapas do pipeline em uso.
+              Rótulos opcionais para classificar leads (ex: quente, prioritário, meta-ads). Você pode atribuir várias etiquetas a cada lead.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 p-3 sm:p-4 pt-0">
-            {statuses.map((s, i) => (
+            {tags.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
                 <Input
-                  placeholder="Nome do status (ex: agendado)"
-                  value={(s.name || '').replace(/_/g, ' ')}
-                  onChange={(e) => handleStatusChange(i, 'name', e.target.value.replace(/\s+/g, '_'))}
+                  placeholder="Nome da etiqueta (ex: quente)"
+                  value={(t.name || '').replace(/_/g, ' ')}
+                  onChange={(e) => handleTagChange(i, 'name', e.target.value.replace(/\s+/g, '_'))}
                   className="flex-1"
                 />
                 <input
                   type="color"
-                  value={s.color || '#6b7280'}
-                  onChange={(e) => handleStatusChange(i, 'color', e.target.value)}
+                  value={t.color || '#6b7280'}
+                  onChange={(e) => handleTagChange(i, 'color', e.target.value)}
                   className="h-10 w-14 rounded border cursor-pointer"
                 />
-                <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveStatus(i)} title="Remover">
+                <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveTag(i)} title="Remover">
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               </div>
             ))}
-            <Button type="button" variant="outline" size="sm" onClick={handleAddStatus}>
+            <Button type="button" variant="outline" size="sm" onClick={handleAddTag}>
               <Plus className="h-4 w-4 mr-2" />
-              Adicionar status
+              Adicionar etiqueta
             </Button>
           </CardContent>
         </Card>
@@ -453,22 +458,35 @@ export default function CrmSettingsFunil() {
 
         <Card className={cardClass}>
           <CardHeader className={headerClass}>
-            <CardTitle className={titleClass}>Status &quot;não compareceu&quot;</CardTitle>
-            <CardDescription className={descClass}>Status que representa lead que não compareceu (usado em relatórios).</CardDescription>
+            <CardTitle className={titleClass}>Status padrão (quando não há funil)</CardTitle>
+            <CardDescription className={descClass}>
+              Status que seus leads podem ter quando não há pipeline em uso (ex: agendado, compareceu, vendeu). O Kanban usa as etapas do funil quando disponível.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="p-3 sm:p-4 pt-0">
-            <Label className="text-xs">Status</Label>
-            <select
-              value={noshow_status}
-              onChange={(e) => setNoshow_status(e.target.value)}
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {statuses.filter((s) => s.name).map((s) => (
-                <option key={s.name} value={s.name}>
-                  {(s.name || '').replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
+          <CardContent className="space-y-3 p-3 sm:p-4 pt-0">
+            {statuses.map((s, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  placeholder="Nome do status (ex: agendado)"
+                  value={(s.name || '').replace(/_/g, ' ')}
+                  onChange={(e) => handleStatusChange(i, 'name', e.target.value.replace(/\s+/g, '_'))}
+                  className="flex-1"
+                />
+                <input
+                  type="color"
+                  value={s.color || '#6b7280'}
+                  onChange={(e) => handleStatusChange(i, 'color', e.target.value)}
+                  className="h-10 w-14 rounded border cursor-pointer"
+                />
+                <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveStatus(i)} title="Remover">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={handleAddStatus}>
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar status
+            </Button>
           </CardContent>
         </Card>
       </div>

@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 
 const TRIGGER_LABELS = {
   new_contact: 'Quando um novo contato chegar',
+  new_contact_meta_ads: 'Quando um novo contato com rastreio Meta Ads chegar',
 };
 
 export default function AutomacoesPage() {
@@ -39,6 +40,7 @@ export default function AutomacoesPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [formTriggerType, setFormTriggerType] = useState('new_contact');
   const [formPipelineId, setFormPipelineId] = useState('');
   const [formStageId, setFormStageId] = useState('');
   const [formActive, setFormActive] = useState(true);
@@ -71,6 +73,7 @@ export default function AutomacoesPage() {
 
   const openCreate = () => {
     setEditingId(null);
+    setFormTriggerType('new_contact');
     setFormPipelineId(pipelines?.[0]?.id || '');
     setFormStageId('');
     setFormActive(true);
@@ -79,6 +82,7 @@ export default function AutomacoesPage() {
 
   const openEdit = (a) => {
     setEditingId(a.id);
+    setFormTriggerType(a.trigger_type || 'new_contact');
     setFormPipelineId(a.pipeline_id);
     setFormStageId(a.stage_id);
     setFormActive(a.is_active);
@@ -95,7 +99,7 @@ export default function AutomacoesPage() {
       if (editingId) {
         await update(editingId, { pipeline_id: formPipelineId, stage_id: formStageId, is_active: formActive });
       } else {
-        await create({ pipeline_id: formPipelineId, stage_id: formStageId, is_active: formActive });
+        await create({ pipeline_id: formPipelineId, stage_id: formStageId, is_active: formActive, trigger_type: formTriggerType });
       }
       setModalOpen(false);
     } finally {
@@ -116,7 +120,7 @@ export default function AutomacoesPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Automações</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure para que novos contatos (WhatsApp) entrem automaticamente em um funil e etapa.
+          Configure para que novos contatos (WhatsApp) entrem automaticamente em um funil e etapa. Você pode ter uma regra para todos os novos contatos e outra só para contatos com rastreio Meta Ads.
         </p>
       </div>
 
@@ -204,7 +208,23 @@ export default function AutomacoesPage() {
             <DialogTitle>{editingId ? 'Editar automação' : 'Nova automação'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">{TRIGGER_LABELS.new_contact}</p>
+            <div className="space-y-2">
+              <Label>Quando</Label>
+              <Select
+                value={formTriggerType}
+                onValueChange={setFormTriggerType}
+                disabled={!!editingId}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new_contact">{TRIGGER_LABELS.new_contact}</SelectItem>
+                  <SelectItem value="new_contact_meta_ads">{TRIGGER_LABELS.new_contact_meta_ads}</SelectItem>
+                </SelectContent>
+              </Select>
+              {editingId && <p className="text-xs text-muted-foreground">O tipo de gatilho não pode ser alterado na edição.</p>}
+            </div>
             <div className="space-y-2">
               <Label>Funil</Label>
               <Select value={formPipelineId} onValueChange={setFormPipelineId}>

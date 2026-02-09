@@ -24,7 +24,10 @@ const LeadsTable = ({
   onShowLeadDetail,
   onEdit,
   lastLeadElementRef,
+  stages,
+  moveLeadToStage,
 }) => {
+  const useStages = Array.isArray(stages) && stages.length > 0;
   const [editingLeadId, setEditingLeadId] = useState(null);
   const [leadIdToDelete, setLeadIdToDelete] = useState(null);
 
@@ -68,10 +71,11 @@ const LeadsTable = ({
             <TableHead>Email</TableHead>
             <TableHead>Fonte</TableHead>
             <TableHead>Agendamento</TableHead>
-            <TableHead>Status</TableHead>
+            <TableHead>{useStages ? 'Etapa' : 'Status'}</TableHead>
             <TableHead>Próx. ação</TableHead>
             <TableHead>Vendedor</TableHead>
             <TableHead>Produto</TableHead>
+            <TableHead>Etiquetas</TableHead>
             <TableHead>Valor</TableHead>
             <TableHead className="w-[90px]">Ações</TableHead>
           </TableRow>
@@ -84,6 +88,7 @@ const LeadsTable = ({
                 {editingLeadId === lead.id ? (
                   <EditableLeadRow
                     lead={lead}
+                    stages={stages}
                     onSave={(data) => {
                       onUpdateLead(data.id, data);
                       setEditingLeadId(null);
@@ -104,11 +109,13 @@ const LeadsTable = ({
                     getStatusIcon={getStatusIcon}
                     getStatusText={getStatusText}
                     onUpdateLead={onUpdateLead}
+                    stages={stages}
+                    moveLeadToStage={moveLeadToStage}
                   />
                 )}
                 {isLast && lastLeadElementRef && (
                   <TableRow>
-                    <TableCell colSpan={13} ref={lastLeadElementRef} className="p-0 h-1 border-0" aria-hidden />
+                    <TableCell colSpan={14} ref={lastLeadElementRef} className="p-0 h-1 border-0" aria-hidden />
                   </TableRow>
                 )}
               </React.Fragment>

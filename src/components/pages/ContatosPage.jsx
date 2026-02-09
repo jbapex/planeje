@@ -148,7 +148,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
     setLoading(true);
     let q = supabase
       .from('cliente_whatsapp_contact')
-      .select('id, from_jid, phone, sender_name, origin_source, utm_source, utm_campaign, first_seen_at, last_message_at, tracking_data, profile_pic_url')
+      .select('id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url')
       .eq('cliente_id', effectiveClienteId)
       .order('last_message_at', { ascending: false });
     if (originFilter === ORIGIN_FILTER_META) q = q.eq('origin_source', 'meta_ads');
@@ -302,6 +302,13 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
           profile_pic_url: c.profile_pic_url || null,
           pipeline_id: exportPipelineId,
           stage_id: exportStageId,
+          origin_source: c.origin_source || null,
+          utm_source: c.utm_source || null,
+          utm_medium: c.utm_medium || null,
+          utm_campaign: c.utm_campaign || null,
+          utm_content: c.utm_content || null,
+          utm_term: c.utm_term || null,
+          tracking_data: c.tracking_data && typeof c.tracking_data === 'object' ? c.tracking_data : null,
         },
       });
       if (data?.created) created += 1;

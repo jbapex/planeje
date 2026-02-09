@@ -7,9 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { TableCell, TableRow } from '@/components/ui/table';
 
-const EditableLeadRow = ({ lead, onSave, onCancel }) => {
+const EditableLeadRow = ({ lead, onSave, onCancel, stages }) => {
   const { settings } = useClienteCrmSettings();
   const [formData, setFormData] = useState({});
+  const useStages = Array.isArray(stages) && stages.length > 0;
 
   useEffect(() => {
     setFormData({
@@ -28,7 +29,7 @@ const EditableLeadRow = ({ lead, onSave, onCancel }) => {
   };
 
   const handleSave = () => {
-    onSave({
+    const payload = {
       id: formData.id,
       nome: formData.nome,
       whatsapp: formData.whatsapp,
@@ -42,7 +43,12 @@ const EditableLeadRow = ({ lead, onSave, onCancel }) => {
       product_id: formData.product_id || null,
       valor: parseFloat(formData.valor) || 0,
       observacoes: formData.observacoes,
-    });
+    };
+    if (useStages && formData.stage_id) {
+      payload.stage_id = formData.stage_id;
+      payload.stage_entered_at = new Date().toISOString();
+    }
+    onSave(payload);
   };
 
   if (!formData.id) return null;
@@ -107,19 +113,40 @@ const EditableLeadRow = ({ lead, onSave, onCancel }) => {
             <Input name="agendamento" type="datetime-local" value={formData.agendamento || ''} onChange={handleChange} className="mt-1" />
           </div>
           <div>
-            <label className="text-xs font-medium">Status</label>
-            <Select value={formData.status || ''} onValueChange={(v) => setFormData((p) => ({ ...p, status: v }))}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="Status..." />
-              </SelectTrigger>
-              <SelectContent>
-                {statuses.map((s) => (
-                  <SelectItem key={s.name} value={s.name}>
-                    {(s.name || '').replace(/_/g, ' ')}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <label className="text-xs font-medium">{useStages ? 'Etapa do funil' : 'Status'}</label>
+            {useStages ? (
+              <Select
+                value={formData.stage_id || ''}
+                onValueChange={(stageId) => {
+                  const stage = stages.find((s) => s.id === stageId);
+                  setFormData((p) => ({ ...p, stage_id: stageId, status: stage?.nome ?? p.status }));
+                }}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Etapa..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {stages.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {(s.nome || '').replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select value={formData.status || ''} onValueChange={(v) => setFormData((p) => ({ ...p, status: v }))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Status..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {statuses.map((s) => (
+                    <SelectItem key={s.name} value={s.name}>
+                      {(s.name || '').replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium">Vendedor</label>

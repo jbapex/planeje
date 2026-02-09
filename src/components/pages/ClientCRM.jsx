@@ -24,6 +24,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useClienteCrmSettings } from '@/contexts/ClienteCrmSettingsContext';
+import { useCrmRefresh } from '@/contexts/CrmRefreshContext';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -37,7 +38,6 @@ import DuplicateLeadDialog from '@/components/leads/DuplicateLeadDialog';
 
 import AddLeadModal from '@/components/crm/AddLeadModal';
 import EditLeadModal from '@/components/crm/EditLeadModal';
-import LeadDetailModal from '@/components/crm/LeadDetailModal';
 import ImportLeadsModal from '@/components/crm/ImportLeadsModal';
 import CrmSettingsFunil from '@/components/crm/CrmSettingsFunil';
 import CrmSettingsUsuarios from '@/components/crm/CrmSettingsUsuarios';
@@ -107,6 +107,7 @@ const ClientCRMContent = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
+  const { setRefreshFn } = useCrmRefresh() || {};
   const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : '/cliente';
 
   const isAdminWithoutCliente = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
@@ -158,6 +159,9 @@ const ClientCRMContent = () => {
     setCurrentPipelineId,
     refetchPipeline,
   } = leadsHook;
+  useEffect(() => {
+    if (setRefreshFn) setRefreshFn(() => refetchLeads);
+  }, [setRefreshFn, refetchLeads]);
 
   const {
     createPipeline,
@@ -178,7 +182,9 @@ const ClientCRMContent = () => {
   const [viewMode, setViewMode] = useState('kanban');
   const [showAddLead, setShowAddLead] = useState(false);
   const [showImportLeads, setShowImportLeads] = useState(false);
-  const [showLeadDetail, setShowLeadDetail] = useState(null);
+  const handleShowLeadDetail = useCallback((lead) => {
+    navigate(`${location.pathname}/${lead.id}`);
+  }, [navigate, location.pathname]);
   const [duplicateLeadInfo, setDuplicateLeadInfo] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
   const [whatsAppInitialJid, setWhatsAppInitialJid] = useState(null);
@@ -283,7 +289,7 @@ const ClientCRMContent = () => {
           <KanbanBoard
             leads={leads}
             onUpdateLead={onUpdateLead}
-            onShowLeadDetail={setShowLeadDetail}
+            onShowLeadDetail={handleShowLeadDetail}
             stages={stages}
             moveLeadToStage={moveLeadToStage}
             onRequestMoveWithModal={(lead, targetStage) => setMoveModal({ lead, targetStage })}
@@ -309,10 +315,12 @@ const ClientCRMContent = () => {
                 }}
                 onEdit={setEditingLead}
                 onDelete={onDeleteLead}
-                onShowDetail={setShowLeadDetail}
+                onShowDetail={handleShowLeadDetail}
                 getStatusIcon={getStatusIcon}
                 getStatusText={getStatusText}
                 onUpdateLead={onUpdateLead}
+                stages={stages}
+                moveLeadToStage={moveLeadToStage}
               />
             ))}
           </AnimatePresence>
@@ -336,9 +344,11 @@ const ClientCRMContent = () => {
           onDeleteLead={onDeleteLead}
           getStatusIcon={getStatusIcon}
           getStatusText={getStatusText}
-          onShowLeadDetail={setShowLeadDetail}
+          onShowLeadDetail={handleShowLeadDetail}
           onEdit={setEditingLead}
           lastLeadElementRef={lastLeadElementRef}
+          stages={stages}
+          moveLeadToStage={moveLeadToStage}
         />
       </>
     );
@@ -351,232 +361,49 @@ const ClientCRMContent = () => {
         <meta name="description" content="CRM - Leads, visão geral e configurações." />
       </Helmet>
 
-      <div className="flex flex-col flex-1 min-h-0 space-y-3 sm:space-y-4">
+      <div className="flex flex-col flex-1 min-h-0 w-full">
         <Tabs value={activeTab} onValueChange={setActiveTabAndNavigate} className="flex flex-col flex-1 min-h-0 w-full">
-          {/* Cabeçalho largura total, mais alto, espaçamento entre abas */}
-          <header
-            className="flex items-center gap-6 w-full min-w-0 py-4 bg-white dark:bg-card border-b border-gray-200/80 dark:border-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.08)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.35)] px-4 sm:px-6 md:px-8"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          >
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <LayoutGrid className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-base text-foreground hidden sm:inline">CRM</span>
-            </div>
-            <TabsList className="flex flex-1 min-w-0 h-auto p-0 bg-transparent gap-2 flex-wrap justify-center sm:justify-start">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    title="Leads – Funil e Contatos"
-                    className={cn(
-                      'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
-                      (activeTab === CRM_TAB_LEADS || activeTab === CRM_TAB_CONTATOS)
-                        ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
-                    )}
-                  >
-                    <LayoutGrid className="h-4 w-4 shrink-0" />
-                    <span>Leads</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  sideOffset={6}
-                  className="min-w-[11rem] rounded-xl bg-white dark:bg-gray-900 border border-gray-200/90 dark:border-gray-700 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.2),0_10px_20px_-2px_rgba(0,0,0,0.35)] py-2"
-                >
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_LEADS)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_LEADS
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <LayoutGrid className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_LEADS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Funil
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_CONTATOS)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_CONTATOS
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <Users className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_CONTATOS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Contatos
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <TabsTrigger
-                value={CRM_TAB_VISAO_GERAL}
-                className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors"
-                title="Métricas e resumo do funil"
-              >
-                <BarChart3 className="h-4 w-4 shrink-0" />
-                <span className="hidden sm:inline">Visão geral</span>
-              </TabsTrigger>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    title="Ajustes – Funil, Usuários, API e Apicebot"
-                    className={cn(
-                      'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
-                      [CRM_TAB_AJUSTES_FUNIL, CRM_TAB_AJUSTES_USUARIOS, CRM_TAB_API, CRM_TAB_APICEBOT, CRM_TAB_AUTOMACOES].includes(activeTab)
-                        ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
-                    )}
-                  >
-                    <Settings className="h-4 w-4 shrink-0" />
-                    <span className="hidden sm:inline">Ajustes</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  sideOffset={6}
-                  className="min-w-[11rem] rounded-xl bg-white dark:bg-gray-900 border border-gray-200/90 dark:border-gray-700 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.2),0_10px_20px_-2px_rgba(0,0,0,0.35)] py-2"
-                >
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AJUSTES_FUNIL)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_AJUSTES_FUNIL
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <LayoutGrid className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AJUSTES_FUNIL ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Funil
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AJUSTES_USUARIOS)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_AJUSTES_USUARIOS
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <Users className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AJUSTES_USUARIOS ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Usuários
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_API)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_API
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <Link2 className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_API ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    API
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_APICEBOT)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_APICEBOT
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <Bot className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_APICEBOT ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Apicebot
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setActiveTabAndNavigate(CRM_TAB_AUTOMACOES)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent',
-                      activeTab === CRM_TAB_AUTOMACOES
-                        ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                    )}
-                  >
-                    <Zap className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AUTOMACOES ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
-                    Automações
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <TabsTrigger
-                value={CRM_TAB_CANAIS}
-                className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors"
-                title="Conectar WhatsApp"
-              >
-                <Radio className="h-4 w-4 shrink-0" />
-                <span className="hidden sm:inline">Canais</span>
-              </TabsTrigger>
-              {!HIDE_INBOX_AND_WHATSAPP_TABS && (
-                <>
-                  <TabsTrigger value={CRM_TAB_CAIXA_ENTRADA} className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors" title="Caixa de entrada">
-                    <Inbox className="h-4 w-4 shrink-0" />
-                    <span className="hidden sm:inline">Inbox</span>
-                  </TabsTrigger>
-                  <TabsTrigger value={CRM_TAB_WHATSAPP} className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100 data-[state=active]:!bg-slate-200 dark:data-[state=active]:!bg-slate-600 min-w-0 transition-colors" title="Chat WhatsApp">
-                    <MessageSquare className="h-4 w-4 shrink-0" />
-                    <span className="hidden sm:inline">WhatsApp</span>
-                  </TabsTrigger>
-                </>
-              )}
-            </TabsList>
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
-              <Button variant="outline" size="sm" className="h-10 rounded-full text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hidden sm:inline-flex px-4" onClick={() => window.open('/cliente/support', '_self')}>
-                <Star className="h-4 w-4 mr-1.5" />
-                Sugira melhorias
-              </Button>
-              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground" title="Notificações">
-                <Bell className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground" title="Atualizar" onClick={() => refetchLeads()}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground hidden sm:flex" title="Ajuda">
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-            </div>
-          </header>
-
-          <div className="px-2 sm:px-3 md:px-4 flex flex-col flex-1 min-h-0">
+          <div className="flex-1 min-h-0 flex flex-col px-2 sm:px-3 md:px-4">
           <TabsContent value={CRM_TAB_LEADS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-0 py-2.5 -mx-3 sm:-mx-4 md:-mx-8 px-3 sm:px-4 md:px-8 rounded-none bg-slate-100 dark:bg-slate-800/60">
-              <div className="flex flex-1 flex-wrap items-center gap-3 min-w-0">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-                  Funil de vendas
-                </span>
-                <Select
-                  value={currentPipelineId || ''}
-                  onValueChange={(v) => {
-                    if (v === '__new__') {
-                      setShowNewPipelineEditor(true);
-                    } else {
-                      setCurrentPipelineId(v || null);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-[240px] h-9 font-medium bg-background shrink-0">
-                    <SelectValue placeholder="Selecione o funil" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pipelines.map((pip) => (
-                      <SelectItem key={pip.id} value={pip.id}>
-                        {(pip.nome || 'Sem nome').replace(/_/g, ' ')}
+            <div data-leads-toolbar className="flex flex-col sm:flex-row flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-3 mb-0 py-3 -mx-3 sm:-mx-4 md:-mx-8 px-3 sm:px-4 md:px-8 rounded-none bg-slate-100 dark:bg-slate-800/60">
+              {/* Grupo 1: Funil + contexto */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Funil de vendas
+                  </span>
+                  <Select
+                    value={currentPipelineId || ''}
+                    onValueChange={(v) => {
+                      if (v === '__new__') {
+                        setShowNewPipelineEditor(true);
+                      } else {
+                        setCurrentPipelineId(v || null);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-[200px] sm:w-[240px] h-9 font-medium bg-background">
+                      <SelectValue placeholder="Selecione o funil" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pipelines.map((pip) => (
+                        <SelectItem key={pip.id} value={pip.id}>
+                          {(pip.nome || 'Sem nome').replace(/_/g, ' ')}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__new__" className="text-primary font-medium border-t mt-1 pt-2">
+                        + Adicionar novo funil
                       </SelectItem>
-                    ))}
-                    <SelectItem value="__new__" className="text-primary font-medium border-t mt-1 pt-2">
-                      + Adicionar novo funil
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-muted-foreground shrink-0 hidden sm:inline">
+                    </SelectContent>
+                  </Select>
+                </div>
+                <span className="hidden sm:inline text-xs text-muted-foreground/80 border-l border-slate-300 dark:border-slate-600 pl-2 sm:pl-3">
                   Leads ativos
                 </span>
+              </div>
+
+              {/* Grupo 2: Busca e filtros */}
+              <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1 sm:min-w-[200px] sm:max-w-md">
                 <Input
                   placeholder="Buscar por nome, WhatsApp ou email..."
                   value={searchTerm}
@@ -587,7 +414,7 @@ const ClientCRMContent = () => {
                       refetchLeads();
                     }
                   }}
-                  className="max-w-sm h-9 text-xs flex-1 min-w-[160px]"
+                  className="h-9 text-xs flex-1 min-w-[140px]"
                 />
                 <Button
                   type="button"
@@ -597,12 +424,12 @@ const ClientCRMContent = () => {
                   onClick={() => refetchLeads()}
                   title="Buscar"
                 >
-                  <Search className="h-3.5 w-3.5 mr-1.5" />
-                  Buscar
+                  <Search className="h-3.5 w-3.5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Buscar</span>
                 </Button>
                 <Dialog open={filterOpen} onOpenChange={setFilterOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Filtros">
+                    <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Filtros">
                       <Filter className="h-3.5 w-3.5" />
                     </Button>
                   </DialogTrigger>
@@ -663,18 +490,24 @@ const ClientCRMContent = () => {
                         </Popover>
                       </div>
                       <div>
-                        <label className="text-sm font-medium">Status</label>
+                        <label className="text-sm font-medium">{stages?.length ? 'Etapa do funil' : 'Status'}</label>
                         <Select value={filters.status} onValueChange={(v) => setFilters((p) => ({ ...p, status: v }))}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="todos">Todos</SelectItem>
-                            {(settings?.statuses || []).map((s) => (
-                              <SelectItem key={s.name} value={s.name}>
-                                {(s.name || '').replace(/_/g, ' ')}
-                              </SelectItem>
-                            ))}
+                            {stages?.length
+                              ? stages.map((s) => (
+                                  <SelectItem key={s.id} value={s.nome}>
+                                    {(s.nome || '').replace(/_/g, ' ')}
+                                  </SelectItem>
+                                ))
+                              : (settings?.statuses || []).map((s) => (
+                                  <SelectItem key={s.name} value={s.name}>
+                                    {(s.name || '').replace(/_/g, ' ')}
+                                  </SelectItem>
+                                ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -694,18 +527,46 @@ const ClientCRMContent = () => {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div>
+                        <label className="text-sm font-medium">Origem</label>
+                        <Select value={filters.origem ?? 'todos'} onValueChange={(v) => setFilters((p) => ({ ...p, origem: v }))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todas</SelectItem>
+                            <SelectItem value="Meta Ads">Meta Ads</SelectItem>
+                            {(settings?.origins || [])
+                              .filter((o) => o && String(o).toLowerCase() !== 'meta ads')
+                              .map((orig) => (
+                                <SelectItem key={orig} value={orig}>
+                                  {orig}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <DialogFooter>
                       <Button onClick={() => setFilterOpen(false)}>Aplicar</Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
-                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setViewMode('list')} title="Lista">
-                  <List className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="outline" size="icon" className={`h-8 w-8 shrink-0 ${viewMode === 'kanban' ? 'bg-muted' : ''}`} onClick={() => setViewMode('kanban')} title="Kanban">
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                </Button>
+              </div>
+
+              {/* Grupo 3: Filtros, Lista, Kanban e Novo — no canto direito, próximo à borda */}
+              <div className="flex items-center gap-2 shrink-0 ml-auto border-t border-slate-200 dark:border-slate-700 pt-3 sm:pt-0 sm:border-t-0 sm:border-l sm:border-slate-200 dark:border-slate-700 pl-0 sm:pl-3">
+                <span className="text-xs text-muted-foreground mr-1 hidden md:inline">Exibir:</span>
+                <div className="flex rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <Button variant="outline" size="sm" className={`h-9 rounded-none border-0 px-2.5 gap-1.5 ${viewMode === 'list' ? 'bg-muted' : ''}`} onClick={() => setViewMode('list')} title="Lista">
+                    <List className="h-3.5 w-3.5 shrink-0" />
+                    <span className="text-xs font-medium">Lista</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className={`h-9 rounded-none border-0 border-l border-slate-200 dark:border-slate-700 px-2.5 gap-1.5 ${viewMode === 'kanban' ? 'bg-muted' : ''}`} onClick={() => setViewMode('kanban')} title="Kanban">
+                    <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+                    <span className="text-xs font-medium">Kanban</span>
+                  </Button>
+                </div>
                 <Button size="sm" className="h-9 text-sm rounded-lg bg-violet-600 hover:bg-violet-700 text-white shrink-0" onClick={() => setShowAddLead(true)}>
                   <PlusCircle className="h-4 w-4 mr-1.5" />
                   Novo
@@ -744,7 +605,13 @@ const ClientCRMContent = () => {
           </TabsContent>
 
           <TabsContent value={CRM_TAB_VISAO_GERAL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
-            <CrmVisaoGeral metrics={leadsHook.metrics} loading={loading} />
+            <CrmVisaoGeral
+              metrics={leadsHook.metrics}
+              loading={loading}
+              filters={filters}
+              setFilters={setFilters}
+              refetchLeads={refetchLeads}
+            />
           </TabsContent>
 
           <TabsContent value={CRM_TAB_AJUSTES_FUNIL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
@@ -808,27 +675,6 @@ const ClientCRMContent = () => {
           onSave={(data) => {
             onUpdateLead(data.id, data);
             setEditingLead(null);
-          }}
-        />
-      )}
-
-      {showLeadDetail && (
-        <LeadDetailModal
-          lead={showLeadDetail}
-          isOpen={!!showLeadDetail}
-          onClose={() => setShowLeadDetail(null)}
-          onEdit={setEditingLead}
-          pipelines={pipelines}
-          onTransfer={async (lead, { pipeline_id, stage_id, stage_nome }) => {
-            await onUpdateLead(lead.id, {
-              pipeline_id,
-              stage_id,
-              status: stage_nome,
-              status_vida: 'ativo',
-              stage_entered_at: new Date().toISOString(),
-            });
-            refetchLeads();
-            setShowLeadDetail(null);
           }}
         />
       )}

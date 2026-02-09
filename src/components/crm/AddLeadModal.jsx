@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const AddLeadModal = ({ isOpen, onClose, onSave, members = [] }) => {
   const { settings } = useClienteCrmSettings();
@@ -34,6 +35,7 @@ const AddLeadModal = ({ isOpen, onClose, onSave, members = [] }) => {
     valor: '',
     observacoes: '',
     custom_date_field: '',
+    etiquetas: [],
   });
 
   const [formData, setFormData] = useState(getInitialState());
@@ -71,6 +73,7 @@ const AddLeadModal = ({ isOpen, onClose, onSave, members = [] }) => {
       agendamento: formData.agendamento ? new Date(formData.agendamento).toISOString() : null,
       custom_date_field: formData.custom_date_field ? new Date(formData.custom_date_field).toISOString().split('T')[0] : null,
       responsavel_id: formData.responsavel_id || null,
+      etiquetas: Array.isArray(formData.etiquetas) ? formData.etiquetas : [],
     });
   };
 
@@ -80,6 +83,17 @@ const AddLeadModal = ({ isOpen, onClose, onSave, members = [] }) => {
   const origins = settings?.origins || [];
   const statuses = settings?.statuses || [];
   const sellers = settings?.sellers || [];
+  const tagDefs = settings?.tags || [];
+  const selectedEtiquetas = Array.isArray(formData.etiquetas) ? formData.etiquetas : [];
+  const toggleEtiqueta = (tagName) => {
+    const name = (tagName || '').trim().replace(/\s+/g, '_');
+    setFormData((prev) => {
+      const current = Array.isArray(prev.etiquetas) ? prev.etiquetas : [];
+      const has = current.some((n) => n === name || (n || '').replace(/_/g, ' ') === (tagName || '').replace(/_/g, ' '));
+      const next = has ? current.filter((n) => n !== name && (n || '').replace(/_/g, ' ') !== (tagName || '').replace(/_/g, ' ')) : [...current, name];
+      return { ...prev, etiquetas: next };
+    });
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -217,6 +231,23 @@ const AddLeadModal = ({ isOpen, onClose, onSave, members = [] }) => {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {tagDefs.length > 0 && (
+            <div>
+              <Label>Etiquetas</Label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {tagDefs.map((t) => {
+                  const name = (t.name || '').replace(/_/g, ' ');
+                  const isChecked = selectedEtiquetas.some((n) => n === t.name || (n || '').replace(/_/g, ' ') === name);
+                  return (
+                    <label key={t.name} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox checked={isChecked} onCheckedChange={() => toggleEtiqueta(t.name)} />
+                      <span className="text-sm" style={{ color: t.color || '#6b7280' }}>{name}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
           )}
           <div>

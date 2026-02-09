@@ -49,6 +49,8 @@ import GeneralChat from '@/components/pages/GeneralChat';
 import TestImageModels from '@/components/pages/TestImageModels';
 import AILearningDashboard from '@/components/pages/AILearningDashboard';
 import ClientCRM from '@/components/pages/ClientCRM';
+import LeadDetailPage from '@/components/pages/LeadDetailPage';
+import CrmLayout from '@/components/pages/CrmLayout';
     import AiAgentsManager from '@/components/pages/AiAgentsManager';
     import ChatLimitsManager from '@/components/pages/ChatLimitsManager';
     import ChatLauncher from '@/components/pages/ChatLauncher';
@@ -163,8 +165,11 @@ import ClientCRM from '@/components/pages/ClientCRM';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ProtectedClientPageRoute pageKey="campaigns-status"><ClientCampaignsStatus /></ProtectedClientPageRoute>} />
                     <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
-                    <Route path="crm" element={<Navigate to="/cliente/crm/leads" replace />} />
-                    <Route path="crm/:tab" element={<ProtectedClientPageRoute pageKey="crm"><ClientCRM /></ProtectedClientPageRoute>} />
+                    <Route path="crm" element={<ProtectedClientPageRoute pageKey="crm"><CrmLayout /></ProtectedClientPageRoute>}>
+                      <Route index element={<Navigate to="leads" replace />} />
+                      <Route path="leads/:leadId" element={<LeadDetailPage />} />
+                      <Route path=":tab" element={<ClientCRM />} />
+                    </Route>
                   </Route>
                   <Route path="*" element={<Navigate to="/cliente/support" replace />} />
                 </>
@@ -178,8 +183,11 @@ import ClientCRM from '@/components/pages/ClientCRM';
                     <Route path="cadastros" element={<ClientCadastros />} />
                     <Route path="campaigns-status" element={<ClientCampaignsStatus />} />
                     <Route path="pgm-panel" element={<PGMPanel />} />
-                    <Route path="crm" element={<Navigate to="/client-area/crm/leads" replace />} />
-                    <Route path="crm/:tab" element={<ClientCRM />} />
+                    <Route path="crm" element={<CrmLayout />}>
+                      <Route index element={<Navigate to="leads" replace />} />
+                      <Route path="leads/:leadId" element={<LeadDetailPage />} />
+                      <Route path=":tab" element={<ClientCRM />} />
+                    </Route>
                     <Route index element={<Navigate to="/client-area/support" replace />} />
                   </Route>
 
