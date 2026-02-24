@@ -124,6 +124,7 @@ function debugLog(location: string, message: string, data: Record<string, unknow
 
 serve(async (req) => {
   const url = new URL(req.url);
+  console.log('[uazapi-inbox-webhook] WEBHOOK RECEBEU REQUEST', req.method, url.searchParams.get('cliente_id') ? 'cliente_id=OK' : 'cliente_id=FALTA', url.searchParams.get('secret') ? 'secret=OK' : 'secret=FALTA');
   // #region agent log
   debugLog('uazapi-inbox-webhook/index.ts:entry', 'webhook_request', {
     method: req.method,
@@ -256,12 +257,13 @@ serve(async (req) => {
   };
 
   const phoneFromJid = extractPhoneFromJid(from);
-  const phoneRawVal = chat?.owner ?? chat?.phone ?? payload.owner ?? payload.phone ?? payload.number ?? phoneFromJid ?? '';
+  // Prioridade: remetente (phoneFromJid) → phone/number do payload → owner (instância) como fallback
+  const phoneRawVal = phoneFromJid || (chat?.phone ?? payload?.phone ?? payload?.number ?? chat?.owner ?? payload?.owner ?? '');
   const phoneRaw = phoneRawVal != null && typeof phoneRawVal === 'number' ? String(phoneRawVal) : (typeof phoneRawVal === 'string' ? phoneRawVal : '');
   let phoneFinal = (typeof phoneRaw === 'string' && phoneRaw.trim() ? phoneRaw.trim() : '') || phoneFromJid || '';
   if (!phoneFinal && body && typeof body === 'object') {
-    const ownerStr = getStr(body, 'owner') || getStr(payload, 'owner', 'phone', 'number');
-    if (ownerStr) phoneFinal = ownerStr.replace(/\D/g, '').length >= 10 ? ownerStr.replace(/\D/g, '') : ownerStr;
+    const fallbackStr = getStr(body, 'phone', 'number') || getStr(payload, 'phone', 'number') || getStr(body, 'owner') || getStr(payload, 'owner');
+    if (fallbackStr) phoneFinal = fallbackStr.replace(/\D/g, '').length >= 10 ? fallbackStr.replace(/\D/g, '') : fallbackStr;
   }
   let fromJid = (from && from !== 'unknown')
     ? (from.includes('@') ? from : `${extractPhoneFromJid(from) || from}@s.whatsapp.net`)

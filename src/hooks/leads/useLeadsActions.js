@@ -10,6 +10,30 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
   const isClient = profile?.role === 'cliente' && profile?.cliente_id;
   const effectiveClienteId = profile?.cliente_id;
 
+  /** Cria ou atualiza contato em cliente_whatsapp_contact para o lead aparecer na página Contatos. */
+  const upsertContactFromLead = async (lead) => {
+    if (!effectiveClienteId || !lead) return;
+    const phone = normalizePhoneNumber(lead.whatsapp);
+    if (!phone) return;
+    const fromJid = `${phone}@s.whatsapp.net`;
+    const now = new Date().toISOString();
+    const firstSeen = lead.data_entrada ? new Date(lead.data_entrada).toISOString() : now;
+    await supabase.from('cliente_whatsapp_contact').upsert(
+      {
+        cliente_id: effectiveClienteId,
+        from_jid: fromJid,
+        phone,
+        sender_name: (lead.nome && String(lead.nome).trim()) || null,
+        origin_source: 'nao_identificado',
+        first_seen_at: firstSeen,
+        last_message_at: now,
+        updated_at: now,
+        profile_pic_url: lead.profile_pic_url || null,
+      },
+      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'last_message_at', 'updated_at', 'profile_pic_url'] }
+    );
+  };
+
   const checkForDuplicate = async (whatsapp) => {
     if (!effectiveClienteId || !whatsapp) return null;
     const formattedWhatsapp = normalizePhoneNumber(whatsapp);
@@ -64,6 +88,7 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
       if (showToast) toast({ variant: 'destructive', title: 'Erro ao adicionar lead', description: error.message });
       return null;
     }
+    await upsertContactFromLead(data);
     refetchLeads();
     if (showToast) toast({ title: 'Lead adicionado!', description: 'Novo lead cadastrado com sucesso.' });
     return data;
@@ -166,6 +191,9 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
     if (error) {
       toast({ variant: 'destructive', title: 'Erro na importação em massa', description: error.message });
       return { success: false, createdCount: 0, createdLeads: [] };
+    }
+    for (const lead of createdLeads || []) {
+      await upsertContactFromLead(lead);
     }
     toast({
       title: 'Sucesso!',

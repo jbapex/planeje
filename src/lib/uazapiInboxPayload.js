@@ -26,7 +26,8 @@ export function normalizeUazapiPayload(body) {
     get(keyObj, 'remoteJid', 'from') ||
     get(body, 'from') || '';
   const phoneFromJid = extractPhoneFromJid(from);
-  const phone = get(chat, 'owner', 'phone') || get(payload, 'owner', 'phone', 'number') || phoneFromJid || '';
+  // Prioridade: remetente (phoneFromJid) → phone/number do payload → owner (instância) como fallback
+  const phone = phoneFromJid || get(chat, 'phone') || get(payload, 'phone', 'number') || get(chat, 'owner') || get(payload, 'owner') || '';
 
   const bodyText = get(payload, 'body', 'text', 'content') || get(body, 'body', 'text') || '';
   const message = payload?.message ?? body?.message;
