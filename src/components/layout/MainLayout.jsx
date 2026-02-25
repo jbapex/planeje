@@ -67,13 +67,27 @@ const MainLayout = memo(() => {
     };
   }, [location]);
 
+  const isCrmRoute = location.pathname.startsWith('/crm');
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main ref={mainRef} className="flex-1 overflow-y-auto p-6 pb-20 md:pb-6">
-          <Outlet />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {!isCrmRoute && <Header />}
+        <main
+          ref={mainRef}
+          className={
+            isCrmRoute
+              ? 'flex-1 flex flex-col min-h-0 overflow-hidden pb-20 md:pb-6'
+              : 'flex-1 overflow-y-auto p-6 pb-20 md:pb-6'
+          }
+        >
+          {isCrmRoute ? (
+            <div className="flex-1 flex flex-col min-h-0 w-full">
+              <Outlet />
+            </div>
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
       <BottomNav />

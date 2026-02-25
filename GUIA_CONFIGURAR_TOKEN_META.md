@@ -21,17 +21,22 @@ O token do Meta Ads precisa ser configurado no **Supabase Vault** com o nome:
 
 ---
 
-### **PASSO 2: Atribuir Conta de Anúncio ao System User** ⚠️ CRÍTICO
+### **PASSO 2: Atribuir Ativos ao System User** ⚠️ CRÍTICO
 
 **Este é o passo mais importante! Sem isso, o token não funcionará.**
 
 1. Com o System User criado, clique em **Atribuir Ativos**
-2. Na barra lateral esquerda, selecione **Contas de Anúncio**
-3. Na coluna do meio, selecione a conta de anúncio que você quer gerenciar
-4. Na coluna da direita, ative **Controle Total** (ou pelo menos "Gerenciar campanhas")
-5. Clique em **Salvar alterações**
+2. **Contas de Anúncio** (obrigatório para Meta Insights e campanhas):
+   - Na barra lateral esquerda, selecione **Contas de Anúncio**
+   - Na coluna do meio, selecione a conta de anúncio que você quer gerenciar
+   - Na coluna da direita, ative **Controle Total** (ou pelo menos "Gerenciar campanhas")
+3. **Páginas do Facebook** (obrigatório para **Gestão de leads dos anúncios** / Lead Ads):
+   - Na barra lateral esquerda, selecione **Páginas**
+   - Selecione a(s) página(s) cujos formulários de captação de leads você quer importar no sistema
+   - Ative permissão para **Gerenciar anúncios da página** (ou equivalente)
+4. Clique em **Salvar alterações**
 
-**⚠️ ATENÇÃO**: Se você pular este passo, receberá erro "Acesso negado" mesmo com o token correto!
+**⚠️ ATENÇÃO**: Sem atribuir a conta de anúncio, você receberá "Acesso negado" no Meta Insights. Sem atribuir a **Página**, não será possível buscar leads dos formulários da Gestão de leads dos anúncios.
 
 ---
 
@@ -45,6 +50,8 @@ O token do Meta Ads precisa ser configurado no **Supabase Vault** com o nome:
    - ✅ `ads_management`
    - ✅ `business_management`
    - ✅ `read_insights`
+   - ✅ **`leads_retrieval`** — necessária para **importar leads da Gestão de leads dos anúncios** (formulários de Lead Ads). Em produção, o App pode precisar passar pela Revisão do App no Meta para usar essa permissão.
+   - (Opcional) `pages_manage_metadata` — útil se for usar webhooks para receber leads em tempo real.
 4. Clique em **Gerar Token**
 5. **COPIE O TOKEN IMEDIATAMENTE** - ele não será mostrado novamente!
 
@@ -142,11 +149,12 @@ SELECT vault.create_secret(
 
 ### **Problema 4: Token funciona mas não mostra dados**
 
-**Causa**: Permissões insuficientes ou conta de anúncio não atribuída.
+**Causa**: Permissões insuficientes ou ativos não atribuídos.
 
 **Solução**:
-- Verifique se todas as permissões foram marcadas no Passo 3
+- Verifique se todas as permissões foram marcadas no Passo 3 (incluindo `leads_retrieval` se for usar importação de leads)
 - Confirme que a conta de anúncio foi atribuída no Passo 2
+- Se a importação de leads do Facebook não funcionar, confirme que a **Página** foi atribuída ao System User no Passo 2
 
 ---
 
@@ -156,6 +164,8 @@ Antes de considerar a configuração completa, verifique:
 
 - [ ] System User criado no Meta Business Manager
 - [ ] Conta de anúncio atribuída ao System User (com Controle Total)
+- [ ] Página do Facebook atribuída ao System User (para importar leads dos formulários)
+- [ ] Permissão `leads_retrieval` marcada ao gerar o token (para Gestão de leads dos anúncios)
 - [ ] Token gerado com todas as permissões necessárias
 - [ ] Token copiado e salvo
 - [ ] Secret criado no Supabase Vault com nome exato: `META_SYSTEM_USER_ACCESS_TOKEN`

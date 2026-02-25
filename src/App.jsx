@@ -209,6 +209,11 @@ import CrmLayout from '@/components/pages/CrmLayout';
                     <Route path="requests" element={<ProtectedRoute allowedRoles={['superadmin', 'admin']} requiredModule="requests"><Requests /></ProtectedRoute>} />
                     <Route path="social-media" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="social_media"><SocialMedia /></ProtectedRoute>} />
                     <Route path="paid-traffic" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><PaidTraffic /></ProtectedRoute>} />
+                    <Route path="crm" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><CrmLayout /></ProtectedRoute>}>
+                      <Route index element={<Navigate to="leads" replace />} />
+                      <Route path="leads/:leadId" element={<LeadDetailPage />} />
+                      <Route path=":tab" element={<ClientCRM />} />
+                    </Route>
                     <Route path="meta-reporter" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="paid_traffic"><MetaAdsReporter /></ProtectedRoute>} />
                     <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']} requiredModule="reports"><PerformanceReport /></ProtectedRoute>} />
                     <Route path="pgm-panel" element={<ProtectedRoute allowedRoles={['superadmin', 'admin', 'colaborador']}><PGMPanel /></ProtectedRoute>} />

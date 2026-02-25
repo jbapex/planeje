@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { TooltipCustom } from '@/components/ui/tooltip-custom';
 import { Users, TrendingUp, Calendar as CalendarIcon, DollarSign, Loader2, ArrowLeft, Plus, Minus, Info } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -41,30 +42,38 @@ export default function CrmVisaoGeral({ metrics, loading, filters, setFilters, r
   const funnelPerdas = m.funnelPerdas ?? 0;
   const funnelMotivosPerda = m.funnelMotivosPerda ?? [];
   const dailyData = m.dailyData ?? [];
+  const pendentesApos = m.pendentesApos ?? 0;
 
   const concluidosNoPeriodo = funnelGanhos + funnelPerdas;
   const mediaNovosPorDia = daysInPeriod > 0 ? (totalLeads / daysInPeriod).toFixed(1) : '0';
   const mediaConcluidosPorDia = daysInPeriod > 0 ? (concluidosNoPeriodo / daysInPeriod).toFixed(1) : '0';
   const desempenho = totalLeads > 0 ? Math.round((concluidosNoPeriodo / totalLeads) * 100) : 0;
   const maxVal = Math.max(1, ...dailyData.map((d) => Math.max(d.novos, d.concluidos)));
+  const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
 
   return (
-    <div className="flex flex-col gap-6 p-4 pb-8 max-w-6xl mx-auto">
-      <div className="flex flex-wrap items-center gap-4">
-        <h1 className="text-xl font-semibold text-foreground">Relatórios</h1>
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col gap-6 p-4 sm:p-6 pb-8 w-full min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Relatórios</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {hasPeriod
+                ? filters.dateRange.to
+                  ? `${format(periodStart, "dd 'de' MMM", { locale: ptBR })} – ${format(periodEnd, "dd 'de' MMM. yyyy", { locale: ptBR })}`
+                  : format(periodStart, "dd 'de' MMM. yyyy", { locale: ptBR })
+                : 'Selecione o período'}
+            </p>
+          </div>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="h-10 font-normal">
+              <Button variant="outline" className="h-10 font-normal shrink-0">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {hasPeriod
-                  ? filters.dateRange.to
-                    ? `${format(periodStart, 'dd/MM/yyyy', { locale: ptBR })} – ${format(periodEnd, 'dd/MM/yyyy', { locale: ptBR })}`
-                    : format(periodStart, 'dd/MM/yyyy', { locale: ptBR })
-                  : 'Período'}
+                {hasPeriod && filters.dateRange.to
+                  ? `${format(periodStart, 'dd/MM', { locale: ptBR })} – ${format(periodEnd, 'dd/MM', { locale: ptBR })}`
+                  : 'Escolher período'}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
+            <PopoverContent className="w-auto p-0" align="end">
               <Calendar
                 mode="range"
                 locale={ptBR}
@@ -94,78 +103,79 @@ export default function CrmVisaoGeral({ metrics, loading, filters, setFilters, r
             </PopoverContent>
           </Popover>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card className="bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-300 dark:bg-slate-600">
-              <ArrowLeft className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Pendentes antes</p>
-              <p className="text-lg font-bold text-foreground">—</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-200 dark:bg-emerald-800">
-              <Plus className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Novos no período</p>
-              <p className="text-lg font-bold text-foreground">{totalLeads}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-200 dark:bg-blue-800">
-              <Minus className="h-5 w-5 text-blue-700 dark:text-blue-300" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Concluídos no período</p>
-              <p className="text-lg font-bold text-foreground">{concluidosNoPeriodo}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-200 dark:bg-amber-800">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <TooltipCustom content="Requer histórico completo do funil. Em breve." side="bottom" triggerClassName="w-full">
+            <Card className="bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-300 dark:bg-slate-600">
+                  <ArrowLeft className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Pendentes antes</p>
+                  <p className="text-lg font-bold text-foreground tabular-nums">—</p>
+                </div>
+              </CardContent>
+            </Card>
+          </TooltipCustom>
+          <Card className="bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-200 dark:bg-emerald-800">
+                <Plus className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Novos no período</p>
+                <p className="text-lg font-bold text-foreground tabular-nums">{totalLeads}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-200 dark:bg-blue-800">
+                <Minus className="h-5 w-5 text-blue-700 dark:text-blue-300" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Concluídos no período</p>
+                <p className="text-lg font-bold text-foreground tabular-nums">{concluidosNoPeriodo}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-200 dark:bg-amber-800">
               <Users className="h-5 w-5 text-amber-700 dark:text-amber-300" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium text-muted-foreground">Pendentes após</p>
-              <p className="text-lg font-bold text-foreground">—</p>
+              <p className="text-lg font-bold text-foreground tabular-nums">{pendentesApos}</p>
             </div>
           </CardContent>
-        </Card>
-      </div>
+          </Card>
+        </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Capacidade do funil</CardTitle>
           <CardDescription>Novos leads x concluídos (ganhos + perdas) por dia no período selecionado.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1 min-w-0">
-              <div className="flex items-end gap-0.5 h-48 overflow-x-auto pb-2">
+              <div className="flex items-end gap-0.5 h-52 sm:h-56 overflow-x-auto pb-2 custom-scrollbar">
                 {dailyData.length === 0 ? (
-                  <div className="flex items-center justify-center w-full h-full text-sm text-muted-foreground">
+                  <div className="flex items-center justify-center w-full h-full min-h-[200px] text-sm text-muted-foreground">
                     Nenhum dado no período
                   </div>
                 ) : (
                   dailyData.map((d) => (
-                    <div key={d.dateKey} className="flex-1 min-w-[24px] flex flex-col items-center gap-0.5" title={`${format(d.date, 'dd/MM', { locale: ptBR })}: ${d.novos} novos, ${d.concluidos} concluídos`}>
+                    <div key={d.dateKey} className="flex-1 min-w-[20px] max-w-[32px] flex flex-col items-center gap-0.5" title={`${format(d.date, 'dd/MM', { locale: ptBR })}: ${d.novos} novos, ${d.concluidos} concluídos`}>
                       <div
-                        className="w-full bg-blue-500/80 dark:bg-blue-500 rounded-t min-h-[2px] transition-all"
-                        style={{ height: `${(d.novos / maxVal) * 60}px` }}
+                        className="w-full bg-blue-500/90 dark:bg-blue-500 rounded-t min-h-[2px] transition-all"
+                        style={{ height: `${Math.max(2, (d.novos / maxVal) * 80)}px` }}
                       />
                       <div
-                        className="w-full bg-amber-500/80 dark:bg-amber-500 rounded-t min-h-[2px] transition-all"
-                        style={{ height: `${(d.concluidos / maxVal) * 60}px` }}
+                        className="w-full bg-amber-500/90 dark:bg-amber-500 rounded-t min-h-[2px] transition-all"
+                        style={{ height: `${Math.max(2, (d.concluidos / maxVal) * 80)}px` }}
                       />
                       <span className="text-[10px] text-muted-foreground mt-1 truncate w-full text-center">
                         {format(d.date, 'dd/MM', { locale: ptBR })}
@@ -174,7 +184,7 @@ export default function CrmVisaoGeral({ metrics, loading, filters, setFilters, r
                   ))
                 )}
               </div>
-              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+              <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-3 h-3 rounded bg-blue-500" /> Novos
                 </span>
@@ -252,9 +262,7 @@ export default function CrmVisaoGeral({ metrics, loading, filters, setFilters, r
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valorTotal))}
-            </p>
+            <p className="text-2xl font-bold tabular-nums">{formatCurrency(valorTotal)}</p>
           </CardContent>
         </Card>
         <Card>

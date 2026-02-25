@@ -2240,7 +2240,7 @@ Resposta:`;
             try {
                 const categoryInfo = STORY_CATEGORIES.find(c => c.id === category) || STORY_CATEGORIES.find(c => c.id === 'outros');
                 
-                const systemPrompt = `Você é um especialista em estratégia de marketing digital da JB APEX, focado em criar ideias criativas e efetivas para Stories do Instagram.
+                let systemPrompt = `Você é um especialista em estratégia de marketing digital da JB APEX, focado em criar ideias criativas e efetivas para Stories do Instagram.
 
 **INFORMAÇÕES DO CLIENTE:**
 - Empresa: ${client.empresa || 'N/A'}

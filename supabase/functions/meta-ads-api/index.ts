@@ -164,8 +164,14 @@ serve(async (req) => {
       }
       const id = String(adId).trim();
       try {
-        const fields = "name,campaign{name,account_id},adset{name}";
-        const url = `https://graph.facebook.com/v24.0/${id}?fields=${encodeURIComponent(fields)}&access_token=${metaToken}`;
+        const fields = "name,campaign{name,account_id},adset{name},creative{thumbnail_url}";
+        const params = new URLSearchParams({
+          fields,
+          thumbnail_width: "80",
+          thumbnail_height: "80",
+          access_token: metaToken,
+        });
+        const url = `https://graph.facebook.com/v24.0/${id}?${params.toString()}`;
         const response = await fetch(url);
         const data = await response.json();
         if (data.error) {
@@ -176,6 +182,8 @@ serve(async (req) => {
           );
         }
         const campaign = data.campaign || {};
+        const creative = data.creative || {};
+        const thumbnailUrl = (creative && typeof creative === "object" && creative.thumbnail_url) ? String(creative.thumbnail_url) : null;
         let accountName: string | null = null;
         if (campaign.account_id) {
           const actId = campaign.account_id.toString().startsWith("act_") ? campaign.account_id : `act_${campaign.account_id}`;
@@ -195,6 +203,7 @@ serve(async (req) => {
               name: data.name || null,
               campaign: { name: campaign.name || null },
               adset: (data.adset && { name: data.adset.name || null }) || null,
+              thumbnail_url: thumbnailUrl ?? null,
             },
             accountName: accountName || null,
           }),
@@ -204,6 +213,165 @@ serve(async (req) => {
         console.error("[get-ad-by-id] Exception:", err);
         return new Response(
           JSON.stringify({ error: { message: err?.message || "Falha ao buscar dados do anúncio", code: "REQUEST_FAILED" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // --- Lead Ads (Gestão de leads dos anúncios) ---
+    function normalizeLeadFieldData(fieldData: { name: string; values: string[] }[]): { nome: string | null; email: string | null; telefone: string | null; field_data: Record<string, string> } {
+      const map: Record<string, string> = {};
+      (fieldData || []).forEach((f) => {
+        const v = Array.isArray(f.values) && f.values[0] != null ? String(f.values[0]).trim() : "";
+        if (f.name && v) map[f.name] = v;
+      });
+      const fullName = map.full_name || null;
+      const nome = fullName || (map.first_name || map.last_name ? [map.first_name, map.last_name].filter(Boolean).join(" ").trim() || null : null) || null;
+      const email = map.email || null;
+      const telefone = map.phone_number || map.phone || map.telefone || null;
+      return { nome, email, telefone, field_data: map };
+    }
+
+    if (action === "get-leads-by-form") {
+      const { form_id, since, limit, after } = body;
+      if (!form_id || typeof form_id !== "string" || !form_id.trim()) {
+        return new Response(
+          JSON.stringify({ error: { message: "form_id is required", code: "MISSING_FORM_ID" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      try {
+        const formId = String(form_id).trim();
+        const fields = "created_time,id,ad_id,form_id,field_data";
+        let url = `https://graph.facebook.com/v24.0/${formId}/leads?fields=${encodeURIComponent(fields)}&limit=${Math.min(Number(limit) || 100, 500)}`;
+        if (since != null && (typeof since === "number" || (typeof since === "string" && /^\d+$/.test(since)))) {
+          const ts = typeof since === "string" ? parseInt(since, 10) : since;
+          url += `&filtering=${encodeURIComponent(JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: ts }]))}`;
+        }
+        if (after && typeof after === "string" && after.trim()) url += `&after=${encodeURIComponent(after.trim())}`;
+        url += `&access_token=${metaToken}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.error) {
+          return new Response(
+            JSON.stringify({ error: data.error, leads: [], paging: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const leads = (data.data || []).map((lead: any) => {
+          const normalized = normalizeLeadFieldData(lead.field_data || []);
+          return {
+            id: lead.id,
+            created_time: lead.created_time,
+            ad_id: lead.ad_id || null,
+            form_id: lead.form_id || formId,
+            nome: normalized.nome,
+            email: normalized.email,
+            telefone: normalized.telefone,
+            field_data: normalized.field_data,
+          };
+        });
+        return new Response(
+          JSON.stringify({ leads, paging: data.paging || null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Falha ao buscar leads do formulário", code: "REQUEST_FAILED" }, leads: [] }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    if (action === "get-lead-by-id") {
+      const { leadgen_id } = body;
+      if (!leadgen_id || typeof leadgen_id !== "string" || !leadgen_id.trim()) {
+        return new Response(
+          JSON.stringify({ error: { message: "leadgen_id is required", code: "MISSING_LEADGEN_ID" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      try {
+        const id = String(leadgen_id).trim();
+        const fields = "created_time,id,ad_id,form_id,field_data";
+        const url = `https://graph.facebook.com/v24.0/${id}?fields=${encodeURIComponent(fields)}&access_token=${metaToken}`;
+        const response = await fetch(url);
+        const lead = await response.json();
+        if (lead.error) {
+          return new Response(
+            JSON.stringify({ error: lead.error, lead: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const normalized = normalizeLeadFieldData(lead.field_data || []);
+        const out = {
+          id: lead.id,
+          created_time: lead.created_time,
+          ad_id: lead.ad_id || null,
+          form_id: lead.form_id || null,
+          nome: normalized.nome,
+          email: normalized.email,
+          telefone: normalized.telefone,
+          field_data: normalized.field_data,
+        };
+        return new Response(
+          JSON.stringify({ lead: out }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Falha ao buscar lead", code: "REQUEST_FAILED" }, lead: null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    if (action === "get-leads-by-ad") {
+      const { ad_id, since, limit, after } = body;
+      if (!ad_id || typeof ad_id !== "string" || !ad_id.trim()) {
+        return new Response(
+          JSON.stringify({ error: { message: "ad_id is required", code: "MISSING_AD_ID" } }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      try {
+        const adId = String(ad_id).trim();
+        const fields = "created_time,id,ad_id,form_id,field_data";
+        let url = `https://graph.facebook.com/v24.0/${adId}/leads?fields=${encodeURIComponent(fields)}&limit=${Math.min(Number(limit) || 100, 500)}`;
+        if (since != null && (typeof since === "number" || (typeof since === "string" && /^\d+$/.test(since)))) {
+          const ts = typeof since === "string" ? parseInt(since, 10) : since;
+          url += `&filtering=${encodeURIComponent(JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: ts }]))}`;
+        }
+        if (after && typeof after === "string" && after.trim()) url += `&after=${encodeURIComponent(after.trim())}`;
+        url += `&access_token=${metaToken}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.error) {
+          return new Response(
+            JSON.stringify({ error: data.error, leads: [], paging: null }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const leads = (data.data || []).map((lead: any) => {
+          const normalized = normalizeLeadFieldData(lead.field_data || []);
+          return {
+            id: lead.id,
+            created_time: lead.created_time,
+            ad_id: lead.ad_id || adId,
+            form_id: lead.form_id || null,
+            nome: normalized.nome,
+            email: normalized.email,
+            telefone: normalized.telefone,
+            field_data: normalized.field_data,
+          };
+        });
+        return new Response(
+          JSON.stringify({ leads, paging: data.paging || null }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err?.message || "Falha ao buscar leads do anúncio", code: "REQUEST_FAILED" }, leads: [] }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }

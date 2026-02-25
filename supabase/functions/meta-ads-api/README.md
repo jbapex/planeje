@@ -100,6 +100,29 @@ Busca insights de campanhas.
 }
 ```
 
+### `get-leads-by-form` (Gestão de leads dos anúncios)
+Busca leads de um formulário de Lead Ads. Requer permissão `leads_retrieval` e Página atribuída ao System User.
+
+**Request:**
+```json
+{
+  "action": "get-leads-by-form",
+  "form_id": "123456789",
+  "since": 1482698431,
+  "limit": 100,
+  "after": "<cursor>"
+}
+```
+- `form_id` (obrigatório): ID do formulário (copie da Gestão de leads no Facebook).
+- `since` (opcional): timestamp Unix para filtrar leads a partir dessa data.
+- `limit` (opcional): máximo 500.
+- `after` (opcional): cursor de paginação.
+
+**Response:** `{ leads: [...], paging: { cursors, next } }` — cada lead com `id`, `created_time`, `ad_id`, `form_id`, `nome`, `email`, `telefone`, `field_data`.
+
+### `get-leads-by-ad`
+Busca leads de um anúncio específico (Lead Ads). Mesmos parâmetros que `get-leads-by-form`, trocando `form_id` por `ad_id`.
+
 ## 🔍 Troubleshooting
 
 ### Erro: "TOKEN_NOT_FOUND"

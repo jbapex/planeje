@@ -5,7 +5,9 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { extractPhoneAndNameFromRawPayload, buildContactTrackingFromRawPayload, getFromJidFromRawPayload } from '@/lib/contactFromWebhookPayload';
+import { getPhoneVariations } from '@/lib/leadUtils';
 import { useCrmPipeline } from '@/hooks/useCrmPipeline';
+import ImportFacebookLeadsModal from '@/components/crm/ImportFacebookLeadsModal';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -13,7 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Users, Loader2, RefreshCw, Filter, Activity, Eye, MessageCircle, Infinity, UserX, Info, Globe, Search, FileDown, Upload, PlusCircle, Trash2, Send } from 'lucide-react';
+import { Users, Loader2, RefreshCw, Filter, Activity, Eye, MessageCircle, Infinity, UserX, Info, Globe, Search, FileDown, Upload, PlusCircle, Trash2, Send, Facebook } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
@@ -77,8 +79,15 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
   const [exportStageId, setExportStageId] = useState('');
   const [exportStages, setExportStages] = useState([]);
   const [exportFunnelLoading, setExportFunnelLoading] = useState(false);
+  const [phoneToFunnelInfo, setPhoneToFunnelInfo] = useState(new Map());
+  const [leadsOnlyInFunnel, setLeadsOnlyInFunnel] = useState([]);
+  const [importFacebookLeadsOpen, setImportFacebookLeadsOpen] = useState(false);
 
   const { pipelines } = useCrmPipeline();
+
+  const isMetaAdsLead = useCallback((l) => {
+    return l?.origem === 'Meta Ads' || (l?.tracking_data && typeof l.tracking_data === 'object' && (l.tracking_data.meta_lead_id || l.tracking_data.form_id));
+  }, []);
 
   useEffect(() => {
     if (!exportPipelineId) {
@@ -166,6 +175,40 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
   useEffect(() => {
     loadContacts();
   }, [loadContacts]);
+
+  useEffect(() => {
+    if (!effectiveClienteId) return;
+    let cancelled = false;
+    (async () => {
+      const { data: leadsData } = await supabase
+        .from('leads')
+        .select('id, nome, whatsapp, origem, tracking_data, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome)')
+        .eq('cliente_id', effectiveClienteId);
+      if (cancelled) return;
+      const leads = leadsData || [];
+      const map = new Map();
+      leads.forEach((l) => {
+        const pipelineNome = l.pipeline?.nome || null;
+        const stageNome = l.stage?.nome || null;
+        if (!pipelineNome && !stageNome) return;
+        const variations = getPhoneVariations(l.whatsapp || '');
+        variations.forEach((v) => map.set(v, { pipelineNome, stageNome }));
+      });
+      setPhoneToFunnelInfo(map);
+
+      const contactPhones = new Set();
+      (contacts || []).forEach((c) => {
+        const raw = (c.phone || '').trim() || (c.from_jid || '').replace(/@.*$/, '').trim();
+        getPhoneVariations(raw).forEach((v) => contactPhones.add(v));
+      });
+      const onlyInFunnel = leads.filter((l) => {
+        const variations = getPhoneVariations(l.whatsapp || '');
+        return !variations.some((v) => contactPhones.has(v));
+      });
+      setLeadsOnlyInFunnel(onlyInFunnel);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveClienteId, contacts]);
 
   useEffect(() => {
     if (!effectiveClienteId) return;
@@ -276,6 +319,44 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
       })
     : contacts;
 
+  const displayList = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const termNorm = term.replace(/\D/g, '');
+    const filterLead = (l) => {
+      if (!term) return true;
+      const name = (l.nome || '').toLowerCase();
+      const phone = (l.whatsapp || '').replace(/\D/g, '');
+      return name.includes(term) || (l.whatsapp || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
+    };
+    const leadRows = (leadsOnlyInFunnel || []).filter(filterLead).map((l) => ({
+      _fromLead: true,
+      id: `lead-${l.id}`,
+      sender_name: l.nome || null,
+      phone: l.whatsapp || null,
+      from_jid: (l.whatsapp || '').replace(/\D/g, '') ? `${(l.whatsapp || '').replace(/\D/g, '')}@s.whatsapp.net` : null,
+      origin_source: isMetaAdsLead(l) ? 'meta_ads' : 'nao_identificado',
+      tracking_data: l.tracking_data || null,
+      first_seen_at: null,
+      last_message_at: null,
+      instance_name: null,
+      profile_pic_url: null,
+      pipelineNome: l.pipeline?.nome ?? null,
+      stageNome: l.stage?.nome ?? null,
+    }));
+    return [...filteredContacts, ...leadRows];
+  }, [filteredContacts, leadsOnlyInFunnel, searchTerm, isMetaAdsLead]);
+
+  const getFunnelInfoForRow = useCallback((row) => {
+    if (row._fromLead && row.pipelineNome) return { pipelineNome: row.pipelineNome, stageNome: row.stageNome };
+    const raw = (row.phone || '').trim() || (row.from_jid || '').replace(/@.*$/, '').trim();
+    const variations = getPhoneVariations(raw);
+    for (const v of variations) {
+      const info = phoneToFunnelInfo.get(v);
+      if (info) return info;
+    }
+    return null;
+  }, [phoneToFunnelInfo]);
+
   const toggleSelectAllContacts = useCallback(() => {
     if (selectedContactIds.size === filteredContacts.length) {
       setSelectedContactIds(new Set());
@@ -322,10 +403,12 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
     else toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível exportar. Tente novamente.' });
   }, [exportPipelineId, exportStageId, selectedContactIds, filteredContacts, toast]);
 
-  const metaCount = contacts.filter((c) => c.origin_source === 'meta_ads').length;
+  const metaLeadsCount = (leadsOnlyInFunnel || []).filter(isMetaAdsLead).length;
+  const metaCount = contacts.filter((c) => c.origin_source === 'meta_ads').length + metaLeadsCount;
   const googleAdsCount = contacts.filter((c) => c.origin_source === 'google_ads').length;
   const outrasOrigensCount = contacts.filter((c) => c.origin_source && !['meta_ads', 'nao_identificado', 'google_ads'].includes(c.origin_source)).length;
-  const naoIdentCount = contacts.filter((c) => c.origin_source === 'nao_identificado').length;
+  const naoIdentLeadsCount = (leadsOnlyInFunnel || []).filter((l) => !isMetaAdsLead(l)).length;
+  const naoIdentCount = contacts.filter((c) => c.origin_source === 'nao_identificado').length + naoIdentLeadsCount;
 
   const exportContacts = useCallback(() => {
     const headers = ['Nome', 'Telefone', 'Origem', 'Primeira mensagem', 'Última mensagem', 'Rastreio'];
@@ -462,6 +545,10 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                 {fillFromWebhookLogLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Importar contatos
               </Button>
+              <Button variant="outline" size="sm" className="h-9 rounded-lg gap-1.5" onClick={() => setImportFacebookLeadsOpen(true)} disabled={!effectiveClienteId} title="Importar leads da Gestão de leads dos anúncios (Facebook Lead Ads)">
+                <Facebook className="h-4 w-4" />
+                Importar leads do Facebook
+              </Button>
               <Button size="sm" className="h-9 rounded-lg gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
                 <PlusCircle className="h-4 w-4" />
                 Novo
@@ -571,7 +658,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : filteredContacts.length === 0 ? (
+              ) : displayList.length === 0 ? (
                 <div className="py-16 text-center">
                   <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>
                   <p className="text-xs text-muted-foreground mt-1">Use &quot;Importar contatos&quot; para preencher a partir dos eventos do webhook.</p>
@@ -594,20 +681,25 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Primeira mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Última mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Conta</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Funil / Etapa</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider w-24">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200/60 dark:divide-gray-700/50">
-                        {filteredContacts.map((c) => {
+                        {displayList.map((c) => {
+                          const isLeadOnly = c._fromLead === true;
                           const displayName = (c.tracking_data?.lead_name && String(c.tracking_data.lead_name).trim()) || c.sender_name || c.phone || c.from_jid || '—';
+                          const funnelInfo = getFunnelInfoForRow(c);
                           return (
                           <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                             <td className="py-3 px-2">
-                              <Checkbox
-                                checked={selectedContactIds.has(c.id)}
-                                onCheckedChange={() => toggleContactSelection(c.id)}
-                                aria-label={`Selecionar ${displayName}`}
-                              />
+                              {!isLeadOnly && (
+                                <Checkbox
+                                  checked={selectedContactIds.has(c.id)}
+                                  onCheckedChange={() => toggleContactSelection(c.id)}
+                                  aria-label={`Selecionar ${displayName}`}
+                                />
+                              )}
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-3">
@@ -618,6 +710,9 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                                   </AvatarFallback>
                                 </Avatar>
                                 <span className="font-medium text-foreground">{displayName}</span>
+                                {isLeadOnly && (
+                                  <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-xs font-medium">Lead (sem contato)</span>
+                                )}
                               </div>
                             </td>
                             <td className="py-3 px-4 text-muted-foreground font-mono text-xs">
@@ -654,46 +749,58 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                             <td className="py-3 px-4 hidden sm:table-cell text-muted-foreground text-xs">
                               {c.instance_name?.trim() || '—'}
                             </td>
+                            <td className="py-3 px-4 text-muted-foreground text-xs">
+                              {funnelInfo ? (
+                                <span className="inline-flex flex-col gap-0.5">
+                                  <span>{funnelInfo.pipelineNome || '—'}</span>
+                                  <span className="text-muted-foreground/80">{funnelInfo.stageNome || '—'}</span>
+                                </span>
+                              ) : '—'}
+                            </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => setContactEventsViewing(c)}
-                                  title="Ver eventos deste contato"
-                                >
-                                  <Eye className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                                {onOpenConversation && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={() => onOpenConversation(c.from_jid)}
-                                    title="Abrir conversa na Caixa de entrada"
-                                  >
-                                    <MessageCircle className="h-4 w-4 text-muted-foreground" />
-                                  </Button>
+                                {!isLeadOnly && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() => setContactEventsViewing(c)}
+                                      title="Ver eventos deste contato"
+                                    >
+                                      <Eye className="h-4 w-4 text-muted-foreground" />
+                                    </Button>
+                                    {onOpenConversation && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={() => onOpenConversation(c.from_jid)}
+                                        title="Abrir conversa na Caixa de entrada"
+                                      >
+                                        <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() => openExportFunnelForContacts([c])}
+                                      title="Exportar para funil"
+                                    >
+                                      <Send className="h-4 w-4 text-muted-foreground" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                      onClick={() => setContactToDelete(c)}
+                                      title="Excluir contato"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </>
                                 )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => openExportFunnelForContacts([c])}
-                                  title="Exportar para funil"
-                                >
-                                  <Send className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => setContactToDelete(c)}
-                                  title="Excluir contato"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
                               </div>
                             </td>
                           </tr>
@@ -786,6 +893,13 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ImportFacebookLeadsModal
+        isOpen={importFacebookLeadsOpen}
+        onClose={() => setImportFacebookLeadsOpen(false)}
+        effectiveClienteId={effectiveClienteId}
+        onImported={loadContacts}
+      />
 
       <Dialog open={!!contactEventsViewing} onOpenChange={(open) => { if (!open) { setContactEventsViewing(null); setEventBodyViewing(null); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">

@@ -94,12 +94,19 @@ class ErrorBoundary extends React.Component {
               </details>
             )}
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex flex-wrap gap-3 mt-6">
               <button
                 onClick={this.handleReset}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors font-medium"
+                className="flex-1 min-w-[140px] px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors font-medium"
               >
                 Tentar Novamente
+              </button>
+              <button
+                onClick={() => window.history.back()}
+                className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-700 transition-colors font-medium"
+                title="Voltar à página anterior"
+              >
+                Voltar
               </button>
               <button
                 onClick={() => {

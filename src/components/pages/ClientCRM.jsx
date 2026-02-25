@@ -39,9 +39,11 @@ import DuplicateLeadDialog from '@/components/leads/DuplicateLeadDialog';
 import AddLeadModal from '@/components/crm/AddLeadModal';
 import EditLeadModal from '@/components/crm/EditLeadModal';
 import ImportLeadsModal from '@/components/crm/ImportLeadsModal';
+import ImportFacebookLeadsModal from '@/components/crm/ImportFacebookLeadsModal';
 import CrmSettingsFunil from '@/components/crm/CrmSettingsFunil';
 import CrmSettingsUsuarios from '@/components/crm/CrmSettingsUsuarios';
 import CrmVisaoGeral from '@/components/crm/CrmVisaoGeral';
+import CrmRelatorioMeta from '@/components/crm/CrmRelatorioMeta';
 import MoveToStageModal from '@/components/crm/MoveToStageModal';
 import PipelineEditor from '@/components/crm/PipelineEditor';
 import { useCrmPipeline } from '@/hooks/useCrmPipeline';
@@ -83,12 +85,14 @@ const CRM_TAB_CAIXA_ENTRADA = 'caixa-entrada';
 const CRM_TAB_WHATSAPP = 'whatsapp';
 const CRM_TAB_APICEBOT = 'apicebot';
 const CRM_TAB_CONTATOS = 'contatos';
+const CRM_TAB_RELATORIO_META = 'relatorio-meta';
 const CRM_TAB_AUTOMACOES = 'automacoes';
 
 const CRM_TABS_BY_PATH = {
   [CRM_TAB_LEADS]: true,
   [CRM_TAB_VISAO_GERAL]: true,
   [CRM_TAB_CONTATOS]: true,
+  [CRM_TAB_RELATORIO_META]: true,
   [CRM_TAB_CANAIS]: true,
   [CRM_TAB_AJUSTES_FUNIL]: true,
   [CRM_TAB_AJUSTES_USUARIOS]: true,
@@ -108,7 +112,7 @@ const ClientCRMContent = () => {
   const location = useLocation();
   const { profile } = useAuth();
   const { setRefreshFn } = useCrmRefresh() || {};
-  const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : '/cliente';
+  const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : location.pathname.startsWith('/crm') ? '/crm' : '/cliente';
 
   const isAdminWithoutCliente = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
 
@@ -120,16 +124,18 @@ const ClientCRMContent = () => {
   }, [tabParam]);
 
   // Administrador: só Contatos; redirecionar qualquer outra aba para contatos
+  const crmPath = (tab) => (basePath === '/crm' ? `${basePath}/${tab}` : `${basePath}/crm/${tab}`);
+
   useEffect(() => {
     if (isAdminWithoutCliente && tabParam !== CRM_TAB_CONTATOS) {
-      navigate(`${basePath}/crm/${CRM_TAB_CONTATOS}`, { replace: true });
+      navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
     }
   }, [isAdminWithoutCliente, tabParam, navigate, basePath]);
 
   const setActiveTabAndNavigate = useCallback(
     (value) => {
       setActiveTab(value);
-      navigate(`${basePath}/crm/${value}`, { replace: true });
+      navigate(crmPath(value), { replace: true });
     },
     [navigate, basePath]
   );
@@ -182,9 +188,10 @@ const ClientCRMContent = () => {
   const [viewMode, setViewMode] = useState('kanban');
   const [showAddLead, setShowAddLead] = useState(false);
   const [showImportLeads, setShowImportLeads] = useState(false);
+  const [showImportFacebookLeads, setShowImportFacebookLeads] = useState(false);
   const handleShowLeadDetail = useCallback((lead) => {
-    navigate(`${location.pathname}/${lead.id}`);
-  }, [navigate, location.pathname]);
+    navigate(`${crmPath('leads')}/${lead.id}`);
+  }, [navigate, crmPath]);
   const [duplicateLeadInfo, setDuplicateLeadInfo] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
   const [whatsAppInitialJid, setWhatsAppInitialJid] = useState(null);
@@ -567,6 +574,22 @@ const ClientCRMContent = () => {
                     <span className="text-xs font-medium">Kanban</span>
                   </Button>
                 </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 text-sm rounded-lg shrink-0">
+                      Importar
+                      <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setShowImportLeads(true)}>
+                      Importar CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowImportFacebookLeads(true)}>
+                      Importar leads do Facebook
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button size="sm" className="h-9 text-sm rounded-lg bg-violet-600 hover:bg-violet-700 text-white shrink-0" onClick={() => setShowAddLead(true)}>
                   <PlusCircle className="h-4 w-4 mr-1.5" />
                   Novo
@@ -612,6 +635,10 @@ const ClientCRMContent = () => {
               setFilters={setFilters}
               refetchLeads={refetchLeads}
             />
+          </TabsContent>
+
+          <TabsContent value={CRM_TAB_RELATORIO_META} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+            <CrmRelatorioMeta onShowLeadDetail={handleShowLeadDetail} />
           </TabsContent>
 
           <TabsContent value={CRM_TAB_AJUSTES_FUNIL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
@@ -663,6 +690,15 @@ const ClientCRMContent = () => {
           isOpen={showImportLeads}
           onClose={() => setShowImportLeads(false)}
           onImport={async (rows) => leadsHook.handleBulkAddLeads(rows)}
+        />
+      )}
+
+      {showImportFacebookLeads && (
+        <ImportFacebookLeadsModal
+          isOpen={showImportFacebookLeads}
+          onClose={() => setShowImportFacebookLeads(false)}
+          effectiveClienteId={profile?.cliente_id}
+          onImported={refetchLeads}
         />
       )}
 

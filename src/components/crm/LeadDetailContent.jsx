@@ -36,6 +36,23 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
  */
 const EMPTY_PLACEHOLDER = 'Não informado';
 
+const META_FIELD_LABELS = {
+  full_name: 'Nome completo',
+  first_name: 'Nome',
+  last_name: 'Sobrenome',
+  email: 'E-mail',
+  phone_number: 'Telefone',
+  city: 'Cidade',
+  state: 'Estado',
+  company_name: 'Empresa',
+  job_title: 'Cargo',
+  custom_question: 'Pergunta',
+};
+
+function formatMetaFieldLabel(key) {
+  return META_FIELD_LABELS[key] || String(key).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const LeadDetailContent = ({ lead, onClose, onEdit, onUpdateLead, members = [], pipelines = [], onTransfer, isOpen = true, isPage = false }) => {
   const { settings } = useClienteCrmSettings();
   const { toast } = useToast();
@@ -63,11 +80,12 @@ const LeadDetailContent = ({ lead, onClose, onEdit, onUpdateLead, members = [], 
   const { vendas, loading: vendasLoading, refetch: refetchVendas } = useLeadVendas(lead?.id);
 
   const effectiveSourceId = (lead?.tracking_data && typeof lead.tracking_data === 'object')
-    ? (lead.tracking_data.source_id ?? lead.tracking_data.events_by_date?.[0]?.source_id ?? null)
+    ? (lead.tracking_data.source_id ?? lead.tracking_data.events_by_date?.[0]?.source_id ?? lead.tracking_data.ad_id ?? null)
     : null;
   const hasMetaTracking = lead?.origem === 'Meta Ads' ||
     !!(lead?.utm_campaign || lead?.utm_source || lead?.utm_medium || lead?.utm_content || lead?.utm_term) ||
-    (lead?.tracking_data && typeof lead.tracking_data === 'object' && Object.keys(lead.tracking_data).length > 0);
+    (lead?.tracking_data && typeof lead.tracking_data === 'object' && Object.keys(lead.tracking_data).length > 0) ||
+    (lead?.tracking_data?.meta_lead_id || lead?.tracking_data?.form_id || (lead?.tracking_data?.field_data && typeof lead.tracking_data.field_data === 'object' && Object.keys(lead.tracking_data.field_data).length > 0));
 
   const origins = settings?.origins || [];
   const subOrigins = (lead?.origem && settings?.sub_origins?.[lead.origem]) || [];
@@ -106,7 +124,7 @@ const LeadDetailContent = ({ lead, onClose, onEdit, onUpdateLead, members = [], 
 
   const fetchMetaAdDetailsForLead = async () => {
     const sourceId = (lead?.tracking_data && typeof lead.tracking_data === 'object')
-      ? (lead.tracking_data.source_id ?? lead.tracking_data.events_by_date?.[0]?.source_id ?? null)
+      ? (lead.tracking_data.source_id ?? lead.tracking_data.events_by_date?.[0]?.source_id ?? lead.tracking_data.ad_id ?? null)
       : null;
     if (!sourceId || typeof sourceId !== 'string' || !sourceId.trim() || !onUpdateLead || !lead?.id) return;
     setMetaAdDetailsLoading(true);
@@ -772,6 +790,19 @@ const LeadDetailContent = ({ lead, onClose, onEdit, onUpdateLead, members = [], 
                             )}
                           </div>
                         )}
+                        {lead.tracking_data?.field_data && typeof lead.tracking_data.field_data === 'object' && Object.keys(lead.tracking_data.field_data).length > 0 && (
+                          <div className="pt-2 border-t border-border/50 space-y-1 text-sm">
+                            <p className="font-medium text-muted-foreground">Respostas do formulário (Meta Lead Ads)</p>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                              {Object.entries(lead.tracking_data.field_data).map(([key, value]) => (
+                                <React.Fragment key={key}>
+                                  <span className="text-muted-foreground">{formatMetaFieldLabel(key)}</span>
+                                  <span>{value != null && value !== '' ? String(value) : '—'}</span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {effectiveSourceId != null && effectiveSourceId !== '' && (
                           <div className="pt-2 border-t border-border/50 space-y-2">
                             {metaAdDetailsLoading && (
@@ -1054,6 +1085,19 @@ const LeadDetailContent = ({ lead, onClose, onEdit, onUpdateLead, members = [], 
                           {lead.tracking_data.ad_name && <p><span className="text-muted-foreground">Anúncio:</span> {String(lead.tracking_data.ad_name)}</p>}
                         </>
                       )}
+                    </div>
+                  )}
+                  {lead.tracking_data?.field_data && typeof lead.tracking_data.field_data === 'object' && Object.keys(lead.tracking_data.field_data).length > 0 && (
+                    <div className="pt-2 border-t border-border/50 space-y-1 text-sm">
+                      <p className="font-medium text-muted-foreground">Respostas do formulário (Meta Lead Ads)</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        {Object.entries(lead.tracking_data.field_data).map(([key, value]) => (
+                          <React.Fragment key={key}>
+                            <span className="text-muted-foreground">{formatMetaFieldLabel(key)}</span>
+                            <span>{value != null && value !== '' ? String(value) : '—'}</span>
+                          </React.Fragment>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {effectiveSourceId != null && effectiveSourceId !== '' && (

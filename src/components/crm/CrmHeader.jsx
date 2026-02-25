@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutGrid, BarChart3, Settings, Radio, Inbox, MessageSquare, Bot, Users, Link2, Zap, Star, Bell, RefreshCw, HelpCircle, ChevronDown } from 'lucide-react';
+import { LayoutGrid, BarChart3, Settings, Radio, Inbox, MessageSquare, Bot, Users, Link2, Zap, Star, Bell, RefreshCw, HelpCircle, ChevronDown, Megaphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ import { useCrmRefresh } from '@/contexts/CrmRefreshContext';
 
 const CRM_TAB_LEADS = 'leads';
 const CRM_TAB_VISAO_GERAL = 'visao-geral';
+const CRM_TAB_RELATORIO_META = 'relatorio-meta';
 const CRM_TAB_CONTATOS = 'contatos';
 const CRM_TAB_AJUSTES_FUNIL = 'ajustes-funil';
 const CRM_TAB_AJUSTES_USUARIOS = 'ajustes-usuarios';
@@ -18,10 +19,11 @@ const CRM_TAB_CANAIS = 'canais';
 const HIDE_INBOX_AND_WHATSAPP_TABS = true;
 
 function getActiveTabFromPath(pathname) {
-  const base = pathname.startsWith('/client-area') ? '/client-area/crm' : '/cliente/crm';
+  const base = pathname.startsWith('/client-area') ? '/client-area/crm' : pathname.startsWith('/crm') ? '/crm' : '/cliente/crm';
   const rest = pathname.replace(new RegExp(`^${base}/?`), '') || '';
   if (rest.startsWith('leads/') || rest === 'leads') return CRM_TAB_LEADS;
   const first = rest.split('/')[0];
+  if (first === CRM_TAB_RELATORIO_META) return CRM_TAB_RELATORIO_META;
   return first || CRM_TAB_LEADS;
 }
 
@@ -29,11 +31,11 @@ export default function CrmHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const { refresh } = useCrmRefresh() || {};
-  const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : '/cliente';
+  const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : location.pathname.startsWith('/crm') ? '/crm' : '/cliente';
   const activeTab = getActiveTabFromPath(location.pathname);
 
   const navigateTo = (tab) => {
-    navigate(`${basePath}/crm/${tab}`, { replace: true });
+    navigate(basePath === '/crm' ? `${basePath}/${tab}` : `${basePath}/crm/${tab}`, { replace: true });
   };
 
   return (
@@ -87,6 +89,18 @@ export default function CrmHeader() {
         >
           <BarChart3 className="h-4 w-4 shrink-0" />
           <span className="hidden sm:inline">Visão geral</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigateTo(CRM_TAB_RELATORIO_META)}
+          className={cn(
+            'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
+            activeTab === CRM_TAB_RELATORIO_META ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
+          )}
+          title="Relatório de leads e vendas por campanha e anúncio do Meta"
+        >
+          <Megaphone className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline">Relatório Meta</span>
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

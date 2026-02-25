@@ -65,6 +65,7 @@ export default function useLeadsMetrics(leads, filters, extra = {}) {
     const perdidoStageIds = new Set(stages.filter((s) => s.tipo === 'perdido').map((s) => s.id));
     const concluidoStageIds = new Set([...ganhoStageIds, ...perdidoStageIds]);
     const funnelGanhos = funnelEvents.filter((e) => e.stage_nova_id && ganhoStageIds.has(e.stage_nova_id)).length;
+    const pendentesApos = leadsInDateRange.filter((l) => !l.stage_id || !concluidoStageIds.has(l.stage_id)).length;
     const funnelPerdas = funnelEvents.filter((e) => e.stage_nova_id && perdidoStageIds.has(e.stage_nova_id)).length;
     const funnelMotivosPerda = funnelEvents
       .filter((e) => e.stage_nova_id && perdidoStageIds.has(e.stage_nova_id) && e.motivo_ganho_perdido)
@@ -105,6 +106,7 @@ export default function useLeadsMetrics(leads, filters, extra = {}) {
       vendas,
       noShow,
       valorTotal,
+      pendentesApos,
       weeklyData: Object.values(weeklyData).sort((a, b) => b.week.localeCompare(a.week)),
       funnelMovimentos: funnelEvents.length,
       funnelGanhos,

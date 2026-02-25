@@ -1,6 +1,6 @@
 import React from 'react';
     import { NavLink } from 'react-router-dom';
-    import { Home, Users, FolderKanban, ListTodo, MessageSquare as MessageSquareWarning, Settings, Shield, Bell, LogOut, Megaphone, Rocket, BarChart2, ListChecks, HelpCircle, Bot, Activity, FileText } from 'lucide-react';
+    import { Home, Users, FolderKanban, ListTodo, MessageSquare as MessageSquareWarning, Settings, Shield, Bell, LogOut, Megaphone, Rocket, BarChart2, ListChecks, HelpCircle, Bot, Activity, FileText, LayoutGrid } from 'lucide-react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
     import { useToast } from '@/components/ui/use-toast';
@@ -24,6 +24,7 @@ import {
       { to: '/requests', icon: MessageSquareWarning, label: 'Solicitações', roles: ['superadmin', 'admin'], module: 'requests' },
       { to: '/social-media', icon: Megaphone, label: 'Redes Sociais', roles: ['superadmin', 'admin', 'colaborador'] },
       { to: '/paid-traffic', icon: Rocket, label: 'Tráfego Pago', roles: ['superadmin', 'admin', 'colaborador'], module: 'paid_traffic' },
+      { to: '/crm', icon: LayoutGrid, label: 'CRM', roles: ['superadmin', 'admin', 'colaborador'] },
       { to: '/reports', icon: BarChart2, label: 'Relatórios', roles: ['superadmin', 'admin'] },
       { to: '/client-area', icon: Users, label: 'Área do Cliente', roles: ['superadmin', 'admin', 'colaborador'] },
     ];
