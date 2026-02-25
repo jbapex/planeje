@@ -48,6 +48,7 @@ import MoveToStageModal from '@/components/crm/MoveToStageModal';
 import PipelineEditor from '@/components/crm/PipelineEditor';
 import { useCrmPipeline } from '@/hooks/useCrmPipeline';
 import { useClientMembers } from '@/hooks/useClientMembers';
+import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
 import ClienteApiPage from '@/components/pages/ClienteApiPage';
 import ClienteCanaisPage from '@/components/pages/ClienteCanaisPage';
 import ApicebotIntegracaoPage from '@/components/pages/ApicebotIntegracaoPage';
@@ -180,6 +181,7 @@ const ClientCRMContent = () => {
   } = useCrmPipeline();
 
   const { settings } = useClienteCrmSettings();
+  const { effectiveClienteId: crmEffectiveClienteId } = useClienteWhatsAppConfig();
   const [showNewPipelineEditor, setShowNewPipelineEditor] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState([]);
@@ -638,7 +640,7 @@ const ClientCRMContent = () => {
           </TabsContent>
 
           <TabsContent value={CRM_TAB_RELATORIO_META} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
-            <CrmRelatorioMeta onShowLeadDetail={handleShowLeadDetail} />
+            <CrmRelatorioMeta effectiveClienteId={crmEffectiveClienteId} onShowLeadDetail={handleShowLeadDetail} />
           </TabsContent>
 
           <TabsContent value={CRM_TAB_AJUSTES_FUNIL} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">

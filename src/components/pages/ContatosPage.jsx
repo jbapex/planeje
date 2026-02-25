@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
@@ -82,6 +82,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
   const [phoneToFunnelInfo, setPhoneToFunnelInfo] = useState(new Map());
   const [leadsOnlyInFunnel, setLeadsOnlyInFunnel] = useState([]);
   const [importFacebookLeadsOpen, setImportFacebookLeadsOpen] = useState(false);
+  const [batchEnrichingMeta, setBatchEnrichingMeta] = useState(false);
 
   const { pipelines } = useCrmPipeline();
 
@@ -130,6 +131,19 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
     const ev = (contactEvents || []).find((e) => e?.raw_payload && buildContactTrackingFromRawPayload(e.raw_payload).origin_source === 'meta_ads');
     return ev ? buildContactTrackingFromRawPayload(ev.raw_payload) : null;
   }, [contactEventsViewing, contactEvents]);
+
+  const effectiveSourceIdForMeta = useMemo(() => {
+    if (!displayTracking?.tracking_data || typeof displayTracking.tracking_data !== 'object') return null;
+    const td = displayTracking.tracking_data;
+    const eventsByDate = Array.isArray(td.events_by_date) && td.events_by_date.length > 0
+      ? [...td.events_by_date].sort((a, b) => (b.received_at || '').localeCompare(a.received_at || ''))
+      : [];
+    const sid = td.source_id ?? eventsByDate[0]?.source_id ?? null;
+    return sid != null && String(sid).trim() !== '' ? String(sid).trim() : null;
+  }, [displayTracking]);
+
+  const metaAutoLoadDoneRef = useRef(new Set());
+  const batchEnrichingMetaRef = useRef(false);
 
   const deleteContact = useCallback(async () => {
     if (!contactToDelete || !effectiveClienteId) return;
@@ -224,6 +238,54 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [effectiveClienteId, loadContacts]);
+
+  useEffect(() => {
+    batchEnrichingMetaRef.current = false;
+    setBatchEnrichingMeta(false);
+  }, [effectiveClienteId]);
+
+  // Carregar dados do Meta em lote para contatos que ainda não têm campanha/anúncio (salva no banco e atualiza as colunas)
+  useEffect(() => {
+    if (!effectiveClienteId || loading || !contacts.length || batchEnrichingMetaRef.current) return;
+    const toEnrich = contacts.filter(
+      (c) =>
+        c.origin_source === 'meta_ads' &&
+        !c.tracking_data?.meta_ad_details?.ad &&
+        (c.tracking_data?.source_id ?? c.tracking_data?.ad_id)
+    );
+    if (toEnrich.length === 0) return;
+    batchEnrichingMetaRef.current = true;
+    setBatchEnrichingMeta(true);
+    (async () => {
+      for (const c of toEnrich) {
+        const adId = c.tracking_data?.source_id ?? c.tracking_data?.ad_id;
+        if (!adId || !String(adId).trim()) continue;
+        try {
+          const { data } = await supabase.functions.invoke('meta-ads-api', {
+            body: { action: 'get-ad-by-id', adId: String(adId).trim() },
+          });
+          if (data?.error || !data?.ad) continue;
+          const fetchedAt = new Date().toISOString();
+          const metaEntry = { accountName: data.accountName, ad: data.ad, fetched_at: fetchedAt };
+          const prev = c.tracking_data || {};
+          const history = [...(Array.isArray(prev.meta_ad_details_history) ? prev.meta_ad_details_history : []), { fetched_at: fetchedAt, accountName: data.accountName, ad: data.ad }].slice(-30);
+          const nextTracking = { ...prev, meta_ad_details: metaEntry, meta_ad_details_history: history };
+          await supabase
+            .from('cliente_whatsapp_contact')
+            .update({ tracking_data: nextTracking, updated_at: new Date().toISOString() })
+            .eq('cliente_id', effectiveClienteId)
+            .eq('from_jid', c.from_jid);
+          loadContacts();
+        } catch {
+          // ignora erro por contato para seguir com os demais
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      batchEnrichingMetaRef.current = false;
+      setBatchEnrichingMeta(false);
+      loadContacts();
+    })();
+  }, [loading, contacts, effectiveClienteId, loadContacts]);
 
   const fillContactsFromWebhookLog = useCallback(async () => {
     if (!effectiveClienteId) return;
@@ -443,6 +505,61 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
   }, [contactEventsViewing]);
 
   useEffect(() => {
+    const contact = contactEventsViewing;
+    if (!contact || !effectiveClienteId || contact.origin_source !== 'meta_ads' || !effectiveSourceIdForMeta) return;
+    if (contact.tracking_data?.meta_ad_details?.ad) return;
+    const key = `${contact.from_jid}:${effectiveSourceIdForMeta}`;
+    if (metaAutoLoadDoneRef.current.has(key)) return;
+    metaAutoLoadDoneRef.current.add(key);
+
+    let cancelled = false;
+    setMetaAdDetailsLoading(true);
+    setMetaAdDetailsError(null);
+    setMetaAdDetails(null);
+    (async () => {
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke('meta-ads-api', {
+          body: { action: 'get-ad-by-id', adId: effectiveSourceIdForMeta },
+        });
+        if (cancelled) return;
+        if (fnError) {
+          setMetaAdDetailsError('Não foi possível carregar dados deste anúncio no Meta.');
+          return;
+        }
+        if (data?.error) {
+          setMetaAdDetailsError('Não foi possível carregar dados deste anúncio no Meta.');
+          return;
+        }
+        const payload = data ?? null;
+        if (payload?.ad) {
+          const fetchedAt = new Date().toISOString();
+          setMetaAdDetails({ ...payload, fetched_at: fetchedAt });
+          const metaEntry = { accountName: payload.accountName, ad: payload.ad, fetched_at: fetchedAt };
+          const prev = contact.tracking_data || {};
+          const history = [...(Array.isArray(prev.meta_ad_details_history) ? prev.meta_ad_details_history : []), { fetched_at: fetchedAt, accountName: payload.accountName, ad: payload.ad }].slice(-30);
+          const nextTracking = { ...prev, meta_ad_details: metaEntry, meta_ad_details_history: history };
+          const { error: updateErr } = await supabase
+            .from('cliente_whatsapp_contact')
+            .update({ tracking_data: nextTracking, updated_at: new Date().toISOString() })
+            .eq('cliente_id', effectiveClienteId)
+            .eq('from_jid', contact.from_jid);
+          if (!updateErr) {
+            setContactEventsViewing((prev) => (prev ? { ...prev, tracking_data: nextTracking } : prev));
+            loadContacts();
+          }
+        } else {
+          setMetaAdDetails(payload);
+        }
+      } catch {
+        if (!cancelled) setMetaAdDetailsError('Não foi possível carregar dados deste anúncio no Meta.');
+      } finally {
+        if (!cancelled) setMetaAdDetailsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [contactEventsViewing, effectiveClienteId, effectiveSourceIdForMeta, loadContacts]);
+
+  useEffect(() => {
     if (!contactEventsViewing || !effectiveClienteId) {
       setContactEvents([]);
       return;
@@ -606,7 +723,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
           <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-card shadow-sm">
             <CardContent className="p-0">
               <div className="p-5 pb-4 border-b border-slate-200/60 dark:border-slate-700/50">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-muted">
                     <MessageCircle className="h-8 w-8 text-foreground" />
@@ -625,7 +742,8 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                     <p className="text-xl font-semibold tabular-nums">{metaCount}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
+                {/* Google Ads card oculto por enquanto */}
+                <div className="hidden rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-5 flex items-center gap-4">
                   <div className="flex h-20 w-20 shrink-0 items-center justify-center">
                     <GoogleAdsIcon className="h-20 w-20" />
                   </div>
@@ -654,6 +772,12 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                 </div>
               </div>
             </div>
+              {batchEnrichingMeta && (
+                <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span>Carregando dados do Meta (campanha, conjunto, anúncio) e salvando no banco…</span>
+                </div>
+              )}
               {loading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -678,6 +802,9 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Telefone</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Origem</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Campanha</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Conjunto de anúncio</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Anúncio</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Primeira mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Última mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Conta</th>
@@ -739,6 +866,15 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                                   </>
                                 )}
                               </span>
+                            </td>
+                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name ?? undefined}>
+                              {c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name ?? '—'}
+                            </td>
+                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.adset?.name ?? undefined}>
+                              {c.tracking_data?.meta_ad_details?.ad?.adset?.name ?? '—'}
+                            </td>
+                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.name ?? c.tracking_data?.ad_name ?? undefined}>
+                              {c.tracking_data?.meta_ad_details?.ad?.name ?? c.tracking_data?.ad_name ?? '—'}
                             </td>
                             <td className="py-3 px-4 text-muted-foreground text-xs hidden sm:table-cell">
                               {formatDate(c.first_seen_at)}
@@ -966,7 +1102,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation }) => {
                             </div>
                           );
                         };
-                        const effectiveSourceId = displayTracking.tracking_data.source_id ?? eventsByDate[0]?.source_id ?? null;
+                        const effectiveSourceId = effectiveSourceIdForMeta;
                         return (
                           <>
                             {eventsByDate.length > 0 ? (
