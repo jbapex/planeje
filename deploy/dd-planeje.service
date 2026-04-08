@@ -1,0 +1,16 @@
+[Unit]
+Description=Next.js DD Planeje (ddplaneje.jbapex.com.br)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/jbapex/apps/planeje
+Environment=NODE_ENV=production
+EnvironmentFile=-/root/jbapex/apps/planeje/.env.local
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
