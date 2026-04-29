@@ -15,6 +15,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
     import AiChatDialog from '@/components/projects/AiChatDialog';
     import { invokeProjectsAiChat } from '@/lib/projectsAiCompletion';
+import { getAvailableModelsCached, getDefaultModelCached } from '@/lib/assistantProjectConfig';
     import { getPlanItemTaskWarnings, buildTaskTitleFromPlanMaterial } from '@/lib/campaignPlanMateriais';
     import { usePlataformasConteudo } from '@/hooks/usePlataformasConteudo';
     import PlataformaMaterialSelect from '@/components/projects/PlataformaMaterialSelect';
@@ -67,6 +68,8 @@ import { Checkbox } from '@/components/ui/checkbox';
       const planRef = useRef(null);
       planRef.current = plan;
       const [isExporting, setIsExporting] = useState(false);
+      const [availableAiModels, setAvailableAiModels] = useState(['openai/gpt-4o-mini']);
+      const [selectedAiModel, setSelectedAiModel] = useState('openai/gpt-4o-mini');
 
       const handleExportPDF = async () => {
         if (!plan) return;
@@ -215,6 +218,32 @@ import { Checkbox } from '@/components/ui/checkbox';
         };
         fetchProfiles();
       }, [toast]);
+
+      useEffect(() => {
+        let active = true;
+        const loadAiModels = async () => {
+          try {
+            const [models, defaultModel] = await Promise.all([
+              getAvailableModelsCached(),
+              getDefaultModelCached(),
+            ]);
+            if (!active) return;
+            const safeModels = Array.isArray(models) && models.length > 0 ? models : ['openai/gpt-4o-mini'];
+            const safeDefault = safeModels.includes(defaultModel) ? defaultModel : safeModels[0];
+            setAvailableAiModels(safeModels);
+            setSelectedAiModel(safeDefault);
+          } catch (err) {
+            console.warn('Erro ao carregar modelos do projeto:', err);
+            if (!active) return;
+            setAvailableAiModels(['openai/gpt-4o-mini']);
+            setSelectedAiModel('openai/gpt-4o-mini');
+          }
+        };
+        loadAiModels();
+        return () => {
+          active = false;
+        };
+      }, []);
       
       const handlePlanUpdateFromAI = (updates) => {
         let newPlan = { ...plan };
@@ -555,7 +584,8 @@ import { Checkbox } from '@/components/ui/checkbox';
           try {
             result = await invokeProjectsAiChat({
               messages,
-              openaiModel: 'gpt-3.5-turbo',
+              model: selectedAiModel,
+              openaiModel: selectedAiModel.startsWith('openai/') ? selectedAiModel.replace('openai/', '') : selectedAiModel,
               temperature: 0.7,
               max_tokens: 500,
             });
@@ -568,7 +598,12 @@ import { Checkbox } from '@/components/ui/checkbox';
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-              body: JSON.stringify({ model: 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 500 })
+              body: JSON.stringify({
+                model: selectedAiModel.startsWith('openai/') ? selectedAiModel.replace('openai/', '') : selectedAiModel,
+                messages,
+                temperature: 0.7,
+                max_tokens: 500,
+              })
             });
             const data = await response.json();
             if (!response.ok) {
@@ -848,6 +883,24 @@ import { Checkbox } from '@/components/ui/checkbox';
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     Este contexto será usado em todas as gerações de IA para criar conteúdo mais personalizado e alinhado com o cliente.
                   </p>
+                  <div className="grid gap-2 pt-2 sm:max-w-md">
+                    <Label>Modelo de IA para este plano</Label>
+                    <Select value={selectedAiModel} onValueChange={setSelectedAiModel}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o modelo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableAiModels.map((modelId) => (
+                          <SelectItem key={modelId} value={modelId}>
+                            {modelId}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      A lista vem da configuração global do super admin.
+                    </p>
+                  </div>
                 </div>
               </SectionCard>
 

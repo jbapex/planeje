@@ -35,6 +35,8 @@ const Settings = () => {
   const [uploading, setUploading] = useState(false);
   const [projectsAiProvider, setProjectsAiProvider] = useState('openai');
   const [projectsOpenRouterModel, setProjectsOpenRouterModel] = useState('openai/gpt-4o-mini');
+  const [projectsAllowedModelsText, setProjectsAllowedModelsText] = useState('openai/gpt-4o-mini');
+  const [projectsDefaultModel, setProjectsDefaultModel] = useState('openai/gpt-4o-mini');
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('');
   const [savedOpenRouterPreview, setSavedOpenRouterPreview] = useState('');
   const [isSavingProjectsAi, setIsSavingProjectsAi] = useState(false);
@@ -160,13 +162,34 @@ const Settings = () => {
     const { data: p } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_AI_PROVIDER' });
     setProjectsAiProvider(p === 'openrouter' ? 'openrouter' : 'openai');
     const { data: m } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_OPENROUTER_MODEL' });
-    if (m?.trim()) setProjectsOpenRouterModel(m.trim());
+    const fallbackModel = m?.trim() || 'openai/gpt-4o-mini';
+    setProjectsOpenRouterModel(fallbackModel);
     const { data: ork } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'OPENROUTER_API_KEY' });
     if (ork && ork.length > 12) {
       setSavedOpenRouterPreview(`${ork.substring(0, 4)}...${ork.substring(ork.length - 4)}`);
     } else {
       setSavedOpenRouterPreview('');
     }
+    const { data: cfg } = await supabase
+      .from('public_config')
+      .select('value')
+      .eq('key', 'assistant_project_model_config')
+      .maybeSingle();
+    let models = [fallbackModel];
+    let defaultModel = fallbackModel;
+    if (cfg?.value) {
+      try {
+        const parsed = JSON.parse(cfg.value);
+        if (Array.isArray(parsed?.models) && parsed.models.length > 0) {
+          models = parsed.models.map((x) => String(x || '').trim()).filter(Boolean);
+          defaultModel = parsed.defaultModel && models.includes(parsed.defaultModel) ? parsed.defaultModel : models[0];
+        }
+      } catch (err) {
+        console.warn('assistant_project_model_config inválido:', err);
+      }
+    }
+    setProjectsAllowedModelsText(models.join('\n'));
+    setProjectsDefaultModel(defaultModel);
   }, [profile?.role]);
 
   // Carrega a chave salva quando o perfil é carregado
@@ -184,6 +207,15 @@ const Settings = () => {
     }
     setIsSavingProjectsAi(true);
     try {
+      const allowedModels = String(projectsAllowedModelsText || '')
+        .split(/[\n,;]/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const normalizedModels = allowedModels.length > 0 ? Array.from(new Set(allowedModels)) : [(projectsOpenRouterModel || 'openai/gpt-4o-mini').trim()];
+      const normalizedDefault = normalizedModels.includes(projectsDefaultModel)
+        ? projectsDefaultModel
+        : normalizedModels[0];
+
       const { error: e1 } = await supabase.rpc('set_encrypted_secret', {
         p_secret_name: 'PROJECTS_AI_PROVIDER',
         p_secret_value: projectsAiProvider,
@@ -194,6 +226,19 @@ const Settings = () => {
         p_secret_value: (projectsOpenRouterModel || 'openai/gpt-4o-mini').trim(),
       });
       if (e2) throw e2;
+      const { error: eCfg } = await supabase
+        .from('public_config')
+        .upsert(
+          {
+            key: 'assistant_project_model_config',
+            value: JSON.stringify({
+              models: normalizedModels,
+              defaultModel: normalizedDefault,
+            }),
+          },
+          { onConflict: 'key' }
+        );
+      if (eCfg) throw eCfg;
       if (openrouterKeyInput.trim()) {
         const { error: e3 } = await supabase.rpc('set_encrypted_secret', {
           p_secret_name: 'OPENROUTER_API_KEY',
@@ -204,7 +249,7 @@ const Settings = () => {
       }
       toast({
         title: 'IA em campanhas atualizada',
-        description: 'O Plano de Campanha e sugestões em tarefas usam o provedor escolhido no servidor (Edge Functions).',
+        description: `Provedor salvo e ${normalizedModels.length} modelo(s) disponível(is) para o usuário escolher no Plano de Campanha.`,
       });
       await loadProjectsAiSettings();
     } catch (err) {
@@ -590,6 +635,39 @@ const Settings = () => {
                       <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
                         <SelectItem value="openai" className="dark:text-white dark:hover:bg-gray-600">OpenAI (chave salva acima)</SelectItem>
                         <SelectItem value="openrouter" className="dark:text-white dark:hover:bg-gray-600">OpenRouter</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="projects-models" className="dark:text-white">Modelos disponíveis no Projeto</Label>
+                    <textarea
+                      id="projects-models"
+                      value={projectsAllowedModelsText}
+                      onChange={(e) => setProjectsAllowedModelsText(e.target.value)}
+                      rows={4}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      placeholder={'openai/gpt-4o-mini\nanthropic/claude-3.5-sonnet'}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Um por linha (ou separados por vírgula). Esses modelos aparecem para escolha do usuário no Plano de Campanha.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="dark:text-white">Modelo padrão para o Projeto</Label>
+                    <Select value={projectsDefaultModel} onValueChange={setProjectsDefaultModel}>
+                      <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                        <SelectValue placeholder="Selecione o modelo padrão" />
+                      </SelectTrigger>
+                      <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                        {String(projectsAllowedModelsText || '')
+                          .split(/[\n,;]/)
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                          .map((modelId) => (
+                            <SelectItem key={modelId} value={modelId} className="dark:text-white dark:hover:bg-gray-600">
+                              {modelId}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>

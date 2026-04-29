@@ -6,6 +6,7 @@ import { supabase } from '@/lib/customSupabaseClient';
  */
 export async function invokeProjectsAiChat({
   messages,
+  model = '',
   openaiModel = 'gpt-3.5-turbo',
   temperature = 0.7,
   max_tokens = 500,
@@ -21,17 +22,27 @@ export async function invokeProjectsAiChat({
     console.warn('PROJECTS_AI_PROVIDER:', provErr.message);
   }
   const provider = (provRaw || 'openai').toString().trim().toLowerCase();
-  const useOpenRouter = provider === 'openrouter';
+  const normalizedModel = String(model || '').trim();
+  const hasExplicitModel = normalizedModel.length > 0;
+  const inferredOpenAiModel = normalizedModel.startsWith('openai/')
+    ? normalizedModel.slice('openai/'.length)
+    : normalizedModel;
+  const useOpenRouter = hasExplicitModel
+    ? normalizedModel.includes('/')
+    : provider === 'openrouter';
 
   const { data: modelRaw } = await supabase.rpc('get_encrypted_secret', {
     p_secret_name: 'PROJECTS_OPENROUTER_MODEL',
   });
-  const openrouterModel = (modelRaw || 'openai/gpt-4o-mini').toString().trim();
+  const openrouterModel = hasExplicitModel
+    ? normalizedModel
+    : (modelRaw || 'openai/gpt-4o-mini').toString().trim();
+  const finalOpenAiModel = hasExplicitModel ? inferredOpenAiModel : openaiModel;
 
   const fnName = useOpenRouter ? 'openrouter-chat' : 'openai-chat';
   const body = useOpenRouter
     ? { messages, model: openrouterModel, stream: false, temperature, max_tokens }
-    : { messages, model: openaiModel, stream: false, temperature, max_tokens };
+    : { messages, model: finalOpenAiModel, stream: false, temperature, max_tokens };
 
   const { data, error } = await supabase.functions.invoke(fnName, { body });
 
