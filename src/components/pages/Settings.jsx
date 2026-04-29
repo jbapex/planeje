@@ -42,6 +42,7 @@ const Settings = () => {
   const [uploading, setUploading] = useState(false);
   const [projectsAiProvider, setProjectsAiProvider] = useState('openai');
   const [projectsOpenRouterModel, setProjectsOpenRouterModel] = useState('openai/gpt-4o-mini');
+  const [openrouterCustomModel, setOpenrouterCustomModel] = useState('');
   const [projectsAllowedModelsText, setProjectsAllowedModelsText] = useState('openai/gpt-4o-mini');
   const [projectsDefaultModel, setProjectsDefaultModel] = useState('openai/gpt-4o-mini');
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('');
@@ -54,6 +55,16 @@ const Settings = () => {
     .split(/[\n,;]/)
     .map((x) => x.trim())
     .filter(Boolean);
+  const openrouterModelOptions = Array.from(
+    new Set(
+      parsedAllowedModels
+        .filter((m) => m.includes('/'))
+        .concat(projectsOpenRouterModel ? [projectsOpenRouterModel] : [])
+    )
+  );
+  const openrouterSelectValue = openrouterModelOptions.includes(projectsOpenRouterModel)
+    ? projectsOpenRouterModel
+    : '__custom__';
   const providerTokenPreview = projectsAiProvider === 'openrouter' ? savedOpenRouterPreview : savedKeyPreview;
   const visibleProviderModels = projectsAiProvider === 'openrouter'
     ? parsedAllowedModels
@@ -179,8 +190,9 @@ const Settings = () => {
     const { data: p } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_AI_PROVIDER' });
     setProjectsAiProvider(p === 'openrouter' ? 'openrouter' : 'openai');
     const { data: m } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_OPENROUTER_MODEL' });
-    const fallbackModel = m?.trim() || 'openai/gpt-4o-mini';
+      const fallbackModel = m?.trim() || 'openai/gpt-4o-mini';
     setProjectsOpenRouterModel(fallbackModel);
+      setOpenrouterCustomModel('');
     const { data: ork } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'OPENROUTER_API_KEY' });
     if (ork && ork.length > 12) {
       setSavedOpenRouterPreview(`${ork.substring(0, 4)}...${ork.substring(ork.length - 4)}`);
@@ -722,14 +734,47 @@ const Settings = () => {
                     <>
                       <div className="space-y-2">
                         <Label htmlFor="or-model" className="dark:text-white">Modelo OpenRouter</Label>
-                        <Input
-                          id="or-model"
-                          value={projectsOpenRouterModel}
-                          onChange={(e) => setProjectsOpenRouterModel(e.target.value)}
-                          placeholder="openai/gpt-4o-mini"
-                          className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                        />
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Ex.: openai/gpt-4o-mini, anthropic/claude-3.5-sonnet, etc.</p>
+                        <Select
+                          value={openrouterSelectValue}
+                          onValueChange={(value) => {
+                            if (value === '__custom__') {
+                              const fallback = openrouterCustomModel || '';
+                              setProjectsOpenRouterModel(fallback);
+                              return;
+                            }
+                            setProjectsOpenRouterModel(value);
+                            setOpenrouterCustomModel('');
+                          }}
+                        >
+                          <SelectTrigger id="or-model" className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                            <SelectValue placeholder="Selecione um modelo OpenRouter" />
+                          </SelectTrigger>
+                          <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                            {openrouterModelOptions.map((modelId) => (
+                              <SelectItem key={modelId} value={modelId} className="dark:text-white dark:hover:bg-gray-600">
+                                {modelId}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__custom__" className="dark:text-white dark:hover:bg-gray-600">
+                              Personalizado (digitar)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {openrouterSelectValue === '__custom__' && (
+                          <Input
+                            value={openrouterCustomModel}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setOpenrouterCustomModel(v);
+                              setProjectsOpenRouterModel(v.trim());
+                            }}
+                            placeholder="openai/gpt-4o-mini"
+                            className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                          />
+                        )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Selecione um modelo da lista liberada para Projeto. Use "Personalizado" para digitar um ID específico.
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="or-key" className="dark:text-white">Chave API OpenRouter</Label>
