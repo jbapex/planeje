@@ -13,6 +13,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
+const OPENAI_FALLBACK_MODELS = [
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'openai/gpt-4.1-mini',
+  'openai/gpt-3.5-turbo',
+];
+
 const Settings = () => {
   const [apiKey, setApiKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -43,6 +50,16 @@ const Settings = () => {
   
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
+  const parsedAllowedModels = String(projectsAllowedModelsText || '')
+    .split(/[\n,;]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const providerTokenPreview = projectsAiProvider === 'openrouter' ? savedOpenRouterPreview : savedKeyPreview;
+  const visibleProviderModels = projectsAiProvider === 'openrouter'
+    ? parsedAllowedModels
+    : parsedAllowedModels.filter((m) => m.startsWith('openai/'));
+  const effectiveProviderModels =
+    visibleProviderModels.length > 0 ? visibleProviderModels : projectsAiProvider === 'openai' ? OPENAI_FALLBACK_MODELS : [];
 
   const fetchUsers = useCallback(async () => {
     const { data, error } = await supabase.from('profiles').select('*');
@@ -637,6 +654,15 @@ const Settings = () => {
                         <SelectItem value="openrouter" className="dark:text-white dark:hover:bg-gray-600">OpenRouter</SelectItem>
                       </SelectContent>
                     </Select>
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-200">
+                      <p>
+                        <span className="font-semibold">Token salvo:</span>{' '}
+                        {providerTokenPreview ? <code className="font-mono">{providerTokenPreview}</code> : 'nenhum token encontrado para este provedor'}
+                      </p>
+                      <p className="mt-1 text-gray-600 dark:text-gray-400">
+                        Provedor ativo para campanhas: <span className="font-semibold">{projectsAiProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'}</span>
+                      </p>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="projects-models" className="dark:text-white">Modelos disponíveis no Projeto</Label>
@@ -670,6 +696,27 @@ const Settings = () => {
                           ))}
                       </SelectContent>
                     </Select>
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900/40">
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                        Modelos disponíveis para o provedor selecionado
+                      </p>
+                      {effectiveProviderModels.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {effectiveProviderModels.map((modelId) => (
+                            <span
+                              key={modelId}
+                              className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[11px] dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                            >
+                              {modelId}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          Nenhum modelo compatível com o provedor atual. Ajuste a lista acima e salve.
+                        </p>
+                      )}
+                    </div>
                   </div>
                   {projectsAiProvider === 'openrouter' && (
                     <>
