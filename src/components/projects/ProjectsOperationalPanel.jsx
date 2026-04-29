@@ -38,6 +38,9 @@ import {
 
 const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
+/** A partir deste total de campanhas, o item na fila passa de Atenção para Crítico. */
+const STALE_EXEC_QUEUE_CRITICAL_MIN = 5;
+
 const CLIENT_ETAPAS = [
   { value: 'prospect', label: 'Prospect' },
   { value: 'qualification', label: 'Qualificação' },
@@ -376,6 +379,9 @@ export default function ProjectsOperationalPanel({
   const dCritical = stats.criticalPendencies - prevStats.criticalPendencies;
   const dMatLinked = stats.materialsWithTask - prevStats.materialsWithTask;
   const dUp7 = stats.upcoming7d - prevStats.upcoming7d;
+  const staleTotal = stats.staleExecutionProjects ?? 0;
+  const stalePrev = prevStats.staleExecutionProjects ?? 0;
+  const dStale = staleTotal - stalePrev;
 
   const metaLine = useMemo(() => {
     const abbr = MONTHS_PT[monthIndex];
@@ -416,6 +422,12 @@ export default function ProjectsOperationalPanel({
         return `${r.client.empresa}: ${se.project.name} · ${se.refLabel}`;
       })
       .slice(0, 6);
+    const staleCount = stats.staleExecutionProjects ?? 0;
+    const staleSeverity = staleCount >= STALE_EXEC_QUEUE_CRITICAL_MIN ? 'critico' : 'atencao';
+    const staleSubtitle =
+      staleCount >= STALE_EXEC_QUEUE_CRITICAL_MIN
+        ? `Volume alto (${staleCount}): priorize concluir ou atualizar o status das campanhas com referência antes de ${monthLongCapitalized} de ${year}.`
+        : `Campanhas ainda em execução com mês de referência antes de ${monthLongCapitalized} de ${year}.`;
     return [
       {
         key: 'no_campaign',
@@ -432,10 +444,10 @@ export default function ProjectsOperationalPanel({
       },
       {
         key: 'stale_exec',
-        severity: 'atencao',
+        severity: staleSeverity,
         title: 'Execução em meses anteriores',
-        subtitle: `Campanhas ainda em execução com mês de referência antes de ${monthLongCapitalized} de ${year}.`,
-        count: stats.staleExecutionProjects ?? 0,
+        subtitle: staleSubtitle,
+        count: staleCount,
         samples: staleSamples,
         action: 'Ver na tabela',
         onClick: () => {
@@ -863,45 +875,8 @@ export default function ProjectsOperationalPanel({
             <p className="py-12 text-center text-sm text-muted-foreground">Carregando…</p>
           ) : (
             <>
-              {(stats.staleExecutionProjects ?? 0) > 0 ? (
-                <section
-                  className="rounded-xl border border-amber-200/90 bg-gradient-to-br from-amber-50/95 via-card to-card p-4 shadow-sm dark:border-amber-900/45 dark:from-amber-950/35 dark:via-card dark:to-card sm:p-5"
-                  aria-label="Resumo de execuções em meses anteriores"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-200">
-                        Acumulado (fora do mês exibido)
-                      </p>
-                      <p className="text-lg font-semibold leading-snug text-foreground">
-                        {stats.staleExecutionProjects}{' '}
-                        {stats.staleExecutionProjects === 1 ? 'campanha' : 'campanhas'} em execução com referência antes de{' '}
-                        {monthLongCapitalized} de {year}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {stats.staleExecutionClients}{' '}
-                        {stats.staleExecutionClients === 1 ? 'cliente afetado' : 'clientes afetados'}. Use a tabela ou a fila para abrir cada
-                        campanha.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className="h-9 shrink-0 gap-1 border-amber-300 bg-amber-100/80 text-xs font-semibold text-amber-950 hover:bg-amber-200/80 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-50 dark:hover:bg-amber-900/50"
-                      onClick={() => {
-                        setHealthFilter('all');
-                        setTableFilter('stale_execution');
-                      }}
-                    >
-                      Ver na tabela <ChevronRight className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </section>
-              ) : null}
-
               <section>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                   <div className="rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm dark:border-gray-800">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Cobertura de {MONTHS_PT[monthIndex]}
@@ -959,6 +934,60 @@ export default function ProjectsOperationalPanel({
                       <DeltaBadge value={dUp7} />
                     </div>
                     <p className="mt-3 text-xs text-muted-foreground">próximos 7 dias</p>
+                  </div>
+                  <div
+                    className={cn(
+                      'rounded-xl border bg-card p-4 shadow-sm',
+                      staleTotal > 0
+                        ? 'border-amber-200/90 dark:border-amber-900/50'
+                        : 'border-gray-200/90 dark:border-gray-800'
+                    )}
+                  >
+                    <p
+                      className={cn(
+                        'text-[10px] font-bold uppercase tracking-wider',
+                        staleTotal > 0 ? 'text-amber-800 dark:text-amber-200' : 'text-muted-foreground'
+                      )}
+                    >
+                      Exec. meses anteriores
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-baseline gap-0">
+                      <p
+                        className={cn(
+                          'text-3xl font-bold tabular-nums tracking-tight',
+                          staleTotal >= STALE_EXEC_QUEUE_CRITICAL_MIN
+                            ? 'text-red-600 dark:text-red-400'
+                            : staleTotal > 0
+                              ? 'text-amber-700 dark:text-amber-300'
+                              : 'text-foreground'
+                        )}
+                      >
+                        {staleTotal}
+                      </p>
+                      <DeltaBadge value={dStale} invert />
+                    </div>
+                    <p className="mt-3 text-xs leading-snug text-muted-foreground">
+                      {stats.staleExecutionClients ?? 0}{' '}
+                      {(stats.staleExecutionClients ?? 0) === 1 ? 'cliente' : 'clientes'} · ref. antes de {monthLongCapitalized}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        'mt-4 h-8 w-full text-xs font-semibold',
+                        staleTotal > 0
+                          ? 'border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-50 dark:hover:bg-amber-950/60'
+                          : 'border-border/80'
+                      )}
+                      disabled={staleTotal === 0}
+                      onClick={() => {
+                        setHealthFilter('all');
+                        setTableFilter('stale_execution');
+                      }}
+                    >
+                      Filtrar tabela <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               </section>
