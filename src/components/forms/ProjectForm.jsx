@@ -11,15 +11,10 @@ import React, { useState, useEffect } from 'react';
 
 const STATUS_OPTIONS = ['planejamento', 'execucao', 'concluido', 'pausado'];
 
-const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultClientId }) => {
+const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultClientId, defaultYear, defaultMonth }) => {
   const isNew = !project;
-  const formKey = `project_${project?.id || 'new'}`;
+  const formKey = `project_${project?.id || 'new'}_${defaultClientId || ''}_${defaultYear ?? ''}_${defaultMonth ?? ''}`;
   const { user } = useAuth();
-  
-  // Debug: verificar se usuários estão sendo recebidos
-  useEffect(() => {
-    console.log('ProjectForm - users recebidos:', users?.length || 0, users);
-  }, [users]);
   
   // Meses em português
   const months = [
@@ -55,13 +50,22 @@ const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultCli
         status: project.status || 'planejamento'
       };
     }
+    const defMonth =
+      defaultMonth !== undefined && defaultMonth !== null && defaultMonth !== ''
+        ? parseInt(String(defaultMonth), 10)
+        : now.getMonth();
+    const defYear =
+      defaultYear !== undefined && defaultYear !== null && defaultYear !== ''
+        ? parseInt(String(defaultYear), 10)
+        : now.getFullYear();
+    const refDate = new Date(defYear, defMonth, 1);
     return {
       name: '',
       client_id: defaultClientId || '',
       owner_id: user?.id || '',
-      month: now.getMonth().toString(),
-      year: now.getFullYear().toString(),
-      mes_referencia: now.toISOString(),
+      month: String(defMonth),
+      year: String(defYear),
+      mes_referencia: refDate.toISOString(),
       status: 'planejamento'
     };
   };

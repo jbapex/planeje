@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
     import { supabase } from '@/lib/customSupabaseClient';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import ProjectForm from '@/components/forms/ProjectForm';
-    import { useNavigate, useLocation } from 'react-router-dom';
+    import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
     import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,16 +22,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       TableRow,
     } from "@/components/ui/table";
     import { useDataCache } from '@/hooks/useDataCache';
+    import ProjectsOperationalPanel from '@/components/projects/ProjectsOperationalPanel';
 
     const Projects = () => {
       const [projects, setProjects] = useState([]);
       const [clients, setClients] = useState([]);
       const [tasks, setTasks] = useState([]);
+      const [campaignPlans, setCampaignPlans] = useState([]);
       const [users, setUsers] = useState([]);
       const [editingProject, setEditingProject] = useState(null);
       const [loading, setLoading] = useState(true);
       const [searchTerm, setSearchTerm] = useState('');
-      const [clientFilter, setClientFilter] = useState('all');
       const [statusFilter, setStatusFilter] = useState('all');
       const [viewMode, setViewMode] = useState('grid');
       const [showDeleteAlert, setShowDeleteAlert] = useState(false);
@@ -42,9 +43,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       const { user } = useAuth();
       const navigate = useNavigate();
       const location = useLocation();
+      const [searchParams] = useSearchParams();
+      const prefillClientId = searchParams.get('client_id');
+      const prefillYear = searchParams.get('year');
+      const prefillMonth = searchParams.get('month');
       
       // Hook de cache para prevenir re-fetch desnecessário
-      const { data: cachedData, setCachedData, shouldFetch } = useDataCache('projects');
+      const { data: cachedData, setCachedData, shouldFetch } = useDataCache('projects_v4');
       
       // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
       const hasFetchedRef = useRef(false);
@@ -73,8 +78,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       const fetchData = useCallback(async () => {
         setLoading(true);
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('*, clientes(empresa)');
-        const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
-        const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, project_id, status, assignee_ids');
+        const { data: clientsData, error: clientsError } = await supabase
+          .from('clientes')
+          .select('id, empresa, responsavel, logo_urls, etapa');
+        const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, project_id, status, assignee_ids, due_date, post_date, title');
+        const projectIds = (projectsData || []).map((p) => p.id).filter(Boolean);
+        let plansData = [];
+        let plansError = null;
+        if (projectIds.length > 0) {
+          const res = await supabase.from('campaign_plans').select('*').in('project_id', projectIds);
+          plansData = res.data || [];
+          plansError = res.error;
+        }
         // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
         // Então removemos perfis de cliente de todas as listas de "usuários".
         const { data: usersData, error: usersError } = await supabase
@@ -82,20 +97,22 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
           .select('id, full_name, avatar_url')
           .neq('role', 'cliente');
 
-        if (projectsError || clientsError || tasksError || usersError) {
-          toast({ title: "Erro ao buscar dados", description: projectsError?.message || clientsError?.message || tasksError?.message || usersError?.message, variant: "destructive" });
+        if (projectsError || clientsError || tasksError || usersError || plansError) {
+          toast({ title: "Erro ao buscar dados", description: projectsError?.message || clientsError?.message || tasksError?.message || usersError?.message || plansError?.message, variant: "destructive" });
         } else {
           // Salva no cache
           const dataToCache = {
             projects: projectsData || [],
             clients: clientsData || [],
             tasks: tasksData || [],
+            campaignPlans: plansData || [],
             users: usersData || []
           };
           setCachedData(dataToCache);
           setProjects(dataToCache.projects);
           setClients(dataToCache.clients);
           setTasks(dataToCache.tasks);
+          setCampaignPlans(dataToCache.campaignPlans);
           setUsers(dataToCache.users);
         }
         setLoading(false);
@@ -111,6 +128,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
             setProjects(cachedData.projects);
             setClients(cachedData.clients);
             setTasks(cachedData.tasks);
+            setCampaignPlans(cachedData.campaignPlans || []);
             setUsers(cachedData.users);
             setLoading(false);
           }
@@ -122,6 +140,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
           setProjects(cachedData.projects);
           setClients(cachedData.clients);
           setTasks(cachedData.tasks);
+          setCampaignPlans(cachedData.campaignPlans || []);
           setUsers(cachedData.users);
           setLoading(false);
           hasFetchedRef.current = true;
@@ -206,8 +225,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
       const handleSelectClient = (clientId) => {
         setSelectedClientId(clientId);
-        setSearchTerm(''); // Limpa busca ao mudar de cliente
-        setStatusFilter('all'); // Reseta filtro de status
+        setSearchTerm('');
+        setStatusFilter('all');
       };
 
       const handleBackToClients = () => {
@@ -230,51 +249,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         return users.find(u => u.id === project.owner_id) || null;
       };
 
-      // Função para calcular estatísticas do cliente
-      const getClientStats = (clientId) => {
-        const clientProjects = projects.filter(p => p.client_id === clientId);
-        const totalProjects = clientProjects.length;
-        
-        if (totalProjects === 0) {
-          return {
-            totalProjects: 0,
-            averageProgress: 0,
-            projectsByStatus: {},
-            lastProjectDate: null
-          };
-        }
-
-        const progressSum = clientProjects.reduce((sum, p) => sum + getProjectProgress(p.id), 0);
-        const averageProgress = progressSum / totalProjects;
-
-        const projectsByStatus = clientProjects.reduce((acc, p) => {
-          acc[p.status] = (acc[p.status] || 0) + 1;
-          return acc;
-        }, {});
-
-        const lastProject = clientProjects.sort((a, b) => 
-          new Date(b.created_at || 0) - new Date(a.created_at || 0)
-        )[0];
-
-        return {
-          totalProjects,
-          averageProgress,
-          projectsByStatus,
-          lastProjectDate: lastProject?.created_at
-        };
-      };
-
-      // Mostra todos os clientes (não apenas os que têm projetos)
-      // Filtra clientes por busca
-      const filteredClients = clients.filter(client => 
-        client.empresa.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-
       // Filtra projetos do cliente selecionado
       const filteredProjects = projects.filter(p => {
         const clientName = p.clientes?.empresa || '';
         const searchMatch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || clientName.toLowerCase().includes(searchTerm.toLowerCase());
-        const clientMatch = selectedClientId ? p.client_id === selectedClientId : (clientFilter === 'all' || p.client_id === clientFilter);
+        const clientMatch = p.client_id === selectedClientId;
         const statusMatch = statusFilter === 'all' || p.status === statusFilter;
         return searchMatch && clientMatch && statusMatch;
       });
@@ -286,65 +265,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         { value: 'pausado', label: 'Pausado' },
       ];
 
-      // Renderiza lista de clientes em modo lista (tabela)
-      const renderClientsListView = () => (
-        <Card className="dark:bg-gray-800 dark:border-gray-700">
-          <Table>
-            <TableHeader>
-              <TableRow className="dark:border-gray-700">
-                <TableHead className="dark:text-white">Cliente</TableHead>
-                <TableHead className="dark:text-white">Projetos</TableHead>
-                <TableHead className="dark:text-white">Progresso Médio</TableHead>
-                <TableHead className="dark:text-white">Status dos Projetos</TableHead>
-                <TableHead className="text-right dark:text-white"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredClients.map(client => {
-                const stats = getClientStats(client.id);
-                return (
-                  <TableRow 
-                    key={client.id} 
-                    className="dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50" 
-                    onClick={() => handleSelectClient(client.id)}
-                  >
-                    <TableCell className="font-medium dark:text-white">{client.empresa}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {stats.totalProjects} {stats.totalProjects === 1 ? 'projeto' : 'projetos'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                          <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${stats.averageProgress}%` }}></div>
-                        </div>
-                        <span className="text-sm font-semibold dark:text-white">{Math.round(stats.averageProgress)}%</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(stats.projectsByStatus).map(([status, count]) => {
-                          const statusInfo = statusOptions.find(s => s.value === status);
-                          return (
-                            <Badge key={status} variant={status === 'execucao' ? 'default' : 'secondary'} className="text-xs">
-                              {statusInfo?.label || status}: {count}
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ChevronRight className="h-4 w-4 text-gray-400" />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Card>
-      );
-      
       const renderGridView = () => (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProjects.map(project => {
@@ -470,44 +390,29 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
       return (
         <div className="space-y-6">
-          {/* Breadcrumb e Header */}
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              {selectedClientId && (
-                <>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={handleBackToClients}
-                    className="flex items-center gap-2"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Voltar
-                  </Button>
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
-                </>
-              )}
-              <div>
-                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
-                  {selectedClientId ? selectedClient?.empresa : 'Projetos'}
-                </h1>
-                {selectedClientId && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {filteredProjects.length} {filteredProjects.length === 1 ? 'projeto' : 'projetos'}
+          {selectedClientId && (
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="sm" onClick={handleBackToClients} className="flex items-center gap-2">
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar ao painel
+                </Button>
+                <ChevronRight className="h-4 w-4 text-gray-400" />
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{selectedClient?.empresa}</h1>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                    {filteredProjects.length} {filteredProjects.length === 1 ? 'campanha' : 'campanhas'}
                   </p>
-                )}
+                </div>
               </div>
+              <Button onClick={() => handleOpenForm()}>
+                <Plus className="mr-2 h-4 w-4" /> Nova campanha
+              </Button>
             </div>
-            {selectedClientId ? (
-              <Button onClick={() => handleOpenForm()}><Plus className="mr-2 h-4 w-4" /> Novo Projeto</Button>
-            ) : (
-              <Button onClick={() => navigate('/clients/new')} variant="outline"><Plus className="mr-2 h-4 w-4" /> Novo Cliente</Button>
-            )}
-          </div>
+          )}
 
-          {/* Busca e Filtros */}
-          {selectedClientId ? (
-            // Filtros para projetos do cliente
+          {/* Busca e filtros só na visão por cliente (campanhas do cliente) */}
+          {selectedClientId && (
             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="relative w-full md:w-auto">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -527,19 +432,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                     {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
-            </div>
-          ) : (
-            // Busca para lista de clientes
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="relative w-full md:w-auto">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  placeholder="Buscar clientes..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-full md:w-80 dark:bg-gray-800 dark:border-gray-700"
-                />
               </div>
             </div>
           )}
@@ -568,29 +460,27 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
               )}
             </>
           ) : (
-            // View de lista de clientes (apenas modo lista)
             <>
-              {loading ? (
-                <p className="text-center py-10 dark:text-gray-300">Carregando...</p>
+              {clients.length === 0 && !loading ? (
+                <div className="text-center py-10 rounded-md border border-border bg-muted/20">
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">Nenhum cliente cadastrado.</p>
+                  <Button onClick={() => navigate('/clients/new')} variant="outline">
+                    <Plus className="mr-2 h-4 w-4" /> Criar primeiro cliente
+                  </Button>
+                </div>
               ) : (
-                <>
-                  {filteredClients.length === 0 ? (
-                    <div className="text-center py-10">
-                      <p className="text-gray-500 dark:text-gray-400 mb-4">
-                        {clients.length === 0 
-                          ? 'Nenhum cliente cadastrado.' 
-                          : 'Nenhum cliente encontrado com a busca atual.'}
-                      </p>
-                      {clients.length === 0 && (
-                        <Button onClick={() => navigate('/clients/new')} variant="outline">
-                          <Plus className="mr-2 h-4 w-4" /> Criar Primeiro Cliente
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    renderClientsListView()
-                  )}
-                </>
+                <ProjectsOperationalPanel
+                  clients={clients}
+                  projects={projects}
+                  tasks={tasks}
+                  campaignPlans={campaignPlans}
+                  users={users}
+                  loading={loading}
+                  navigate={navigate}
+                  onNewCampaign={() => handleOpenForm()}
+                  onNewClient={() => navigate('/clients/new')}
+                  onOpenClientProjects={(clientId) => handleSelectClient(clientId)}
+                />
               )}
             </>
           )}
@@ -598,12 +488,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
           <AnimatePresence>
             {isFormOpen && (
               <ProjectForm
+                key={`${editingProject?.id || 'new'}-${prefillClientId || ''}-${prefillYear || ''}-${prefillMonth || ''}`}
                 onClose={handleCloseForm}
                 onSave={handleSaveProject}
                 project={editingProject}
                 clients={clients}
                 users={users}
-                defaultClientId={selectedClientId}
+                defaultClientId={prefillClientId || selectedClientId}
+                defaultYear={prefillYear || undefined}
+                defaultMonth={prefillMonth || undefined}
               />
             )}
           </AnimatePresence>
