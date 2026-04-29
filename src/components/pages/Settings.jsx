@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload, MessageSquare } from 'lucide-react';
+import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload, MessageSquare, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,11 @@ const Settings = () => {
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [projectsAiProvider, setProjectsAiProvider] = useState('openai');
+  const [projectsOpenRouterModel, setProjectsOpenRouterModel] = useState('openai/gpt-4o-mini');
+  const [openrouterKeyInput, setOpenrouterKeyInput] = useState('');
+  const [savedOpenRouterPreview, setSavedOpenRouterPreview] = useState('');
+  const [isSavingProjectsAi, setIsSavingProjectsAi] = useState(false);
   
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
@@ -150,12 +155,64 @@ const Settings = () => {
     }
   }, [profile?.role, validateKey]);
 
+  const loadProjectsAiSettings = useCallback(async () => {
+    if (profile?.role !== 'superadmin') return;
+    const { data: p } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_AI_PROVIDER' });
+    setProjectsAiProvider(p === 'openrouter' ? 'openrouter' : 'openai');
+    const { data: m } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'PROJECTS_OPENROUTER_MODEL' });
+    if (m?.trim()) setProjectsOpenRouterModel(m.trim());
+    const { data: ork } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'OPENROUTER_API_KEY' });
+    if (ork && ork.length > 12) {
+      setSavedOpenRouterPreview(`${ork.substring(0, 4)}...${ork.substring(ork.length - 4)}`);
+    } else {
+      setSavedOpenRouterPreview('');
+    }
+  }, [profile?.role]);
+
   // Carrega a chave salva quando o perfil é carregado
   useEffect(() => {
     if (profile?.role === 'superadmin') {
       checkSavedKey();
+      loadProjectsAiSettings();
     }
-  }, [profile?.role, checkSavedKey]);
+  }, [profile?.role, checkSavedKey, loadProjectsAiSettings]);
+
+  const handleSaveProjectsAiSettings = async () => {
+    if (profile?.role !== 'superadmin') {
+      toast({ title: 'Acesso negado', variant: 'destructive' });
+      return;
+    }
+    setIsSavingProjectsAi(true);
+    try {
+      const { error: e1 } = await supabase.rpc('set_encrypted_secret', {
+        p_secret_name: 'PROJECTS_AI_PROVIDER',
+        p_secret_value: projectsAiProvider,
+      });
+      if (e1) throw e1;
+      const { error: e2 } = await supabase.rpc('set_encrypted_secret', {
+        p_secret_name: 'PROJECTS_OPENROUTER_MODEL',
+        p_secret_value: (projectsOpenRouterModel || 'openai/gpt-4o-mini').trim(),
+      });
+      if (e2) throw e2;
+      if (openrouterKeyInput.trim()) {
+        const { error: e3 } = await supabase.rpc('set_encrypted_secret', {
+          p_secret_name: 'OPENROUTER_API_KEY',
+          p_secret_value: openrouterKeyInput.trim(),
+        });
+        if (e3) throw e3;
+        setOpenrouterKeyInput('');
+      }
+      toast({
+        title: 'IA em campanhas atualizada',
+        description: 'O Plano de Campanha e sugestões em tarefas usam o provedor escolhido no servidor (Edge Functions).',
+      });
+      await loadProjectsAiSettings();
+    } catch (err) {
+      toast({ title: 'Erro ao salvar', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsSavingProjectsAi(false);
+    }
+  };
 
   const handleUpdateProfile = async () => {
     if (!fullName) {
@@ -445,15 +502,21 @@ const Settings = () => {
                       type="password" 
                       value={apiKey} 
                       onChange={(e) => setApiKey(e.target.value)} 
-                      placeholder={savedKeyPreview ? "Digite uma nova chave para substituir" : "sk-************************************************"} 
+                      placeholder={savedKeyPreview ? "Cole uma nova chave para substituir a atual" : "Cole aqui a chave completa (ex.: sk-...)"} 
+                      autoComplete="off"
                       className="dark:bg-gray-700 dark:text-white dark:border-gray-600" 
                     />
+                    <p className="text-xs text-muted-foreground dark:text-gray-500">
+                      {savedKeyPreview
+                        ? 'Para trocar a chave, cole a nova no campo acima e clique em Atualizar Chave.'
+                        : 'Cole ou digite a chave completa da OpenAI. O placeholder cinza não é valor: o campo começa vazio até você colar.'}
+                    </p>
                     
                     {/* Botões de ação */}
                     <div className="flex items-center gap-2">
                       <Button 
                         onClick={handleSaveKey} 
-                        disabled={isSavingKey || !apiKey.trim()}
+                        disabled={isSavingKey}
                         className="flex-1"
                       >
                         {isSavingKey ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -500,6 +563,80 @@ const Settings = () => {
                       </p>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {isSuperAdmin && (
+              <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <Sparkles className="h-8 w-8 text-amber-500" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">IA em campanhas e tarefas</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        Plano de campanha, funil e copy em tarefas chamam o servidor (openai-chat ou openrouter-chat). A chave OpenAI acima é lida no servidor; use OpenRouter se preferir.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="dark:text-white">Provedor</Label>
+                    <Select value={projectsAiProvider} onValueChange={setProjectsAiProvider}>
+                      <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                        <SelectItem value="openai" className="dark:text-white dark:hover:bg-gray-600">OpenAI (chave salva acima)</SelectItem>
+                        <SelectItem value="openrouter" className="dark:text-white dark:hover:bg-gray-600">OpenRouter</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {projectsAiProvider === 'openrouter' && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="or-model" className="dark:text-white">Modelo OpenRouter</Label>
+                        <Input
+                          id="or-model"
+                          value={projectsOpenRouterModel}
+                          onChange={(e) => setProjectsOpenRouterModel(e.target.value)}
+                          placeholder="openai/gpt-4o-mini"
+                          className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Ex.: openai/gpt-4o-mini, anthropic/claude-3.5-sonnet, etc.</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="or-key" className="dark:text-white">Chave API OpenRouter</Label>
+                        {savedOpenRouterPreview ? (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Chave salva: <code className="font-mono">{savedOpenRouterPreview}</code> — cole uma nova abaixo para substituir.
+                          </p>
+                        ) : null}
+                        <Input
+                          id="or-key"
+                          type="password"
+                          autoComplete="off"
+                          value={openrouterKeyInput}
+                          onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+                          placeholder="sk-or-..."
+                          className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                        />
+                      </div>
+                    </>
+                  )}
+                  <Button
+                    type="button"
+                    className="w-full"
+                    onClick={handleSaveProjectsAiSettings}
+                    disabled={isSavingProjectsAi}
+                  >
+                    {isSavingProjectsAi ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Salvar configuração de IA (campanhas)
+                  </Button>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    É necessário fazer deploy das Edge Functions <code className="text-xs">openai-chat</code> e <code className="text-xs">openrouter-chat</code> no Supabase.
+                  </p>
                 </CardContent>
               </Card>
             )}

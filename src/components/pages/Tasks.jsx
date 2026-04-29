@@ -18,7 +18,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import CalendarView from '@/components/tasks/CalendarView';
     import TimeTrackingSettings from '@/components/tasks/TimeTrackingSettings';
     import { useDataCache } from '@/hooks/useDataCache';
-import { executeAutomation } from '@/lib/workflow';
+import {
+  executeAutomation,
+  runDueDateArrivedAutomations,
+  getAutomationErrorMessages,
+} from '@/lib/workflow';
 
     const Tasks = () => {
       const [tasks, setTasks] = useState([]);
@@ -151,6 +155,7 @@ import { executeAutomation } from '@/lib/workflow';
           setClients(dataToCache.clients);
           setProjects(dataToCache.projects);
           setUsers(dataToCache.users);
+          await runDueDateArrivedAutomations(dataToCache.tasks);
         }
         setLoading(false);
       }, [toast, fetchStatusOptions, fetchScheduleData, user, userRole, tasksAccessLevel, setCachedData]);
@@ -179,6 +184,7 @@ import { executeAutomation } from '@/lib/workflow';
           // Não usa statusOptions do cache, pois já foi atualizado no useEffect acima
           setLoading(false);
           hasFetchedRef.current = true;
+          void runDueDateArrivedAutomations(cachedData.tasks || []);
           return;
         }
 
@@ -381,10 +387,21 @@ import { executeAutomation } from '@/lib/workflow';
         const { subtasks, ...restOfTaskData } = taskData;
         const dataToSave = { ...restOfTaskData, owner_id: user.id };
 
+        const dueRaw = dataToSave.due_date;
+        if (dueRaw == null || String(dueRaw).trim() === '') {
+          toast({
+            title: 'Data de entrega obrigatória',
+            description: 'Selecione a data de entrega antes de salvar a tarefa.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+
         if (dataToSave.due_date === '') dataToSave.due_date = null;
         if (dataToSave.post_date === '') dataToSave.post_date = null;
         if (dataToSave.client_id === '') dataToSave.client_id = null;
         if (dataToSave.project_id === '') dataToSave.project_id = null;
+        if (dataToSave.plataforma === '' || dataToSave.plataforma == null) dataToSave.plataforma = null;
         
         if (isNew) {
           dataToSave.status_history = [
@@ -399,18 +416,18 @@ import { executeAutomation } from '@/lib/workflow';
           const { data: newTask, error } = await supabase.from('tarefas').insert(dataToSave).select().single();
           if (error) {
             toast({ title: "Erro ao criar tarefa", description: error.message, variant: "destructive" });
-          } else {
-            toast({ title: "Tarefa criada!" });
-            setCachedData(null); // Limpa cache para forçar refresh
-            setTasks(prev => [...prev, newTask]);
-            // Executa automações para nova tarefa
-            try {
-              await executeAutomation(newTask.id, 'task_created', { task: newTask });
-            } catch (err) {
-              console.error('Error executing automation for new task:', err);
-            }
-            navigate(`/tasks/${activeTab}`);
+            return false;
           }
+          toast({ title: "Tarefa criada!" });
+          setCachedData(null); // Limpa cache para forçar refresh
+          setTasks(prev => [...prev, newTask]);
+          try {
+            await executeAutomation(newTask.id, 'task_created', { task: newTask });
+          } catch (err) {
+            console.error('Error executing automation for new task:', err);
+          }
+          navigate(`/tasks/${activeTab}`);
+          return true;
         } else {
           delete dataToSave.clientes;
           delete dataToSave.projetos;
@@ -418,7 +435,7 @@ import { executeAutomation } from '@/lib/workflow';
           const { data: oldData, error: fetchError } = await supabase.from('tarefas').select('status, time_logs, status_history, assignee_ids').eq('id', taskData.id).single();
           if (fetchError) {
             toast({ title: "Erro ao buscar tarefa antiga", description: fetchError.message, variant: "destructive" });
-            return;
+            return false;
           }
 
           if (oldData.status !== dataToSave.status || JSON.stringify(oldData.assignee_ids) !== JSON.stringify(dataToSave.assignee_ids)) {
@@ -434,50 +451,48 @@ import { executeAutomation } from '@/lib/workflow';
           const { data: updatedTask, error: updateError } = await supabase.from('tarefas').update(dataToSave).eq('id', taskData.id).select().single();
           if (updateError) {
             toast({ title: "Erro ao atualizar tarefa", description: updateError.message, variant: "destructive" });
-          } else {
-            toast({ title: "Tarefa atualizada!" });
-            setCachedData(null); // Limpa cache para forçar refresh
-            setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
-            if (oldData.status !== updatedTask.status) {
-              // Executa automações para mudança de status
-              const eventData = { old_status: oldData.status, new_status: updatedTask.status };
-              const automationStart = performance.now();
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:437',message:'Starting automation (form save)',data:{taskId:updatedTask.id,eventData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-              // #endregion
-              try {
-                const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
-                const automationTime = performance.now() - automationStart;
-                
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:441',message:'Automation completed (form save)',data:{taskId:updatedTask.id,automationTime:automationTime.toFixed(2),success:result?.success,hasResults:!!result?.results?.length,willReload:result?.success&&result.results?.some(r=>r.result?.updatedTask)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
-                // #endregion
-                
-                // Se a automação executou com sucesso, atualiza a UI
-                if (result?.success && result.results?.length > 0) {
-                  const updatedTaskFromAutomation = result.results.find(r => r.result?.updatedTask)?.result?.updatedTask;
-                  if (updatedTaskFromAutomation) {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:443',message:'Updating UI optimistically (form save)',data:{taskId:updatedTask.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'O'})}).catch(()=>{});
-                    // #endregion
-                    setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTaskFromAutomation } : t));
-                  } else {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:447',message:'Reloading data after automation (form save)',data:{taskId:updatedTask.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-                    // #endregion
-                    fetchData();
-                  }
-                }
-              } catch (err) {
-                const automationTime = performance.now() - automationStart;
-                console.error('Error executing automation for status change:', err);
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:447',message:'Automation error (form save)',data:{taskId:updatedTask.id,error:err.message,automationTime:automationTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-                // #endregion
-              }
-            }
-            navigate(`/tasks/${activeTab}`);
+            return false;
           }
+          toast({ title: "Tarefa atualizada!" });
+          setCachedData(null); // Limpa cache para forçar refresh
+          setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+          if (oldData.status !== updatedTask.status) {
+            const eventData = { old_status: oldData.status, new_status: updatedTask.status };
+            try {
+              const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
+              const errMsgs = getAutomationErrorMessages(result);
+              if (errMsgs.length > 0) {
+                toast({
+                  title: 'Automação',
+                  description: errMsgs[0],
+                  variant: 'destructive',
+                });
+              } else {
+                const updatedTaskFromAutomation = result?.results?.find(
+                  (r) => r.result?.updatedTask
+                )?.result?.updatedTask;
+                if (updatedTaskFromAutomation) {
+                  setTasks((prev) =>
+                    prev.map((t) =>
+                      t.id === updatedTask.id ? { ...t, ...updatedTaskFromAutomation } : t
+                    )
+                  );
+                }
+              }
+            } catch (err) {
+              console.error('Error executing automation for status change:', err);
+              toast({
+                title: 'Automação',
+                description: err?.message || String(err),
+                variant: 'destructive',
+              });
+            } finally {
+              setCachedData(null);
+              await fetchData();
+            }
+          }
+          navigate(`/tasks/${activeTab}`);
+          return true;
         }
       };
 
@@ -489,6 +504,7 @@ import { executeAutomation } from '@/lib/workflow';
           toast({ title: "Tarefa removida" });
           setCachedData(null); // Limpa cache para forçar refresh
           setTasks(prev => prev.filter(t => t.id !== taskId));
+          setScheduleTasks(prev => prev.filter(t => t.id !== taskId));
           navigate(`/tasks/${activeTab}`);
         }
       };
@@ -589,48 +605,37 @@ import { executeAutomation } from '@/lib/workflow';
             );
             
             if (oldData.status !== newStatus) {
-                // Executa automações para mudança de status
                 const eventData = { old_status: oldData.status, new_status: newStatus };
-                const automationStart = performance.now();
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:562',message:'Starting automation (drag-drop)',data:{taskId,eventData},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-                // #endregion
                 try {
                   const result = await executeAutomation(taskId, 'status_change', eventData);
-                  const automationTime = performance.now() - automationStart;
-                  
-                  // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:566',message:'Automation completed (drag-drop)',data:{taskId,automationTime:automationTime.toFixed(2),success:result?.success,hasResults:!!result?.results?.length,willReload:result?.success&&result.results?.some(r=>r.result?.updatedTask)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
-                  // #endregion
-                  
-                  // Se a automação executou com sucesso, atualiza a UI
-                  // Isso garante que mudanças de assignee_ids ou outras atualizações sejam refletidas
-                  if (result?.success && result.results?.length > 0) {
-                    // Atualização otimista: se temos a tarefa atualizada, usa ela diretamente
-                    const updatedTask = result.results.find(r => r.result?.updatedTask)?.result?.updatedTask;
-                    if (updatedTask) {
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:570',message:'Updating UI optimistically',data:{taskId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'O'})}).catch(()=>{});
-                      // #endregion
-                      setTasks(currentTasks => 
-                        currentTasks.map(task => 
-                          task.id === taskId ? { ...task, ...updatedTask } : task
+                  const errMsgs = getAutomationErrorMessages(result);
+                  if (errMsgs.length > 0) {
+                    toast({
+                      title: 'Automação',
+                      description: errMsgs[0],
+                      variant: 'destructive',
+                    });
+                  } else {
+                    const merged = result?.results?.find((r) => r.result?.updatedTask)?.result
+                      ?.updatedTask;
+                    if (merged) {
+                      setTasks((currentTasks) =>
+                        currentTasks.map((task) =>
+                          task.id === taskId ? { ...task, ...merged } : task
                         )
                       );
-                    } else {
-                      // Se não temos a tarefa atualizada, recarrega os dados
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:577',message:'Reloading data after automation',data:{taskId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-                      // #endregion
-                      fetchData();
                     }
                   }
                 } catch (err) {
-                  const automationTime = performance.now() - automationStart;
                   console.error('Error executing automation for status change:', err);
-                  // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/72aa0069-2fbf-413e-a858-b1b419cc5e13',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Tasks.jsx:572',message:'Automation error (drag-drop)',data:{taskId,error:err.message,automationTime:automationTime.toFixed(2)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-                  // #endregion
+                  toast({
+                    title: 'Automação',
+                    description: err?.message || String(err),
+                    variant: 'destructive',
+                  });
+                } finally {
+                  setCachedData(null);
+                  await fetchData();
                 }
             }
         }
@@ -772,17 +777,36 @@ import { executeAutomation } from '@/lib/workflow';
               </TabsContent>
             ))}
              <TabsContent value="schedule" className="flex-grow mt-2 overflow-y-auto">
-              {scheduleLoading ? <p className="text-center py-10 dark:text-gray-300">Carregando agendamentos...</p> : <CalendarView tasks={filteredScheduleTasks} onOpenTask={handleOpenTask} statusOptions={statusOptions} clients={clients} showClientIndicator={scheduleClientFilter === 'all'} forcedDateType="post_date" />}
+              {scheduleLoading ? <p className="text-center py-10 dark:text-gray-300">Carregando agendamentos...</p> : (
+                <CalendarView
+                  tasks={filteredScheduleTasks}
+                  onOpenTask={handleOpenTask}
+                  onDeleteTask={(userRole === 'superadmin' || userRole === 'admin') ? handleDeleteTask : undefined}
+                  statusOptions={statusOptions}
+                  clients={clients}
+                  showClientIndicator={scheduleClientFilter === 'all'}
+                  forcedDateType="post_date"
+                />
+              )}
             </TabsContent>
              <TabsContent value="automations" className="flex-grow mt-2 overflow-y-auto">
-              {(userRole === 'superadmin' || userRole === 'admin') && <TaskAutomations statusOptions={statusOptions} users={users} />}
+              {(userRole === 'superadmin' || userRole === 'admin') && (
+                <TaskAutomations
+                  statusOptions={statusOptions}
+                  users={users}
+                  onTasksMutated={async () => {
+                    setCachedData(null);
+                    await fetchData();
+                  }}
+                />
+              )}
             </TabsContent>
           </Tabs>
 
           <AnimatePresence>
             {(selectedTask || isNewTask) && (
               <TaskDetail
-                task={selectedTask || { title: '', description: '', status: statusOptions.length > 0 ? statusOptions[0].value : 'todo', client_id: '', project_id: '', assignee_ids: userRole === 'colaborador' ? [user.id] : [], due_date: '', post_date: '', type: '', time_logs: [], status_history: [] }}
+                task={selectedTask || { title: '', description: '', status: statusOptions.length > 0 ? statusOptions[0].value : 'todo', client_id: '', project_id: '', assignee_ids: userRole === 'colaborador' ? [user.id] : [], due_date: '', post_date: '', type: '', plataforma: '', time_logs: [], status_history: [] }}
                 onClose={handleCloseTask}
                 onSave={handleSaveTask}
                 onDelete={handleDeleteTask}
@@ -791,6 +815,7 @@ import { executeAutomation } from '@/lib/workflow';
                 users={users}
                 statusOptions={statusOptions}
                 userRole={userRole}
+                requireDueDate
               />
             )}
           </AnimatePresence>

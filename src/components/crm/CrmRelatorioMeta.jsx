@@ -6,42 +6,252 @@ import { Calendar } from '@/components/ui/calendar';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Users, DollarSign, TrendingUp, Calendar as CalendarIcon, Loader2, RefreshCw, ExternalLink, ImageOff, ChevronDown, ChevronRight } from 'lucide-react';
+import { isMetaAdsContactForStats, isMetaAdsLeadForStats } from '@/lib/contactFromWebhookPayload';
+import { getPhoneVariations } from '@/lib/leadUtils';
+
+/** Mesmo critério da página Contatos: última mensagem / interação para o filtro de período. */
+const MESSAGE_DATE_FIELD_LAST = 'ultima';
+
+const SUPABASE_PAGE_SIZE = 1000;
+
+const CONTACT_SELECT_META =
+  'id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data';
+
+const LEAD_SELECT_META =
+  'id, nome, whatsapp, origem, status, valor, tracking_data, data_entrada, created_at, updated_at, ultima_interacao, utm_source, utm_medium, utm_campaign, utm_content, utm_term, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome)';
+
+async function fetchAllClienteWhatsappContactsForMeta(supabase, clienteId) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('cliente_whatsapp_contact')
+      .select(CONTACT_SELECT_META)
+      .eq('cliente_id', clienteId)
+      .order('last_message_at', { ascending: false })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+    if (from > 200000) break;
+  }
+  return all;
+}
+
+async function fetchAllLeadsForMeta(supabase, clienteId) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('leads')
+      .select(LEAD_SELECT_META)
+      .eq('cliente_id', clienteId)
+      .order('updated_at', { ascending: false })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+    if (from > 200000) break;
+  }
+  return all;
+}
+
+function computeLeadsOnlyInFunnelFromContacts(allContacts, allLeads) {
+  const contactPhones = new Set();
+  allContacts.forEach((c) => {
+    const raw = (c.phone || '').trim() || (c.from_jid || '').replace(/@.*$/, '').trim();
+    getPhoneVariations(raw).forEach((v) => contactPhones.add(v));
+  });
+  return allLeads.filter((l) => {
+    const variations = getPhoneVariations(l.whatsapp || '');
+    return !variations.some((v) => contactPhones.has(v));
+  });
+}
+
+function leadFirstSeenIso(l) {
+  if (l.data_entrada != null && l.data_entrada !== '') {
+    const raw = String(l.data_entrada).split('T')[0];
+    const parts = raw.split('-').map(Number);
+    if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
+      const [y, m, d] = parts;
+      return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+    }
+  }
+  return l.created_at || null;
+}
+
+function leadLastMessageIso(l) {
+  return l.ultima_interacao || l.updated_at || l.created_at || null;
+}
+
+function messageTimestampToMs(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split('-').map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+  }
+  const parsed = parseISO(raw);
+  if (isValid(parsed)) return parsed.getTime();
+  const fb = new Date(raw);
+  const t = fb.getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function rowInMessageDateRange(row, dateFieldMode, dateFromStr, dateToStr) {
+  const fromT = dateFromStr ? String(dateFromStr).trim() : '';
+  const toT = dateToStr ? String(dateToStr).trim() : '';
+  if (!fromT && !toT) return true;
+  const rawField = dateFieldMode === MESSAGE_DATE_FIELD_LAST ? row.last_message_at : row.first_seen_at;
+  const rowMs = messageTimestampToMs(rawField);
+  if (rowMs == null || Number.isNaN(rowMs)) return false;
+  if (fromT) {
+    const p = fromT.split('-').map(Number);
+    if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return false;
+    const [y, m, d] = p;
+    const fromStart = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    if (rowMs < fromStart) return false;
+  }
+  if (toT) {
+    const p = toT.split('-').map(Number);
+    if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return false;
+    const [y, m, d] = p;
+    const toEnd = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+    if (rowMs > toEnd) return false;
+  }
+  return true;
+}
+
+function findLinkedMetaLeadForContact(contact, metaLeads) {
+  const raw = (contact.phone || '').trim() || (contact.from_jid || '').replace(/@.*$/, '').trim();
+  const cVars = new Set(getPhoneVariations(raw));
+  for (const l of metaLeads) {
+    for (const v of getPhoneVariations(l.whatsapp || '')) {
+      if (cVars.has(v)) return l;
+    }
+  }
+  return null;
+}
+
+/** Linha do relatório: mesmo conjunto da aba Contatos (filtro Meta + última mensagem no período). */
+function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
+  const onlyFunnel = computeLeadsOnlyInFunnelFromContacts(allContacts, allLeads);
+  const metaLeads = allLeads.filter(isMetaAdsLeadForStats);
+
+  const metaContactsInRange = allContacts.filter(isMetaAdsContactForStats).filter((c) =>
+    rowInMessageDateRange(c, MESSAGE_DATE_FIELD_LAST, dateFromStr, dateToStr)
+  );
+
+  const funnelMetaInRange = onlyFunnel.filter(isMetaAdsLeadForStats).filter((l) =>
+    rowInMessageDateRange(
+      { first_seen_at: leadFirstSeenIso(l), last_message_at: leadLastMessageIso(l) },
+      MESSAGE_DATE_FIELD_LAST,
+      dateFromStr,
+      dateToStr
+    )
+  );
+
+  const fromContacts = metaContactsInRange.map((c) => {
+    const linked = findLinkedMetaLeadForContact(c, metaLeads);
+    const preferContactTracking =
+      c.tracking_data && typeof c.tracking_data === 'object' && Object.keys(c.tracking_data).length > 0;
+    const tracking_data = preferContactTracking ? c.tracking_data : linked?.tracking_data ?? null;
+    return {
+      rowKey: `cw-${c.id}`,
+      id: linked?.id ?? `cw-${c.id}`,
+      nome: c.sender_name || linked?.nome || null,
+      whatsapp: c.phone || linked?.whatsapp || null,
+      data_entrada: linked?.data_entrada ?? c.first_seen_at,
+      status: linked?.status ?? null,
+      valor: linked?.valor ?? null,
+      utm_source: c.utm_source ?? linked?.utm_source ?? null,
+      utm_medium: c.utm_medium ?? linked?.utm_medium ?? null,
+      utm_campaign: c.utm_campaign ?? linked?.utm_campaign ?? null,
+      utm_content: c.utm_content ?? linked?.utm_content ?? null,
+      utm_term: c.utm_term ?? linked?.utm_term ?? null,
+      tracking_data,
+      origem: linked?.origem ?? null,
+      pipeline: linked?.pipeline,
+      stage: linked?.stage,
+      _enrichTarget: { type: 'contact', id: c.id },
+      _detailLead: linked || null,
+    };
+  });
+
+  const fromFunnel = funnelMetaInRange.map((l) => ({
+    rowKey: `lead-${l.id}`,
+    id: l.id,
+    nome: l.nome,
+    whatsapp: l.whatsapp,
+    data_entrada: l.data_entrada,
+    status: l.status,
+    valor: l.valor,
+    utm_source: l.utm_source,
+    utm_medium: l.utm_medium,
+    utm_campaign: l.utm_campaign,
+    utm_content: l.utm_content,
+    utm_term: l.utm_term,
+    tracking_data: l.tracking_data,
+    origem: l.origem,
+    pipeline: l.pipeline,
+    stage: l.stage,
+    _enrichTarget: { type: 'lead', id: l.id },
+    _detailLead: l,
+  }));
+
+  return [...fromContacts, ...fromFunnel];
+}
 
 const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
-function isMetaLead(lead) {
-  if (lead?.origem === 'Meta Ads') return true;
+function getCampaignName(lead) {
+  const fromCol = lead?.utm_campaign != null && String(lead.utm_campaign).trim() !== '' ? String(lead.utm_campaign).trim() : '';
+  if (fromCol) return fromCol;
   const td = lead?.tracking_data;
   if (td && typeof td === 'object') {
-    if (td.ad_id || td.meta_lead_id || td.form_id) return true;
+    const fromMeta = td.meta_ad_details?.ad?.campaign?.name;
+    if (fromMeta) return fromMeta;
+    if (td.utm_campaign != null && String(td.utm_campaign).trim() !== '') return String(td.utm_campaign).trim();
+    if (td.campaign_name) return td.campaign_name;
   }
-  return false;
-}
-
-function getCampaignName(lead) {
-  const td = lead?.tracking_data;
-  if (!td || typeof td !== 'object') return 'Sem campanha';
-  const fromMeta = td.meta_ad_details?.ad?.campaign?.name;
-  if (fromMeta) return fromMeta;
-  if (td.campaign_name) return td.campaign_name;
   return 'Sem campanha';
 }
 
 function getAdName(lead) {
+  const fromCol = lead?.utm_content != null && String(lead.utm_content).trim() !== '' ? String(lead.utm_content).trim() : '';
+  if (fromCol) return fromCol;
   const td = lead?.tracking_data;
-  if (!td || typeof td !== 'object') return null;
-  const fromMeta = td.meta_ad_details?.ad?.name;
-  if (fromMeta) return fromMeta;
-  if (td.ad_name) return td.ad_name;
-  return td.ad_id ? `Anúncio ${td.ad_id}` : null;
+  if (td && typeof td === 'object') {
+    const fromMeta = td.meta_ad_details?.ad?.name;
+    if (fromMeta) return fromMeta;
+    if (td.utm_content != null && String(td.utm_content).trim() !== '') return String(td.utm_content).trim();
+    if (td.ad_name) return td.ad_name;
+    if (td.ad_id) return `Anúncio ${td.ad_id}`;
+  }
+  return null;
 }
 
 function getAdId(lead) {
   const td = lead?.tracking_data;
-  return (td && typeof td === 'object' && td.ad_id) ? td.ad_id : null;
+  if (!td || typeof td !== 'object') return null;
+  if (td.ad_id != null && String(td.ad_id).trim() !== '') return String(td.ad_id).trim();
+  if (td.source_id != null && String(td.source_id).trim() !== '') return String(td.source_id).trim();
+  return null;
 }
 
 function getAdThumbnailUrl(lead) {
@@ -49,14 +259,55 @@ function getAdThumbnailUrl(lead) {
   return (url && typeof url === 'string' && url.trim()) ? url.trim() : null;
 }
 
+/** URL do anúncio no Meta (webhook), mesma usada em rastreamento — root ou último evento em events_by_date. */
+function getMetaAdSourceUrlFromRow(row) {
+  const td = row?.tracking_data;
+  if (!td || typeof td !== 'object') return null;
+  const root = td.sourceURL ?? td.source_url;
+  if (root != null && String(root).trim() !== '') return String(root).trim();
+  const events = Array.isArray(td.events_by_date) ? [...td.events_by_date] : [];
+  events.sort((a, b) => (b?.received_at || '').localeCompare(a?.received_at || ''));
+  for (const ev of events) {
+    if (!ev || typeof ev !== 'object') continue;
+    const u = ev.sourceURL ?? ev.source_url;
+    if (u != null && String(u).trim() !== '') return String(u).trim();
+    const nested = ev.tracking_data;
+    if (nested && typeof nested === 'object') {
+      const u2 = nested.sourceURL ?? nested.source_url;
+      if (u2 != null && String(u2).trim() !== '') return String(u2).trim();
+    }
+  }
+  return null;
+}
+
+function sanitizeHttpUrl(raw) {
+  if (raw == null || typeof raw !== 'string') return null;
+  const t = raw.trim();
+  if (!t) return null;
+  try {
+    const u = new URL(t);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
 function isVenda(lead) {
   return lead?.status === 'vendeu';
 }
 
 function needsEnrichment(lead) {
+  /** Colunas na tabela leads já trazem campanha + anúncio (Meta) — não precisa da API. */
+  const camp = lead?.utm_campaign != null && String(lead.utm_campaign).trim() !== '';
+  const adCol = lead?.utm_content != null && String(lead.utm_content).trim() !== '';
+  if (camp && adCol) return false;
   const td = lead?.tracking_data;
   if (!td || typeof td !== 'object') return false;
-  if (!td.ad_id) return false;
+  const hasAdKey =
+    (td.ad_id != null && String(td.ad_id).trim() !== '') ||
+    (td.source_id != null && String(td.source_id).trim() !== '');
+  if (!hasAdKey) return false;
   return !td.meta_ad_details?.ad;
 }
 
@@ -96,47 +347,53 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
     const now = new Date();
     return { from: startOfMonth(now), to: endOfMonth(now) };
   });
-  const [leads, setLeads] = useState([]);
+  useEffect(() => {
+    autoEnrichDoneRef.current = false;
+  }, [effectiveClienteId, dateRange?.from, dateRange?.to]);
+  const [reportRows, setReportRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
-  const [expandedLeadId, setExpandedLeadId] = useState(null);
+  const [expandedRowKey, setExpandedRowKey] = useState(null);
 
-  const fetchLeads = useCallback(async () => {
+  /**
+   * Mesmo conjunto da aba Contatos (origem Meta): contatos WhatsApp + leads só no funil.
+   * Período: última mensagem / interação (não só data_entrada do lead).
+   */
+  const fetchReportRows = useCallback(async () => {
     if (!effectiveClienteId) {
-      setLeads([]);
+      setReportRows([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      let q = supabase
-        .from('leads')
-        .select('id, nome, whatsapp, data_entrada, status, valor, tracking_data, origem')
-        .eq('cliente_id', effectiveClienteId);
+      const [allContacts, allLeads] = await Promise.all([
+        fetchAllClienteWhatsappContactsForMeta(supabase, effectiveClienteId),
+        fetchAllLeadsForMeta(supabase, effectiveClienteId),
+      ]);
+      let dateFromStr = '';
+      let dateToStr = '';
       if (dateRange?.from) {
-        const fromStr = format(dateRange.from, 'yyyy-MM-dd');
-        const toStr = dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : fromStr;
-        q = q.gte('data_entrada', fromStr).lte('data_entrada', toStr);
+        dateFromStr = format(dateRange.from, 'yyyy-MM-dd');
+        dateToStr = dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : dateFromStr;
       }
-      const { data, error } = await q;
-      if (error) throw error;
-      const list = (data || []).filter(isMetaLead);
-      setLeads(list);
+      const rows = buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr);
+      setReportRows(rows);
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Erro ao carregar leads', description: e?.message });
-      setLeads([]);
+      toast({ variant: 'destructive', title: 'Erro ao carregar relatório Meta', description: e?.message });
+      setReportRows([]);
     } finally {
       setLoading(false);
     }
   }, [effectiveClienteId, dateRange?.from, dateRange?.to, toast]);
 
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+    void fetchReportRows();
+  }, [fetchReportRows]);
 
   const byCampaign = useMemo(() => {
     const map = new Map();
-    leads.forEach((l) => {
+    reportRows.forEach((l) => {
       const name = getCampaignName(l);
       if (!map.has(name)) map.set(name, { campaignName: name, leads: 0, vendas: 0, valorTotal: 0 });
       const row = map.get(name);
@@ -148,18 +405,24 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
       map.set(name, row);
     });
     return Array.from(map.values()).sort((a, b) => b.leads - a.leads);
-  }, [leads]);
+  }, [reportRows]);
 
   const byAd = useMemo(() => {
     const map = new Map();
-    leads.forEach((l) => {
-      const adId = getAdId(l) || 'sem-ad-id';
-      const adName = getAdName(l) || adId;
+    reportRows.forEach((l) => {
+      const adIdRaw = getAdId(l);
+      const adName = getAdName(l) || (adIdRaw ? `Anúncio ${adIdRaw}` : 'Sem anúncio');
       const campaignName = getCampaignName(l);
-      const key = adId;
-      if (!map.has(key)) map.set(key, { adId, adName, campaignName, thumbnailUrl: null, leads: 0, vendas: 0, valorTotal: 0 });
+      /** Agrupa por ad_id quando existir; senão por campanha + nome (evita fundir anúncios homônimos). */
+      const key = adIdRaw || `name:${campaignName}::${adName}`;
+      if (!map.has(key)) map.set(key, { adId: adIdRaw || key, adName, campaignName, thumbnailUrl: null, sourceUrl: null, leads: 0, vendas: 0, valorTotal: 0 });
       const row = map.get(key);
       if (!row.thumbnailUrl) row.thumbnailUrl = getAdThumbnailUrl(l);
+      if (!row.sourceUrl) {
+        const rawUrl = getMetaAdSourceUrlFromRow(l);
+        const safe = sanitizeHttpUrl(rawUrl);
+        if (safe) row.sourceUrl = safe;
+      }
       row.leads += 1;
       if (isVenda(l)) {
         row.vendas += 1;
@@ -168,20 +431,20 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
       map.set(key, row);
     });
     return Array.from(map.values()).sort((a, b) => b.leads - a.leads);
-  }, [leads]);
+  }, [reportRows]);
 
   const summary = useMemo(() => {
-    const totalLeads = leads.length;
-    const vendas = leads.filter(isVenda).length;
-    const valorTotal = leads.filter(isVenda).reduce((s, l) => s + (Number(l.valor) || 0), 0);
+    const totalLeads = reportRows.length;
+    const vendas = reportRows.filter(isVenda).length;
+    const valorTotal = reportRows.filter(isVenda).reduce((s, l) => s + (Number(l.valor) || 0), 0);
     return { totalLeads, vendas, valorTotal };
-  }, [leads]);
+  }, [reportRows]);
 
-  const toEnrich = useMemo(() => leads.filter(needsEnrichment), [leads]);
+  const toEnrich = useMemo(() => reportRows.filter(needsEnrichment), [reportRows]);
   const hasEnrichable = toEnrich.length > 0;
 
   const runEnrich = useCallback(async () => {
-    if (!hasEnrichable) return;
+    if (!hasEnrichable || !effectiveClienteId) return;
     setEnriching(true);
     const BATCH = 5;
     let updated = 0;
@@ -189,39 +452,49 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
       for (let i = 0; i < toEnrich.length; i += BATCH) {
         const batch = toEnrich.slice(i, i + BATCH);
         await Promise.all(
-          batch.map(async (lead) => {
-            const adId = getAdId(lead);
+          batch.map(async (row) => {
+            const adId = getAdId(row);
             if (!adId) return;
             const { data, error: fnError } = await supabase.functions.invoke('meta-ads-api', {
               body: { action: 'get-ad-by-id', adId },
             });
             if (fnError || data?.error) return;
             if (!data?.ad) return;
-            const prev = (lead.tracking_data && typeof lead.tracking_data === 'object') ? lead.tracking_data : {};
+            const prev = (row.tracking_data && typeof row.tracking_data === 'object') ? row.tracking_data : {};
             const metaEntry = { accountName: data.accountName ?? null, ad: data.ad, fetched_at: new Date().toISOString() };
             const history = [...(Array.isArray(prev.meta_ad_details_history) ? prev.meta_ad_details_history : []), { fetched_at: metaEntry.fetched_at, accountName: data.accountName, ad: data.ad }].slice(-30);
             const nextTracking = { ...prev, meta_ad_details: metaEntry, meta_ad_details_history: history };
-            const { error: upErr } = await supabase.from('leads').update({ tracking_data: nextTracking }).eq('id', lead.id);
-            if (!upErr) updated += 1;
+            const target = row._enrichTarget;
+            if (target?.type === 'contact') {
+              const { error: upErr } = await supabase
+                .from('cliente_whatsapp_contact')
+                .update({ tracking_data: nextTracking, updated_at: new Date().toISOString() })
+                .eq('id', target.id)
+                .eq('cliente_id', effectiveClienteId);
+              if (!upErr) updated += 1;
+            } else if (target?.type === 'lead') {
+              const { error: upErr } = await supabase.from('leads').update({ tracking_data: nextTracking }).eq('id', target.id);
+              if (!upErr) updated += 1;
+            }
           })
         );
       }
-      toast({ title: 'Dados do Meta atualizados', description: `${updated} lead(s) enriquecidos com campanha e anúncio.` });
-      await fetchLeads();
+      toast({ title: 'Dados do Meta atualizados', description: `${updated} registro(s) enriquecidos com campanha e anúncio.` });
+      await fetchReportRows();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Erro ao atualizar', description: e?.message });
     } finally {
       setEnriching(false);
     }
-  }, [toEnrich, hasEnrichable, fetchLeads, toast]);
+  }, [toEnrich, hasEnrichable, fetchReportRows, toast, effectiveClienteId]);
 
   useEffect(() => {
-    if (loading || leads.length === 0) return;
-    const needEnrich = leads.filter(needsEnrichment);
+    if (loading || reportRows.length === 0) return;
+    const needEnrich = reportRows.filter(needsEnrichment);
     if (needEnrich.length === 0 || autoEnrichDoneRef.current) return;
     autoEnrichDoneRef.current = true;
     runEnrich();
-  }, [loading, leads, runEnrich]);
+  }, [loading, reportRows, runEnrich]);
 
   const renderTrackingInfo = (lead) => {
     const td = lead?.tracking_data;
@@ -338,6 +611,10 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                 : format(dateRange.from, "dd 'de' MMM. yyyy", { locale: ptBR })
               : 'Todos os períodos'}
           </p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            Mesma base da aba Contatos (origem Meta): contatos WhatsApp e leads só no funil. O período filtra pela{' '}
+            <span className="font-medium text-foreground/90">última mensagem</span> ou interação.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Popover>
@@ -368,11 +645,11 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
               if (!hasEnrichable) {
                 toast({
                   title: 'Carregar dados do Meta',
-                  description: toEnrich.length === 0 && leads.length > 0
-                    ? 'Todos os leads do Meta já possuem campanha e anúncio preenchidos.'
-                    : leads.length === 0
-                      ? 'Não há leads do Meta no período para enriquecer.'
-                      : 'Nenhum lead com ad_id pendente de rastreamento. Os dados já estão atualizados.',
+                  description: toEnrich.length === 0 && reportRows.length > 0
+                    ? 'Todos os registros do Meta já possuem campanha e anúncio preenchidos.'
+                    : reportRows.length === 0
+                      ? 'Não há linhas Meta no período para enriquecer.'
+                      : 'Nenhum registro com anúncio pendente de rastreamento. Os dados já estão atualizados.',
                 });
                 return;
               }
@@ -471,11 +748,37 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                   <tr key={row.adId} className="border-b last:border-0">
                     <td className="p-3 w-14 align-middle">
                       {row.thumbnailUrl ? (
-                        <img
-                          src={row.thumbnailUrl}
-                          alt=""
-                          className="h-10 w-10 rounded object-cover border border-border"
-                        />
+                        row.sourceUrl ? (
+                          <a
+                            href={row.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir anúncio (link do lead)"
+                            className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+                          >
+                            <img
+                              src={row.thumbnailUrl}
+                              alt=""
+                              className="h-10 w-10 rounded object-cover border border-border hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                        ) : (
+                          <img
+                            src={row.thumbnailUrl}
+                            alt=""
+                            className="h-10 w-10 rounded object-cover border border-border"
+                          />
+                        )
+                      ) : row.sourceUrl ? (
+                        <a
+                          href={row.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Abrir anúncio (link do lead)"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded border border-border bg-muted/50 text-primary hover:bg-muted transition-colors"
+                        >
+                          <ExternalLink className="h-5 w-5" />
+                        </a>
                       ) : (
                         <span className="inline-flex h-10 w-10 items-center justify-center rounded border border-border bg-muted/50 text-muted-foreground" title="Sem miniatura">
                           <ImageOff className="h-5 w-5" />
@@ -496,7 +799,7 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
       </div>
 
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Leads do Meta</h2>
+        <h2 className="text-lg font-semibold">Leads do Meta (Contatos + funil)</h2>
         <div className="rounded-md border overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -513,47 +816,65 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
               </tr>
             </thead>
             <tbody>
-              {leads.length === 0 ? (
-                <tr><td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 text-center text-muted-foreground">Nenhum lead do Meta no período.</td></tr>
+              {reportRows.length === 0 ? (
+                <tr><td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 text-center text-muted-foreground">Nenhuma linha Meta no período (igual ao filtro da aba Contatos).</td></tr>
               ) : (
-                leads.map((l) => (
-                  <React.Fragment key={l.id}>
-                    <tr className="border-b last:border-0">
-                      <td className="p-3 align-middle">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() => setExpandedLeadId((prev) => (prev === l.id ? null : l.id))}
-                          title={expandedLeadId === l.id ? 'Ocultar rastreamento' : 'Ver rastreamento'}
-                        >
-                          {expandedLeadId === l.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </Button>
-                      </td>
-                      <td className="p-3">{l.nome || '—'}</td>
-                      <td className="p-3 font-mono text-xs">{l.whatsapp || '—'}</td>
-                      <td className="p-3">{l.data_entrada ? format(new Date(l.data_entrada), 'dd/MM/yyyy', { locale: ptBR }) : '—'}</td>
-                      <td className="p-3">{getCampaignName(l)}</td>
-                      <td className="p-3">{getAdName(l) || '—'}</td>
-                      <td className="p-3">{l.status || '—'}</td>
-                      <td className="p-3 text-right tabular-nums">{formatCurrency(l.valor)}</td>
-                      {onShowLeadDetail && (
-                        <td className="p-3">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onShowLeadDetail(l)} title="Ver lead">
-                            <ExternalLink className="h-4 w-4" />
+                reportRows.map((l) => {
+                  const entradaLabel = (() => {
+                    if (!l.data_entrada) return '—';
+                    try {
+                      const d = new Date(l.data_entrada);
+                      return Number.isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yyyy', { locale: ptBR });
+                    } catch {
+                      return '—';
+                    }
+                  })();
+                  const etapaLabel = (l.stage && l.stage.nome) || l.status || '—';
+                  return (
+                    <React.Fragment key={l.rowKey}>
+                      <tr className="border-b last:border-0">
+                        <td className="p-3 align-middle">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => setExpandedRowKey((prev) => (prev === l.rowKey ? null : l.rowKey))}
+                            title={expandedRowKey === l.rowKey ? 'Ocultar rastreamento' : 'Ver rastreamento'}
+                          >
+                            {expandedRowKey === l.rowKey ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           </Button>
                         </td>
-                      )}
-                    </tr>
-                    {expandedLeadId === l.id && (
-                      <tr className="border-b last:border-0 bg-muted/20">
-                        <td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 align-top">
-                          {renderTrackingInfo(l)}
-                        </td>
+                        <td className="p-3">{l.nome || '—'}</td>
+                        <td className="p-3 font-mono text-xs">{l.whatsapp || '—'}</td>
+                        <td className="p-3">{entradaLabel}</td>
+                        <td className="p-3">{getCampaignName(l)}</td>
+                        <td className="p-3">{getAdName(l) || '—'}</td>
+                        <td className="p-3">{etapaLabel}</td>
+                        <td className="p-3 text-right tabular-nums">{formatCurrency(l.valor)}</td>
+                        {onShowLeadDetail && (
+                          <td className="p-3">
+                            {l._detailLead ? (
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onShowLeadDetail(l._detailLead)} title="Ver lead no CRM">
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground text-xs px-1" title="Sem lead no CRM (só contato WhatsApp)">
+                                —
+                              </span>
+                            )}
+                          </td>
+                        )}
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))
+                      {expandedRowKey === l.rowKey && (
+                        <tr className="border-b last:border-0 bg-muted/20">
+                          <td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 align-top">
+                            {renderTrackingInfo(l)}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>

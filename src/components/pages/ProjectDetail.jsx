@@ -10,10 +10,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
     import CampaignPlanner from '@/components/projects/CampaignPlanner';
     import ChecklistGenerator from '@/components/projects/ChecklistGenerator';
+    import CampaignMaterialsCalendar from '@/components/projects/CampaignMaterialsCalendar';
     import ProjectReport from '@/components/projects/ProjectReport';
     import ProjectDocuments from '@/components/projects/ProjectDocuments';
     import ProjectForm from '@/components/forms/ProjectForm';
-    import SalesFunnelBuilder from '@/components/projects/SalesFunnelBuilder';
     import { AnimatePresence } from 'framer-motion';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useDataCache } from '@/hooks/useDataCache';
@@ -40,7 +40,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const { profile } = useAuth();
       const userRole = profile?.role;
 
-      const activeTab = useMemo(() => subpath?.split('/')[0] || 'report', [subpath]);
+      const activeTab = useMemo(() => {
+        const t = subpath?.split('/')[0] || 'report';
+        return t === 'funnel' ? 'report' : t;
+      }, [subpath]);
       
       // Hook de cache com chave única por projeto
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache(`project_${id}`);
@@ -116,6 +119,13 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         fetchData();
       }, [fetchData, shouldFetch, cachedData, setCachedData]);
 
+      useEffect(() => {
+        const t = subpath?.split('/')[0];
+        if (t === 'funnel') {
+          navigate(`/projects/${id}/report`, { replace: true });
+        }
+      }, [subpath, id, navigate]);
+
       const handleDeleteProject = async () => {
         const { error } = await supabase.from('projetos').delete().eq('id', id);
         if (error) {
@@ -176,21 +186,23 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           </Card>
           
           <Tabs value={activeTab} onValueChange={(value) => navigate(`/projects/${id}/${value}`)} className="w-full">
-            <TabsList className="grid w-full grid-cols-5 dark:bg-gray-800 dark:border-gray-700">
-              <TabsTrigger value="report" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Relatório</TabsTrigger>
-              <TabsTrigger value="planner" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Plano de Campanha</TabsTrigger>
-              <TabsTrigger value="funnel" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Funil de Vendas</TabsTrigger>
-              <TabsTrigger value="documents" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Documentos</TabsTrigger>
-              <TabsTrigger value="checklist" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Checklist de Tarefas</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 dark:bg-gray-800 dark:border-gray-700 gap-1 h-auto py-1">
+              <TabsTrigger value="report" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white text-xs sm:text-sm">Relatório</TabsTrigger>
+              <TabsTrigger value="planner" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white text-xs sm:text-sm">Plano de Campanha</TabsTrigger>
+              <TabsTrigger value="calendar" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white text-xs sm:text-sm">Calendário</TabsTrigger>
+              <TabsTrigger value="documents" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white text-xs sm:text-sm">Documentos</TabsTrigger>
+              <TabsTrigger value="checklist" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white text-xs sm:text-sm">Checklist</TabsTrigger>
             </TabsList>
             <TabsContent value="report" forceMount={true} className={activeTab === 'report' ? '' : 'hidden'}>
                 <ProjectReport project={project} tasks={tasks} campaignPlan={campaignPlan} />
             </TabsContent>
-             <TabsContent value="planner" forceMount={true} className={activeTab === 'planner' ? '' : 'hidden'}>
+             {/* Sem forceMount: evita CampaignPlanner montado em background sobrescrever
+                 materiais salvos no Calendário (autosave com debounce + sessionStorage). */}
+             <TabsContent value="planner" className={activeTab === 'planner' ? '' : 'hidden'}>
                 <CampaignPlanner project={project} client={client} isPage />
             </TabsContent>
-            <TabsContent value="funnel" forceMount={true} className={activeTab === 'funnel' ? '' : 'hidden'}>
-                <SalesFunnelBuilder project={project} client={client} campaignPlan={campaignPlan} onPlanUpdate={fetchData} />
+             <TabsContent value="calendar" forceMount={true} className={activeTab === 'calendar' ? '' : 'hidden'}>
+                <CampaignMaterialsCalendar project={project} client={client} onRefresh={fetchData} />
             </TabsContent>
              <TabsContent value="documents" forceMount={true} className={activeTab === 'documents' ? 'flex flex-col min-h-0 h-[calc(100vh-280px)]' : 'hidden'}>
                 <div className="flex-1 min-h-0 overflow-hidden">

@@ -116,8 +116,24 @@ serve(async (req) => {
     console.log(`✅ Usando API key de: ${sourceUsed}`);
 
     // 2. Extrai as mensagens do body da requisição
-    const requestBody = await req.json();
-    const { messages, model = 'gpt-4o', stream = true } = requestBody;
+    let requestBody = await req.json();
+    if (typeof requestBody === 'string') {
+      try {
+        requestBody = JSON.parse(requestBody);
+      } catch {
+        return new Response(JSON.stringify({ error: 'Body JSON inválido' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+    const {
+      messages,
+      model = 'gpt-4o',
+      stream = true,
+      temperature,
+      max_tokens,
+    } = requestBody;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(
@@ -131,6 +147,14 @@ serve(async (req) => {
 
     console.log(`Processando chat com ${messages.length} mensagens, modelo: ${model}`);
 
+    const openaiPayload: Record<string, unknown> = {
+      model,
+      messages,
+      stream,
+    };
+    if (temperature !== undefined) openaiPayload.temperature = temperature;
+    if (max_tokens !== undefined) openaiPayload.max_tokens = max_tokens;
+
     // 3. Chama a API da OpenAI (com ou sem streaming)
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -138,11 +162,7 @@ serve(async (req) => {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream,
-      }),
+      body: JSON.stringify(openaiPayload),
     });
 
     // 4. Verifica se a resposta da OpenAI foi bem-sucedida

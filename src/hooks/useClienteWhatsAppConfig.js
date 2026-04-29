@@ -10,7 +10,8 @@ import { useToast } from '@/components/ui/use-toast';
  * - config: primeiro canal (retrocompatibilidade)
  * - saveConfig(subdomain, token, { configId?, name? }), addConfig(subdomain, token, name?), deleteConfig(configId)
  */
-export function useClienteWhatsAppConfig() {
+export function useClienteWhatsAppConfig(options = {}) {
+  const { autoSelectFirstClient = true } = options;
   const { profile } = useAuth();
   const { toast } = useToast();
   const [configs, setConfigs] = useState([]);
@@ -41,8 +42,8 @@ export function useClienteWhatsAppConfig() {
     }
     const { data: clientes } = await supabase.from('clientes').select('id, empresa').in('id', ids).order('empresa');
     setClientesForAdmin(clientes || []);
-    if (clientes?.length && !selectedClienteId) setSelectedClienteId(clientes[0].id);
-  }, [isAdminWithoutCliente, selectedClienteId]);
+    if (autoSelectFirstClient && clientes?.length && !selectedClienteId) setSelectedClienteId(clientes[0].id);
+  }, [isAdminWithoutCliente, selectedClienteId, autoSelectFirstClient]);
 
   useEffect(() => {
     fetchClientesForAdmin();

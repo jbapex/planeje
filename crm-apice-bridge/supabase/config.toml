@@ -1,0 +1,5 @@
+# Mesclar no config.toml do projeto CRM-APICE (ou colar só este bloco).
+# O Database Webhook não envia JWT do usuário Supabase — validamos Bearer próprio.
+
+[functions.notify-planeje-lead-status]
+verify_jwt = false

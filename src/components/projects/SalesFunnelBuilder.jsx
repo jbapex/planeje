@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback } from 'react';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { invokeProjectsAiChat } from '@/lib/projectsAiCompletion';
     import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
     const CAMPAIGN_OBJECTIVES = [
@@ -138,12 +139,6 @@ import React, { useState, useEffect, useCallback } from 'react';
       }, [funnel, campaignPlan, toast, onPlanUpdate]);
 
       const generateWithAI = async (field) => {
-        const apiKey = await getOpenAIKey();
-        if (!apiKey) {
-          setShowOpenAIAlert(true);
-          return;
-        }
-
         const [stage, fieldName] = field.split('.');
         
         setIsGenerating(true);
@@ -176,29 +171,40 @@ import React, { useState, useEffect, useCallback } from 'react';
         }
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 300 })
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            if (data?.error?.code === 'insufficient_quota') {
-              toast({
-                title: "Sua cota da OpenAI esgotou!",
-                description: "Verifique seu plano e detalhes de faturamento na sua conta da OpenAI.",
-                variant: "destructive",
-                duration: 10000,
-              });
-            } else {
+          let result;
+          try {
+            result = await invokeProjectsAiChat({
+              messages: [{ role: 'user', content: prompt }],
+              openaiModel: 'gpt-4o-mini',
+              temperature: 0.7,
+              max_tokens: 300,
+            });
+          } catch (edgeErr) {
+            const apiKey = await getOpenAIKey();
+            if (!apiKey) {
+              setShowOpenAIAlert(true);
+              return;
+            }
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 300 })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+              if (data?.error?.code === 'insufficient_quota') {
+                toast({
+                  title: "Sua cota da OpenAI esgotou!",
+                  description: "Verifique seu plano e detalhes de faturamento na sua conta da OpenAI.",
+                  variant: "destructive",
+                  duration: 10000,
+                });
+                return;
+              }
               throw new Error(data?.error?.message || `API da OpenAI respondeu com status ${response.status}`);
             }
-            return;
+            result = data.choices[0].message.content.trim();
           }
-          
-          const result = data.choices[0].message.content.trim();
           
           handleFunnelChange(stage, fieldName, result);
           toast({ title: `Campo ${fieldName} gerado com sucesso!` });
@@ -266,8 +272,8 @@ import React, { useState, useEffect, useCallback } from 'react';
           <AlertDialog open={showOpenAIAlert} onOpenChange={setShowOpenAIAlert}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle><AlertTriangle className="inline mr-2 text-yellow-500" />Chave da OpenAI não encontrada</AlertDialogTitle>
-                <AlertDialogDescription>Para usar o assistente de IA, por favor, adicione sua chave da API da OpenAI na página de Configurações.</AlertDialogDescription>
+                <AlertDialogTitle><AlertTriangle className="inline mr-2 text-yellow-500" />IA não disponível</AlertDialogTitle>
+                <AlertDialogDescription>Configure OpenAI ou OpenRouter em Configurações e deploy das Edge Functions openai-chat / openrouter-chat.</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogAction onClick={() => setShowOpenAIAlert(false)}>Entendi</AlertDialogAction>
             </AlertDialogContent>

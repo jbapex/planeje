@@ -285,6 +285,66 @@ serve(async (req) => {
     raw_payload: body,
   });
 
+  // Encaminhar evento para CRM-Apice (Integrações > Webhook Genérico) quando configurado
+  try {
+    const { data: forwards, error: forwardConfigError } = await supabase
+      .from('cliente_crm_apice_forward')
+      .select('webhook_url')
+      .eq('cliente_id', clienteId)
+      .eq('enabled', true);
+    if (forwardConfigError) {
+      console.error('[apicebot-inbox-webhook] cliente_crm_apice_forward read error', forwardConfigError.message);
+    }
+    if (!forwards?.length) {
+      if (!forwardConfigError) console.log('[apicebot-inbox-webhook] Nenhum encaminhamento ativo para cliente_id=', clienteId, '- Em Canais ative "Ativar encaminhamento" e clique Salvar.');
+    } else {
+      console.log('[apicebot-inbox-webhook] Encaminhando para CRM-Apice, URLs=', forwards.length);
+      const trackingForForward = extractTrackingFromPayload(body);
+      const payload = {
+        event_type: 'planeje_whatsapp',
+        payload: {
+          source: 'apicebot',
+          from_jid: fromJid !== 'unknown' ? fromJid : null,
+          phone: phone || null,
+          sender_name: name || null,
+          body_preview: bodyPreview,
+          type: eventType,
+          created_at: msgTimestamp,
+          profile_pic_url: profilePicUrl || null,
+          imagePreview: profilePicUrl || null,
+          origin_source: trackingForForward.origin_source,
+          tracking_data: trackingForForward.tracking_data || null,
+          raw_payload: body,
+        },
+      };
+      const forwardPromises: Promise<void>[] = [];
+      for (const row of forwards) {
+        const url = row?.webhook_url?.trim();
+        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          forwardPromises.push(
+            fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+              .then(async (res) => {
+                if (res.ok) {
+                  console.log('[apicebot-inbox-webhook] forward to CRM-Apice OK', res.status);
+                } else {
+                  const text = await res.text().catch(() => '');
+                  console.error('[apicebot-inbox-webhook] forward to CRM-Apice ERRO', res.status, url.slice(0, 60), text.slice(0, 200));
+                }
+              })
+              .catch((e) => console.error('[apicebot-inbox-webhook] forward to CRM-Apice fetch failed', url.slice(0, 60), e?.message))
+          );
+        }
+      }
+      if (forwardPromises.length) await Promise.race([Promise.all(forwardPromises), new Promise((r) => setTimeout(r, 8000))]);
+    }
+  } catch (e) {
+    console.error('[apicebot-inbox-webhook] cliente_crm_apice_forward read or forward failed', e);
+  }
+
   // Só gravar na Caixa de entrada quando for mensagem com remetente
   if (fromJid && fromJid !== 'unknown') {
     const senderName = name || phone || null;
@@ -316,10 +376,16 @@ serve(async (req) => {
 
     const { data: existingContact } = await supabase
       .from('cliente_whatsapp_contact')
-      .select('tracking_data, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term')
+      .select('tracking_data, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at')
       .eq('cliente_id', clienteId)
       .eq('from_jid', fromJid)
       .maybeSingle();
+
+    const msgMs = new Date(msgTimestamp).getTime();
+    const prevFirst = existingContact?.first_seen_at ? new Date(existingContact.first_seen_at).getTime() : null;
+    const prevLast = existingContact?.last_message_at ? new Date(existingContact.last_message_at).getTime() : null;
+    const firstSeenIso = new Date(prevFirst == null ? msgMs : Math.min(prevFirst, msgMs)).toISOString();
+    const lastSeenIso = new Date(prevLast == null ? msgMs : Math.max(prevLast, msgMs)).toISOString();
 
     const existingHasTracking = existingContact?.tracking_data && typeof existingContact.tracking_data === 'object' && Object.keys(existingContact.tracking_data as object).length > 0;
     const existingRaw = existingContact?.tracking_data as Record<string, unknown> | undefined;
@@ -365,10 +431,11 @@ serve(async (req) => {
         utm_content: finalUtm.utm_content,
         utm_term: finalUtm.utm_term,
         tracking_data: finalTracking,
-        last_message_at: msgTimestamp,
+        first_seen_at: firstSeenIso,
+        last_message_at: lastSeenIso,
         updated_at: now,
       },
-      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'last_message_at', 'updated_at'] }
+      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'first_seen_at', 'last_message_at', 'updated_at'] }
     );
     if (contactError) console.error('[apicebot-inbox-webhook] Contact upsert error', contactError);
   } else {

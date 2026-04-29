@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host :: --port 3003",
     "build": "vite build",
-    "preview": "vite preview --host :: --port 3003"
+    "preview": "vite preview --host :: --port 3003",
+    "deploy:fn:crm-apice-contact-status-webhook": "supabase functions deploy crm-apice-contact-status-webhook",
+    "deploy:fn:notify-planeje-lead-status": "cd crm-apice-bridge && supabase functions deploy notify-planeje-lead-status"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.3.1",

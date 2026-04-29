@@ -19,7 +19,7 @@ import React, { useState, useEffect, useCallback } from 'react';
       const [selectedClient, setSelectedClient] = useState('all');
 
       const { toast } = useToast();
-      const { user } = useAuth();
+      const { user, profile } = useAuth();
 
       const fetchData = useCallback(async () => {
         if (!user) return;
@@ -79,11 +79,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 
         if (error) {
           toast({ title: "Erro ao salvar tarefa", description: error.message, variant: "destructive" });
-        } else {
-          toast({ title: `Tarefa ${isNew ? 'criada' : 'atualizada'}!` });
-          fetchData();
-          handleCloseTask();
+          return false;
         }
+        toast({ title: `Tarefa ${isNew ? 'criada' : 'atualizada'}!` });
+        fetchData();
+        handleCloseTask();
+        return true;
       };
 
       const handleDeleteTask = async (taskId) => {
@@ -124,6 +125,7 @@ import React, { useState, useEffect, useCallback } from 'react';
             <CalendarView
               tasks={filteredTasks}
               onOpenTask={handleOpenTask}
+              onDeleteTask={(profile?.role === 'superadmin' || profile?.role === 'admin') ? handleDeleteTask : undefined}
               statusOptions={statusOptions}
               clients={clients}
               showClientIndicator={selectedClient === 'all'}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import * as React from "react"
 
 const TOAST_LIMIT = 1
 
@@ -66,9 +66,9 @@ export const toast = ({ ...props }) => {
 }
 
 export function useToast() {
-  const [state, setState] = useState(toastStore.getState())
+  const [state, setState] = React.useState(toastStore.getState())
   
-  useEffect(() => {
+  React.useEffect(() => {
     const unsubscribe = toastStore.subscribe((state) => {
       setState(state)
     })
@@ -76,7 +76,7 @@ export function useToast() {
     return unsubscribe
   }, [])
   
-  useEffect(() => {
+  React.useEffect(() => {
     const timeouts = []
 
     state.toasts.forEach((toast) => {

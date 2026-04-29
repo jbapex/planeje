@@ -111,10 +111,20 @@ serve(async (req) => {
     console.log(`✅ Usando API key de: ${sourceUsed}`);
 
     // 2. Extrai os parâmetros do body da requisição
-    const requestBody = await req.json();
-    const { 
-      messages, 
-      model = 'openai/gpt-4o', // Modelo padrão do OpenRouter
+    let requestBody = await req.json();
+    if (typeof requestBody === 'string') {
+      try {
+        requestBody = JSON.parse(requestBody);
+      } catch {
+        return new Response(JSON.stringify({ error: 'Body JSON inválido' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+    const {
+      messages,
+      model = 'openai/gpt-4o',
       stream = true,
       temperature,
       max_tokens,

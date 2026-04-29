@@ -1,13 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 
 import { supabase } from '@/lib/customSupabaseClient';
-import { useToast } from '@/components/ui/use-toast';
+import { toast } from '@/components/ui/use-toast';
 
 const AuthContext = createContext(undefined);
 
 export const AuthProvider = ({ children }) => {
-  const { toast } = useToast();
-
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -329,7 +327,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { error };
     }
-  }, [toast]);
+  }, []);
 
   const signIn = useCallback(async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -346,7 +344,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return { error };
-  }, [toast]);
+  }, []);
 
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
@@ -360,26 +358,26 @@ export const AuthProvider = ({ children }) => {
     }
 
     return { error };
-  }, [toast]);
+  }, []);
 
   const getOpenAIKey = useCallback(async () => {
+    const ls = () => localStorage.getItem('jb_apex_openai_key')?.trim() || null;
     try {
-      // Tenta buscar do Supabase Vault via RPC
       const { data, error } = await supabase.rpc('get_encrypted_secret', {
         p_secret_name: 'OPENAI_API_KEY'
       });
 
       if (error) {
         console.error('Error fetching OpenAI key from vault:', error);
-        // Fallback para localStorage (para compatibilidade durante migração)
-        return localStorage.getItem('jb_apex_openai_key');
+        return ls();
       }
 
-      return data || null;
+      const fromDb = typeof data === 'string' ? data.trim() : '';
+      if (fromDb) return fromDb;
+      return ls();
     } catch (error) {
       console.error('Error in getOpenAIKey:', error);
-      // Fallback para localStorage (para compatibilidade durante migração)
-      return localStorage.getItem('jb_apex_openai_key');
+      return ls();
     }
   }, []);
 

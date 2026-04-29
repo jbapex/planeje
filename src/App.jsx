@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
     import { Toaster } from '@/components/ui/toaster';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
+    import { ERROR_BOUNDARY_RELOAD_FLAG } from '@/components/ErrorBoundary';
     import MainLayout from '@/components/layout/MainLayout';
 import MainLayoutCliente from '@/components/layout/MainLayoutCliente';
     import Dashboard from '@/components/pages/Dashboard';
@@ -100,6 +101,14 @@ import CrmLayout from '@/components/pages/CrmLayout';
           document.documentElement.classList.add('dark');
         } else {
           document.documentElement.classList.remove('dark');
+        }
+      }, []);
+
+      useEffect(() => {
+        try {
+          sessionStorage.removeItem(ERROR_BOUNDARY_RELOAD_FLAG);
+        } catch (_) {
+          /* ignore */
         }
       }, []);
 

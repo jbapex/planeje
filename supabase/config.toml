@@ -7,3 +7,7 @@ verify_jwt = false
 
 [functions.uazapi-inbox-webhook]
 verify_jwt = false
+
+# CRM-Apice envia Bearer com secret gerado no Planeje (Canais), não JWT do Supabase.
+[functions.crm-apice-contact-status-webhook]
+verify_jwt = false

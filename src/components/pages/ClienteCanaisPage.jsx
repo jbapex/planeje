@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio, UserPlus } from 'lucide-react';
+import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio, UserPlus, Send, XCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -95,6 +95,14 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
   const [addChannelSubdomain, setAddChannelSubdomain] = useState('');
   const [addChannelToken, setAddChannelToken] = useState('');
   const [addChannelSaving, setAddChannelSaving] = useState(false);
+  const [crmApiceForwardUrl, setCrmApiceForwardUrl] = useState('');
+  const [crmApiceForwardEnabled, setCrmApiceForwardEnabled] = useState(false);
+  const [crmApiceForwardLoading, setCrmApiceForwardLoading] = useState(false);
+  const [crmApiceForwardSaving, setCrmApiceForwardSaving] = useState(false);
+  const [crmApiceStatusSecret, setCrmApiceStatusSecret] = useState('');
+  const [crmApiceStatusSecretSaving, setCrmApiceStatusSecretSaving] = useState(false);
+  const [sendToCrmResultByLogId, setSendToCrmResultByLogId] = useState({});
+  const [sendToCrmLoadingLogId, setSendToCrmLoadingLogId] = useState(null);
   const qrRefreshIntervalRef = useRef(null);
   const qrRefreshConfigIdRef = useRef(null);
   const sseRef = useRef(null);
@@ -174,6 +182,142 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       supabase.removeChannel(channel);
     };
   }, [effectiveClienteId, fetchWebhookLogs]);
+
+  useEffect(() => {
+    if (!effectiveClienteId) {
+      setCrmApiceForwardUrl('');
+      setCrmApiceForwardEnabled(false);
+      return;
+    }
+    setCrmApiceForwardLoading(true);
+    supabase
+      .from('cliente_crm_apice_forward')
+      .select('webhook_url, enabled, status_incoming_secret')
+      .eq('cliente_id', effectiveClienteId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setCrmApiceForwardUrl(data.webhook_url || '');
+          setCrmApiceForwardEnabled(data.enabled !== false);
+          setCrmApiceStatusSecret(data.status_incoming_secret || '');
+        } else {
+          setCrmApiceForwardUrl('');
+          setCrmApiceForwardEnabled(false);
+          setCrmApiceStatusSecret('');
+        }
+      })
+      .finally(() => setCrmApiceForwardLoading(false));
+  }, [effectiveClienteId]);
+
+  const crmApiceStatusWebhookUrl = `${supabaseUrl}/functions/v1/crm-apice-contact-status-webhook`;
+
+  const generateCrmApiceStatusSecret = useCallback(async () => {
+    if (!effectiveClienteId) return;
+    const url = (crmApiceForwardUrl || '').trim();
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      toast({
+        variant: 'destructive',
+        title: 'Configure o encaminhamento primeiro',
+        description: 'Preencha e salve a URL do Webhook Genérico do CRM-Apice acima; depois gere o secret de status.',
+      });
+      return;
+    }
+    const { data: fwdRow } = await supabase.from('cliente_crm_apice_forward').select('id').eq('cliente_id', effectiveClienteId).maybeSingle();
+    if (!fwdRow?.id) {
+      toast({
+        variant: 'destructive',
+        title: 'Salve a URL primeiro',
+        description: 'Clique em Salvar no bloco "Encaminhar eventos para CRM-Apice" para criar a configuração antes de gerar o secret.',
+      });
+      return;
+    }
+    setCrmApiceStatusSecretSaving(true);
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    const { error } = await supabase
+      .from('cliente_crm_apice_forward')
+      .update({ status_incoming_secret: secret, updated_at: new Date().toISOString() })
+      .eq('cliente_id', effectiveClienteId);
+    setCrmApiceStatusSecretSaving(false);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Erro ao salvar secret', description: error.message });
+      return;
+    }
+    setCrmApiceStatusSecret(secret);
+    toast({ title: 'Secret gerado', description: 'Use no CRM-Apice (automação ou script) com o header Authorization Bearer.' });
+  }, [effectiveClienteId, crmApiceForwardUrl, toast]);
+
+  const saveCrmApiceForward = useCallback(async () => {
+    if (!effectiveClienteId) return;
+    const url = (crmApiceForwardUrl || '').trim();
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      toast({ title: 'URL inválida', description: 'Informe a URL completa do Webhook Genérico do CRM-Apice.', variant: 'destructive' });
+      return;
+    }
+    setCrmApiceForwardSaving(true);
+    const { error } = await supabase.from('cliente_crm_apice_forward').upsert(
+      { cliente_id: effectiveClienteId, webhook_url: url, enabled: crmApiceForwardEnabled, updated_at: new Date().toISOString() },
+      { onConflict: 'cliente_id' }
+    );
+    setCrmApiceForwardSaving(false);
+    if (error) {
+      toast({ title: 'Erro ao salvar', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Salvo', description: 'Encaminhamento para CRM-Apice atualizado.' });
+    }
+  }, [effectiveClienteId, crmApiceForwardUrl, crmApiceForwardEnabled, toast]);
+
+  const sendEventToCrmApice = useCallback(async (log, source = 'uazapi') => {
+    const url = (crmApiceForwardUrl || '').trim();
+    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      toast({ title: 'Configure a URL', description: 'Preencha e salve a URL do Webhook Genérico em "Encaminhar eventos para CRM-Apice".', variant: 'destructive' });
+      return;
+    }
+    const { phone: extractedPhone, sender_name: extractedName } = extractPhoneAndNameFromRawPayload(log?.raw_payload, log?.from_jid) || {};
+    const phone = extractedPhone || (log?.from_jid ? String(log.from_jid).replace(/@.*$/, '').trim() : null) || null;
+    const tracking = buildContactTrackingFromRawPayload(log?.raw_payload) || {};
+    const profilePic = getProfilePicFromRawPayload(log?.raw_payload) || null;
+    const payload = {
+      event_type: 'planeje_whatsapp',
+      payload: {
+        source,
+        from_jid: log?.from_jid || null,
+        phone,
+        sender_name: extractedName || null,
+        body_preview: log?.body_preview || null,
+        type: log?.type || null,
+        created_at: log?.created_at || new Date().toISOString(),
+        webhook_log_id: log?.id || null,
+        profile_pic_url: profilePic,
+        imagePreview: profilePic,
+        origin_source: tracking.origin_source || 'nao_identificado',
+        tracking_data: tracking.tracking_data || null,
+        raw_payload: log?.raw_payload || null,
+      },
+    };
+    setSendToCrmLoadingLogId(log?.id);
+    setSendToCrmResultByLogId((prev) => ({ ...prev, [log?.id]: undefined }));
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const text = await res.text().catch(() => '');
+      const result = res.ok
+        ? { status: 'ok', statusCode: res.status }
+        : { status: 'error', statusCode: res.status, message: text.slice(0, 150) };
+      setSendToCrmResultByLogId((prev) => ({ ...prev, [log?.id]: result }));
+      if (res.ok) {
+        toast({ title: 'Enviado ao CRM-Apice', description: `Evento enviado com sucesso (${res.status}). Confira em Integrações → Webhook Genérico.` });
+      } else {
+        toast({ title: 'Erro ao enviar', description: `CRM-Apice respondeu ${res.status}: ${text.slice(0, 80)}`, variant: 'destructive' });
+      }
+    } catch (e) {
+      const msg = e?.message || String(e);
+      setSendToCrmResultByLogId((prev) => ({ ...prev, [log?.id]: { status: 'error', message: msg } }));
+      toast({ title: 'Falha ao enviar', description: `Problema no Planeje (rede/timeout): ${msg}`, variant: 'destructive' });
+    } finally {
+      setSendToCrmLoadingLogId(null);
+    }
+  }, [crmApiceForwardUrl, toast]);
 
   const loadMoreUazapiLogs = useCallback(async () => {
     if (!effectiveClienteId || uazapiWebhookLogs.length === 0) return;
@@ -848,20 +992,33 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                     {uazapiWebhookLogs.length > 0 ? (
                       <div className="rounded-md border bg-muted/30 p-2 space-y-1 max-h-64 overflow-y-auto">
                         <p className="text-[11px] font-medium text-muted-foreground sticky top-0 bg-muted/80 py-1">Histórico — últimos eventos (Webhook uazapi · Caixa de entrada)</p>
-                        {uazapiWebhookLogs.slice(0, 50).map((log) => (
-                          <div key={log.id} className="text-xs rounded px-2 py-1.5 bg-background border flex items-center gap-2 flex-wrap">
-                            <span className="text-muted-foreground shrink-0">
-                              {log.created_at ? new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
-                            </span>
-                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${log.status === 'ok' ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-destructive/20 text-destructive'}`}>
-                              {log.status}
-                            </span>
-                            {log.from_jid && <span className="font-mono truncate max-w-[140px]" title={log.from_jid}>{log.from_jid}</span>}
-                            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => setWebhookLogViewing(log)}>
-                              Ver corpo
-                            </Button>
-                          </div>
-                        ))}
+                        {uazapiWebhookLogs.slice(0, 50).map((log) => {
+                          const sendResult = sendToCrmResultByLogId[log.id];
+                          const sending = sendToCrmLoadingLogId === log.id;
+                          return (
+                            <div key={log.id} className="text-xs rounded px-2 py-1.5 bg-background border flex items-center gap-2 flex-wrap">
+                              <span className="text-muted-foreground shrink-0">
+                                {log.created_at ? new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                              </span>
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${log.status === 'ok' ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-destructive/20 text-destructive'}`}>
+                                {log.status}
+                              </span>
+                              {log.from_jid && <span className="font-mono truncate max-w-[140px]" title={log.from_jid}>{log.from_jid}</span>}
+                              <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => setWebhookLogViewing(log)}>
+                                Ver corpo
+                              </Button>
+                              <Button variant="outline" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => sendEventToCrmApice(log, 'uazapi')} disabled={sending} title="Enviar este evento ao CRM-Apice (Webhook Genérico)">
+                                {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                                Enviar ao CRM
+                              </Button>
+                              {sendResult && (
+                                <span className={`shrink-0 text-[10px] ${sendResult.status === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`} title={sendResult.message}>
+                                  {sendResult.status === 'ok' ? '✓ Enviado' : `Erro ${sendResult.statusCode || ''}`}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-xs text-muted-foreground py-2">Configure a URL na uazapi e envie uma mensagem; os eventos recebidos aparecem aqui.</p>
@@ -869,6 +1026,106 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                     <p className="text-[11px] text-muted-foreground">
                       Eventos salvos em <code className="bg-muted px-1 rounded">cliente_whatsapp_webhook_log</code>.
                     </p>
+
+                    <div className="border-t pt-4 mt-4 space-y-3">
+                      <p className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                        <Link2 className="h-4 w-4" />
+                        Encaminhar eventos para CRM-Apice
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Cole a URL do Webhook Genérico do CRM-Apice (Integrações). Cada evento recebido aqui será enviado para a Caixa de Entrada do CRM-Apice.
+                      </p>
+                      {crmApiceForwardLoading ? (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Carregando...</p>
+                      ) : (
+                        <>
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-xs">URL do webhook (CRM-Apice → Integrações → Webhook Genérico)</Label>
+                            <Input
+                              type="url"
+                              placeholder="https://...supabase.co/functions/v1/generic-webhook?user_id=...&secret=..."
+                              value={crmApiceForwardUrl}
+                              onChange={(e) => setCrmApiceForwardUrl(e.target.value)}
+                              className="font-mono text-xs"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                id="crm-apice-forward-enabled"
+                                checked={crmApiceForwardEnabled}
+                                onCheckedChange={setCrmApiceForwardEnabled}
+                              />
+                              <Label htmlFor="crm-apice-forward-enabled" className="text-xs">Ativar encaminhamento</Label>
+                            </div>
+                            <Button size="sm" disabled={crmApiceForwardSaving} onClick={saveCrmApiceForward}>
+                              {crmApiceForwardSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                              Salvar
+                            </Button>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Com o switch <strong>ligado</strong> e salvo, cada evento novo será enviado automaticamente ao CRM-Apice. Se só o manual funciona, confira se está ligado e clique em Salvar.
+                          </p>
+                          <div className="rounded-lg border border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/25 p-3 space-y-2 mt-3">
+                            <p className="text-xs font-medium text-foreground">Status do lead na página Contatos (CRM-Apice → Planeje)</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Configure no CRM-Apice uma automação (ou script) que, ao mudar o status do lead, faça um POST para a URL abaixo com o header{' '}
+                              <code className="bg-background/80 px-1 rounded">Authorization: Bearer {'<secret>'}</code>. O texto de{' '}
+                              <code className="bg-background/80 px-1 rounded">status</code> aparece como tag ao lado do funil em Contatos.
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <code className="text-[10px] break-all bg-background/80 px-2 py-1 rounded border flex-1 min-w-0">{crmApiceStatusWebhookUrl}</code>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs shrink-0"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(crmApiceStatusWebhookUrl);
+                                  toast({ title: 'URL copiada' });
+                                }}
+                              >
+                                <Copy className="h-3 w-3 mr-1" />
+                                Copiar URL
+                              </Button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button type="button" size="sm" className="h-7 text-xs" disabled={crmApiceStatusSecretSaving} onClick={() => void generateCrmApiceStatusSecret()}>
+                                {crmApiceStatusSecretSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                Gerar ou renovar secret
+                              </Button>
+                              {crmApiceStatusSecret ? (
+                                <>
+                                  <code className="text-[10px] max-w-[200px] truncate bg-background/80 px-2 py-1 rounded border" title={crmApiceStatusSecret}>
+                                    {crmApiceStatusSecret}
+                                  </code>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => {
+                                      void navigator.clipboard.writeText(crmApiceStatusSecret);
+                                      toast({ title: 'Secret copiado' });
+                                    }}
+                                  >
+                                    <Copy className="h-3 w-3 mr-1" />
+                                    Copiar secret
+                                  </Button>
+                                </>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground">Nenhum secret ainda — gere para ativar o retorno.</span>
+                              )}
+                            </div>
+                            {effectiveClienteId ? (
+                              <pre className="text-[10px] leading-relaxed overflow-x-auto bg-muted/80 p-2 rounded whitespace-pre-wrap break-all">
+                                {`POST (corpo JSON)\n{\n  "cliente_id": "${effectiveClienteId}",\n  "phone": "5511999999999",\n  "status": "Nome do status no Apice"\n}\n\nOpcional: "from_jid": "5511999999999@s.whatsapp.net" em vez de phone.`}
+                              </pre>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

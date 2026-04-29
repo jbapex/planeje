@@ -122,11 +122,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 
         if (error) {
           toast({ title: "Erro ao salvar tarefa", description: error.message, variant: "destructive" });
-        } else {
-          toast({ title: `Tarefa ${isNew ? 'criada' : 'atualizada'}!` });
-          fetchData();
-          handleCloseTask();
+          return false;
         }
+        toast({ title: `Tarefa ${isNew ? 'criada' : 'atualizada'}!` });
+        fetchData();
+        handleCloseTask();
+        return true;
       };
 
       const handleDeleteTask = async (taskId) => {
@@ -201,10 +202,11 @@ import React, { useState, useEffect, useCallback } from 'react';
                 />
               </TabsContent>
               <TabsContent value="calendar">
-                <CalendarView 
-                  tasks={filteredTasks} 
-                  onOpenTask={handleOpenTask} 
-                  statusOptions={statusOptions} 
+                <CalendarView
+                  tasks={filteredTasks}
+                  onOpenTask={handleOpenTask}
+                  onDeleteTask={(profile?.role === 'superadmin' || profile?.role === 'admin') ? handleDeleteTask : undefined}
+                  statusOptions={statusOptions}
                   clients={clients}
                   showClientIndicator={selectedClient === 'all'}
                 />
@@ -240,7 +242,7 @@ import React, { useState, useEffect, useCallback } from 'react';
               projects={projects}
               users={users}
               statusOptions={statusOptions}
-              userRole={user?.role}
+              userRole={profile?.role}
             />
           )}
         </div>

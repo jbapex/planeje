@@ -88,6 +88,7 @@ const CRM_TAB_APICEBOT = 'apicebot';
 const CRM_TAB_CONTATOS = 'contatos';
 const CRM_TAB_RELATORIO_META = 'relatorio-meta';
 const CRM_TAB_AUTOMACOES = 'automacoes';
+const CRM_TAB_ALIAS_CONTATOS = 'l';
 
 const CRM_TABS_BY_PATH = {
   [CRM_TAB_LEADS]: true,
@@ -114,24 +115,36 @@ const ClientCRMContent = () => {
   const { profile } = useAuth();
   const { setRefreshFn } = useCrmRefresh() || {};
   const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : location.pathname.startsWith('/crm') ? '/crm' : '/cliente';
+  const forceContatosOnly = basePath === '/client-area';
 
   const isAdminWithoutCliente = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
 
-  const resolvedTab = CRM_TABS_BY_PATH[tabParam] ? tabParam : (isAdminWithoutCliente ? CRM_TAB_CONTATOS : CRM_TAB_LEADS);
+  const normalizedTabParam = tabParam === CRM_TAB_ALIAS_CONTATOS ? CRM_TAB_CONTATOS : tabParam;
+  const resolvedTab = forceContatosOnly
+    ? CRM_TAB_CONTATOS
+    : (CRM_TABS_BY_PATH[normalizedTabParam] ? normalizedTabParam : (isAdminWithoutCliente ? CRM_TAB_CONTATOS : CRM_TAB_LEADS));
   const [activeTab, setActiveTab] = useState(resolvedTab);
 
   useEffect(() => {
-    if (tabParam && CRM_TABS_BY_PATH[tabParam] && tabParam !== activeTab) setActiveTab(tabParam);
-  }, [tabParam]);
+    if (normalizedTabParam && CRM_TABS_BY_PATH[normalizedTabParam] && normalizedTabParam !== activeTab) setActiveTab(normalizedTabParam);
+  }, [normalizedTabParam, activeTab]);
 
   // Administrador: só Contatos; redirecionar qualquer outra aba para contatos
   const crmPath = (tab) => (basePath === '/crm' ? `${basePath}/${tab}` : `${basePath}/crm/${tab}`);
 
   useEffect(() => {
+    if (tabParam === CRM_TAB_ALIAS_CONTATOS) {
+      navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
+      return;
+    }
+    if (forceContatosOnly && tabParam !== CRM_TAB_CONTATOS) {
+      navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
+      return;
+    }
     if (isAdminWithoutCliente && tabParam !== CRM_TAB_CONTATOS) {
       navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
     }
-  }, [isAdminWithoutCliente, tabParam, navigate, basePath]);
+  }, [forceContatosOnly, isAdminWithoutCliente, tabParam, navigate, basePath]);
 
   const setActiveTabAndNavigate = useCallback(
     (value) => {
@@ -181,7 +194,9 @@ const ClientCRMContent = () => {
   } = useCrmPipeline();
 
   const { settings } = useClienteCrmSettings();
-  const { effectiveClienteId: crmEffectiveClienteId } = useClienteWhatsAppConfig();
+  const { effectiveClienteId: crmEffectiveClienteId } = useClienteWhatsAppConfig({
+    autoSelectFirstClient: !isAdminWithoutCliente,
+  });
   const [showNewPipelineEditor, setShowNewPipelineEditor] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState([]);
@@ -209,8 +224,9 @@ const ClientCRMContent = () => {
     setSelectedLeads([]);
   }, [leads, filters, searchTerm, viewMode]);
 
-  // Visão do administrador: apenas Contatos e filtros por cliente (sem abas do CRM)
-  if (isAdminWithoutCliente) {
+  // Modo contatos: /client-area/crm sempre mostra apenas Contatos.
+  // Para admin sem cliente, o filtro por cliente continua disponível dentro de ContatosPage.
+  if (isAdminWithoutCliente || forceContatosOnly) {
     return (
       <>
         <Helmet>
@@ -235,7 +251,7 @@ const ClientCRMContent = () => {
           </header>
           <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="w-full px-3 sm:px-4 lg:px-5 py-6">
-              <ContatosPage embeddedInCrm />
+              <ContatosPage embeddedInCrm allClientsView />
             </div>
           </div>
         </div>
@@ -672,7 +688,11 @@ const ClientCRMContent = () => {
             </>
           )}
           <TabsContent value={CRM_TAB_CONTATOS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
-            <ContatosPage embeddedInCrm onOpenConversation={HIDE_INBOX_AND_WHATSAPP_TABS ? undefined : (jid) => { setActiveTabAndNavigate(CRM_TAB_WHATSAPP); setWhatsAppInitialJid(jid); }} />
+            <ContatosPage
+              embeddedInCrm
+              onNovoLead={() => setShowAddLead(true)}
+              onOpenConversation={HIDE_INBOX_AND_WHATSAPP_TABS ? undefined : (jid) => { setActiveTabAndNavigate(CRM_TAB_WHATSAPP); setWhatsAppInitialJid(jid); }}
+            />
           </TabsContent>
           </div>
         </Tabs>

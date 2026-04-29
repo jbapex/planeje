@@ -16,6 +16,8 @@ import React, { useState, useEffect, useMemo } from 'react';
     import { ptBR } from 'date-fns/locale';
     import { cn } from '@/lib/utils';
     import { motion } from 'framer-motion';
+    import { usePlataformasConteudo } from '@/hooks/usePlataformasConteudo';
+    import PlataformaMaterialSelect from '@/components/projects/PlataformaMaterialSelect';
 
     const formatSeconds = (totalSeconds, withSeconds = true) => {
         if (isNaN(totalSeconds) || totalSeconds < 0) return withSeconds ? '0s' : '0m';
@@ -125,13 +127,26 @@ import React, { useState, useEffect, useMemo } from 'react';
         )
     }
 
-    const TaskDetailsTab = ({ formData, setFormData, clients, projects, users, statusOptions, onStatusChange, onSubtasksChange, subtasks, isNewTask }) => {
+    const TaskDetailsTab = ({
+      formData,
+      setFormData,
+      clients,
+      projects,
+      users,
+      statusOptions,
+      onStatusChange,
+      onSubtasksChange,
+      subtasks,
+      isNewTask,
+      highlightDueDate = false,
+    }) => {
       const [showOpenAIAlert, setShowOpenAIAlert] = useState(false);
       const [isGenerating, setIsGenerating] = useState(false);
       const [generatedCopy, setGeneratedCopy] = useState('');
       const [filteredProjects, setFilteredProjects] = useState([]);
       const { toast } = useToast();
       const { getOpenAIKey } = useAuth();
+      const { plataformas, loading: platsLoading } = usePlataformasConteudo();
       
       const userOptions = useMemo(() => users.map(user => ({
         value: user.id,
@@ -173,11 +188,6 @@ import React, { useState, useEffect, useMemo } from 'react';
       };
 
       const generateCopy = async () => {
-        const apiKey = await getOpenAIKey();
-        if (!apiKey) {
-          setShowOpenAIAlert(true);
-          return;
-        }
         setIsGenerating(true);
         setGeneratedCopy('');
 
@@ -185,14 +195,31 @@ import React, { useState, useEffect, useMemo } from 'react';
         const prompt = `Aja como um social media expert. Crie uma sugestão de copy para um post em rede social para ${clientName}. A tarefa é sobre "${formData.title}". A descrição da tarefa é: "${formData.description}". A copy deve ser envolvente e terminar com uma chamada para ação clara. Responda apenas com o texto da copy.`;
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: 'gpt-3.5-turbo', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 250 })
-          });
-          if (!response.ok) throw new Error(`API da OpenAI respondeu com status ${response.status}`);
-          const data = await response.json();
-          setGeneratedCopy(data.choices[0].message.content.trim());
+          const { invokeProjectsAiChat } = await import('@/lib/projectsAiCompletion');
+          let text;
+          try {
+            text = await invokeProjectsAiChat({
+              messages: [{ role: 'user', content: prompt }],
+              openaiModel: 'gpt-3.5-turbo',
+              temperature: 0.7,
+              max_tokens: 250,
+            });
+          } catch (edgeErr) {
+            const apiKey = await getOpenAIKey();
+            if (!apiKey) {
+              setShowOpenAIAlert(true);
+              return;
+            }
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: 'gpt-3.5-turbo', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 250 })
+            });
+            if (!response.ok) throw new Error(`API da OpenAI respondeu com status ${response.status}`);
+            const data = await response.json();
+            text = data.choices[0].message.content.trim();
+          }
+          setGeneratedCopy(text);
           toast({ title: "Sugestão de copy gerada!" });
         } catch (error) {
           toast({ title: "Erro ao gerar copy", description: error.message, variant: "destructive" });
@@ -281,11 +308,31 @@ import React, { useState, useEffect, useMemo } from 'react';
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Data de Entrega</Label>
+              <Label className="text-xs">Plataforma</Label>
+              <PlataformaMaterialSelect
+                value={formData.plataforma}
+                onChange={(v) => handleChange('plataforma', v)}
+                plataformas={plataformas}
+                loading={platsLoading}
+                triggerClassName="dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+            <div
+              id="task-detail-due-date"
+              className={cn(
+                'space-y-1 rounded-md transition-shadow',
+                highlightDueDate && 'ring-2 ring-destructive ring-offset-2 ring-offset-background'
+              )}
+            >
+              <Label className="text-xs">
+                Data de entrega <span className="text-destructive" aria-hidden>*</span>
+              </Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
+                    type="button"
                     variant={"outline"}
+                    aria-required="true"
                     className={cn(
                       "w-full justify-start text-left font-normal",
                       !formData.due_date && "text-muted-foreground"
@@ -372,8 +419,8 @@ import React, { useState, useEffect, useMemo } from 'react';
           <AlertDialog open={showOpenAIAlert} onOpenChange={setShowOpenAIAlert}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle><AlertTriangle className="inline mr-2 text-yellow-500" />Chave da OpenAI não encontrada</AlertDialogTitle>
-                <AlertDialogDescription>Para usar o assistente de IA, por favor, adicione sua chave da API da OpenAI na página de Configurações.</AlertDialogDescription>
+                <AlertDialogTitle><AlertTriangle className="inline mr-2 text-yellow-500" />IA não disponível</AlertDialogTitle>
+                <AlertDialogDescription>Configure a chave em Configurações (OpenAI ou OpenRouter para campanhas) e verifique as Edge Functions no Supabase.</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogAction onClick={() => setShowOpenAIAlert(false)}>Entendi</AlertDialogAction>
             </AlertDialogContent>

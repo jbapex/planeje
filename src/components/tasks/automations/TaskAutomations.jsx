@@ -1,20 +1,113 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
     import { Button } from "@/components/ui/button";
-    import { Plus, Bot, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+    import { Label } from "@/components/ui/label";
+    import { MultiSelect } from "@/components/ui/multi-select";
+    import { Plus, Bot, Trash2, ToggleLeft, ToggleRight, Layers } from 'lucide-react';
     import { useToast } from "@/components/ui/use-toast";
     import { supabase } from '@/lib/customSupabaseClient';
-    import { useAuth } from '@/contexts/SupabaseAuthContext';
+    import { clearTaskAutomationsCache } from '@/lib/workflow';
     import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
     import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
     import AutomationForm from './AutomationForm';
 
-    const TaskAutomations = ({ statusOptions, users }) => {
+    const TaskAutomations = ({ statusOptions, users, onTasksMutated }) => {
       const [automations, setAutomations] = useState([]);
       const [loading, setLoading] = useState(true);
       const [isFormOpen, setIsFormOpen] = useState(false);
       const [selectedAutomation, setSelectedAutomation] = useState(null);
+      const [bulkStatusValues, setBulkStatusValues] = useState([]);
+      const [bulkCount, setBulkCount] = useState(null);
+      const [bulkCountLoading, setBulkCountLoading] = useState(false);
+      const [bulkLoading, setBulkLoading] = useState(false);
+      const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+      const bulkSeededRef = useRef(false);
       const { toast } = useToast();
-      const { user } = useAuth();
+
+      useEffect(() => {
+        if (!statusOptions.length || bulkSeededRef.current) return;
+        const initial = statusOptions
+          .filter(
+            (s) =>
+              /publicad/i.test(s.label || '') ||
+              /^(published|publicado)$/i.test(String(s.value || ''))
+          )
+          .map((s) => s.value);
+        if (initial.length) setBulkStatusValues(initial);
+        bulkSeededRef.current = true;
+      }, [statusOptions]);
+
+      const statusMultiOptions = (statusOptions || []).map((s) => ({
+        value: s.value,
+        label: s.label || s.value,
+      }));
+
+      const bulkStatusObjects = bulkStatusValues
+        .map((v) => statusMultiOptions.find((o) => o.value === v))
+        .filter(Boolean);
+
+      const refreshBulkCount = useCallback(async () => {
+        if (!bulkStatusValues.length) {
+          setBulkCount(null);
+          setBulkCountLoading(false);
+          return;
+        }
+        setBulkCountLoading(true);
+        try {
+          const { count, error } = await supabase
+            .from('tarefas')
+            .select('id', { count: 'exact', head: true })
+            .in('status', bulkStatusValues)
+            .or('type.is.null,type.neq.social_media');
+          if (error) {
+            setBulkCount(null);
+            return;
+          }
+          setBulkCount(count ?? 0);
+        } finally {
+          setBulkCountLoading(false);
+        }
+      }, [bulkStatusValues]);
+
+      useEffect(() => {
+        refreshBulkCount();
+      }, [refreshBulkCount]);
+
+      const handleBulkMove = async () => {
+        if (!bulkStatusValues.length) {
+          toast({
+            title: 'Selecione ao menos um status',
+            variant: 'destructive',
+          });
+          return;
+        }
+        setBulkLoading(true);
+        try {
+          const { data: moved, error } = await supabase.rpc('bulk_move_tasks_to_social_media', {
+            status_values: bulkStatusValues,
+          });
+          if (error) {
+            toast({
+              title: 'Erro ao mover tarefas',
+              description: error.message,
+              variant: 'destructive',
+            });
+            return;
+          }
+          const n = typeof moved === 'number' ? moved : 0;
+          toast({
+            title: 'Concluído',
+            description:
+              n === 0
+                ? 'Nenhuma tarefa correspondente ao filtro (já em Redes Sociais ou sem esse status).'
+                : `${n} tarefa(s) enviada(s) para Redes Sociais (concluído).`,
+          });
+          await refreshBulkCount();
+          if (onTasksMutated) await onTasksMutated();
+          setBulkConfirmOpen(false);
+        } finally {
+          setBulkLoading(false);
+        }
+      };
       
       const fetchAutomations = useCallback(async () => {
         setLoading(true);
@@ -35,6 +128,7 @@ import React, { useState, useEffect, useCallback } from 'react';
       }, [fetchAutomations]);
 
       const handleSave = () => {
+        clearTaskAutomationsCache();
         fetchAutomations();
         setIsFormOpen(false);
         setSelectedAutomation(null);
@@ -45,6 +139,7 @@ import React, { useState, useEffect, useCallback } from 'react';
         if (error) {
           toast({ title: 'Erro ao excluir automação', description: error.message, variant: 'destructive' });
         } else {
+          clearTaskAutomationsCache();
           toast({ title: 'Automação excluída com sucesso!' });
           fetchAutomations();
         }
@@ -59,6 +154,7 @@ import React, { useState, useEffect, useCallback } from 'react';
         if (error) {
           toast({ title: 'Erro ao atualizar automação', description: error.message, variant: 'destructive' });
         } else {
+          clearTaskAutomationsCache();
           toast({ title: `Automação ${!automation.is_active ? 'ativada' : 'desativada'}.` });
           fetchAutomations();
         }
@@ -134,8 +230,70 @@ import React, { useState, useEffect, useCallback } from 'react';
 
       return (
         <div>
-          <div className="flex justify-end mb-4">
-            <Button onClick={() => setIsFormOpen(true)}>
+          <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
+            <Card className="flex-1 border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base dark:text-white">
+                  <Layers className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+                  Mover em massa para Redes Sociais
+                </CardTitle>
+                <CardDescription className="dark:text-gray-400">
+                  A automação só roda quando o status <span className="font-medium">muda</span>. Tarefas que já estavam em Publicado não voltam no tempo — use aqui para esvaziar essa fila (mesmo efeito da automação: tipo Redes Sociais, concluído, sem responsáveis).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Status de origem</Label>
+                  <MultiSelect
+                    options={statusMultiOptions}
+                    value={bulkStatusObjects}
+                    onChange={(objs) => setBulkStatusValues((objs || []).map((o) => o.value))}
+                    placeholder="Ex.: Publicado"
+                    className="mt-1 bg-white dark:bg-gray-800"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {bulkStatusValues.length === 0
+                      ? 'Selecione um ou mais status.'
+                      : bulkCountLoading
+                        ? 'Contando tarefas…'
+                        : `Encontradas: ${bulkCount === null ? '—' : bulkCount} tarefa(s) no Kanban principal (fora de Redes Sociais).`}
+                  </span>
+                  <AlertDialog open={bulkConfirmOpen} onOpenChange={setBulkConfirmOpen}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={
+                        bulkLoading ||
+                        bulkCountLoading ||
+                        !bulkStatusValues.length ||
+                        bulkCount === null ||
+                        bulkCount === 0
+                      }
+                      onClick={() => setBulkConfirmOpen(true)}
+                    >
+                      Mover agora
+                    </Button>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Mover {bulkCount ?? '…'} tarefa(s)?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Elas sairão do quadro de tarefas e irão para o módulo Redes Sociais como concluídas, com responsáveis removidos. Esta ação não pode ser desfeita pelo sistema.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={bulkLoading}>Cancelar</AlertDialogCancel>
+                        <Button type="button" disabled={bulkLoading} onClick={() => void handleBulkMove()}>
+                          {bulkLoading ? 'Processando…' : 'Confirmar'}
+                        </Button>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </CardContent>
+            </Card>
+            <Button className="shrink-0 self-end sm:self-start" onClick={() => setIsFormOpen(true)}>
               <Plus className="mr-2 h-4 w-4" /> Nova Automação
             </Button>
           </div>

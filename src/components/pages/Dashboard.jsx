@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Lightbulb, Bell, CheckSquare, AlertTriangle, Clock, Calendar, ListChecks, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,10 +7,34 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
-import { format, startOfWeek, endOfWeek, isPast, isToday, isWithinInterval, addDays, differenceInDays } from 'date-fns';
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  isWithinInterval,
+  addDays,
+  differenceInCalendarDays,
+  startOfDay,
+  endOfDay,
+  parseISO,
+  isBefore,
+  isSameDay,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useDataCache } from '@/hooks/useDataCache';
+import { taskCountsInOverdueAndUpcomingPipeline } from '@/lib/dashboardPipelineStatus';
 import DashboardAssistant from './DashboardAssistant';
+
+/** Dia de vencimento no calendário local (evita “atrasada/hoje” errado por UTC). */
+function getDueDayStart(dueDateRaw) {
+  if (dueDateRaw == null || dueDateRaw === '') return null;
+  const s = String(dueDateRaw).trim();
+  const datePart = s.length >= 10 ? s.slice(0, 10) : s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return startOfDay(parseISO(datePart));
+  }
+  return startOfDay(new Date(dueDateRaw));
+}
 const StatCard = ({
   icon: Icon,
   title,
@@ -110,7 +134,7 @@ const Dashboard = () => {
   
   // Hook de cache para prevenir re-fetch desnecessário
   const cacheKey = `dashboard_${user?.id}_${profile?.role}`;
-  const { data: cachedData, setCachedData, shouldFetch } = useDataCache(cacheKey);
+  const { data: cachedData, setCachedData, shouldFetch, clearCache } = useDataCache(cacheKey);
   
   // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
   const hasFetchedRef = useRef(false);
@@ -129,22 +153,29 @@ const Dashboard = () => {
         if (error) throw error;
         
         if (data?.value) {
-          setDashboardConfig(JSON.parse(data.value));
+          const parsed = JSON.parse(data.value);
+          setDashboardConfig({
+            executed: parsed.executed ?? ['published'],
+            overdueExclude: parsed.overdueExclude ?? ['published', 'scheduled', 'concluido'],
+            overdueInclude: Array.isArray(parsed.overdueInclude) ? parsed.overdueInclude : [],
+            today: parsed.today ?? [],
+            upcoming: parsed.upcoming ?? [],
+          });
         } else {
-          // Valores padrão
           setDashboardConfig({
             executed: ['published'],
             overdueExclude: ['published', 'scheduled', 'concluido'],
+            overdueInclude: [],
             today: [],
             upcoming: [],
           });
         }
       } catch (e) {
         console.warn('Erro ao carregar configuração do dashboard:', e);
-        // Valores padrão em caso de erro
         setDashboardConfig({
           executed: ['published'],
           overdueExclude: ['published', 'scheduled', 'concluido'],
+          overdueInclude: [],
           today: [],
           upcoming: [],
         });
@@ -154,20 +185,37 @@ const Dashboard = () => {
     loadDashboardConfig();
   }, []);
   
+  const applyDashboardFromCache = useCallback((data) => {
+    if (!data) return;
+    setStats(data.stats ?? { executed: 0, overdue: 0, today: 0, upcoming: 0 });
+    setSuggestions(data.suggestions ?? []);
+    setAlerts(data.alerts ?? []);
+    setExecutedTasksList(data.executedTasksList ?? []);
+    setOverdueTasksList(data.overdueTasksList ?? []);
+    setTodayTasksList(data.todayTasksList ?? []);
+    setUpcomingTasksList(data.upcomingTasksList ?? []);
+  }, []);
+
   useEffect(() => {
     const fetchData = async () => {
-      if (!user || !dashboardConfig) return; // Aguarda a configuração carregar
-      
-      // Se já tem cache válido, não faz fetch
-      if (!shouldFetch() && cachedData) {
-        setStats(cachedData.stats);
-        setSuggestions(cachedData.suggestions);
-        setAlerts(cachedData.alerts);
+      if (!user || !dashboardConfig) return;
+
+      const anchor = new Date();
+      const dayStart = startOfDay(anchor);
+      const todayKey = format(dayStart, 'yyyy-MM-dd');
+
+      const cacheDayOk =
+        cachedData &&
+        !shouldFetch() &&
+        cachedData.fetchedForDay === todayKey &&
+        Array.isArray(cachedData.overdueTasksList);
+
+      if (cacheDayOk) {
+        applyDashboardFromCache(cachedData);
         setLoading(false);
-        hasFetchedRef.current = true;
         return;
       }
-      
+
       setLoading(true);
       let tasksQuery = supabase.from('tarefas').select('*, clientes(empresa)');
       let requestsQuery = supabase.from('solicitacoes').select('*, clientes(empresa)');
@@ -195,24 +243,25 @@ const Dashboard = () => {
         setLoading(false);
         return;
       }
-      const startOfThisWeek = startOfWeek(today, {
+      const startOfThisWeek = startOfWeek(anchor, {
         weekStartsOn: 1
       });
-      const endOfThisWeek = endOfWeek(today, {
+      const endOfThisWeek = endOfWeek(anchor, {
         weekStartsOn: 1
       });
-      const next7Days = addDays(today, 7);
+      const upcomingEnd = endOfDay(addDays(anchor, 7));
+      const tomorrowStart = startOfDay(addDays(anchor, 1));
       
       // Usa configuração do dashboard
       const executedStatuses = dashboardConfig.executed || ['published'];
-      const overdueExcludeStatuses = dashboardConfig.overdueExclude || ['published', 'scheduled', 'concluido'];
       const todayStatuses = dashboardConfig.today || []; // Vazio = todos
       const upcomingStatuses = dashboardConfig.upcoming || []; // Vazio = todos
       
       const executedTasks = tasks.filter(t => {
-        if (!t.due_date) return false;
+        const dueDay = getDueDayStart(t.due_date);
+        if (!dueDay) return false;
         if (!executedStatuses.includes(t.status)) return false;
-        return isWithinInterval(new Date(t.due_date), {
+        return isWithinInterval(dueDay, {
           start: startOfThisWeek,
           end: endOfThisWeek
         });
@@ -221,28 +270,31 @@ const Dashboard = () => {
       setExecutedTasksList(executedTasks);
       
       const overdueTasks = tasks.filter(t => {
-        if (!t.due_date) return false; // Ignora tarefas sem data de vencimento
-        if (overdueExcludeStatuses.includes(t.status)) return false;
-        const dueDate = new Date(t.due_date);
-        return isPast(dueDate) && !isToday(dueDate);
+        const dueDay = getDueDayStart(t.due_date);
+        if (!dueDay) return false;
+        if (!taskCountsInOverdueAndUpcomingPipeline(t.status, dashboardConfig)) return false;
+        return isBefore(dueDay, dayStart);
       });
       const overdue = overdueTasks.length;
       setOverdueTasksList(overdueTasks);
       
       const todayTasksFiltered = tasks.filter(t => {
-        if (!t.due_date) return false;
+        const dueDay = getDueDayStart(t.due_date);
+        if (!dueDay) return false;
         if (todayStatuses.length > 0 && !todayStatuses.includes(t.status)) return false;
-        return isToday(new Date(t.due_date));
+        return isSameDay(dueDay, anchor);
       });
       const todayTasks = todayTasksFiltered.length;
       setTodayTasksList(todayTasksFiltered);
       
       const upcomingTasks = tasks.filter(t => {
-        if (!t.due_date) return false;
+        const dueDay = getDueDayStart(t.due_date);
+        if (!dueDay) return false;
+        if (!taskCountsInOverdueAndUpcomingPipeline(t.status, dashboardConfig)) return false;
         if (upcomingStatuses.length > 0 && !upcomingStatuses.includes(t.status)) return false;
-        return isWithinInterval(new Date(t.due_date), {
-          start: addDays(today, 1),
-          end: next7Days
+        return isWithinInterval(dueDay, {
+          start: tomorrowStart,
+          end: upcomingEnd
         });
       });
       const upcoming = upcomingTasks.length;
@@ -253,13 +305,15 @@ const Dashboard = () => {
         today: todayTasks,
         upcoming
       });
-      const activeTasks = tasks.filter(t => !overdueExcludeStatuses.includes(t.status));
+      const activeTasks = tasks.filter((t) =>
+        taskCountsInOverdueAndUpcomingPipeline(t.status, dashboardConfig)
+      );
       const scoredTasks = activeTasks.map(task => {
         let score = 0;
-        if (task.due_date) {
-          const dueDate = new Date(task.due_date);
-          if (isPast(dueDate) && !isToday(dueDate)) score += 10;
-          const daysToDue = differenceInDays(dueDate, today);
+        const dueDay = getDueDayStart(task.due_date);
+        if (dueDay) {
+          if (isBefore(dueDay, dayStart)) score += 10;
+          const daysToDue = differenceInCalendarDays(dueDay, dayStart);
           if (daysToDue >= 0 && daysToDue <= 3) score += 5;
         }
         if (['em_revisao', 'pendente', 'bloqueado'].includes(task.status)) score += 3;
@@ -274,10 +328,16 @@ const Dashboard = () => {
       const newAlerts = [];
       if (profile?.role !== 'colaborador') {
         clients.forEach(client => {
-          const hasFuturePosts = tasks.some(t => t.client_id === client.id && t.due_date && isWithinInterval(new Date(t.due_date), {
-            start: today,
-            end: addDays(today, 3)
-          }));
+          const windowEnd = endOfDay(addDays(anchor, 3));
+          const hasFuturePosts = tasks.some(
+            (t) =>
+              t.client_id === client.id &&
+              getDueDayStart(t.due_date) &&
+              isWithinInterval(getDueDayStart(t.due_date), {
+                start: dayStart,
+                end: windowEnd
+              })
+          );
           if (!hasFuturePosts) {
             newAlerts.push({
               type: 'no_posts',
@@ -290,8 +350,8 @@ const Dashboard = () => {
           if (req.prazo && ['aberta', 'em_andamento'].includes(req.status)) {
             const slaDate = new Date(req.prazo);
             if (isWithinInterval(slaDate, {
-              start: today,
-              end: addDays(today, 3)
+              start: dayStart,
+              end: endOfDay(addDays(anchor, 3))
             })) {
               newAlerts.push({
                 type: 'sla',
@@ -302,19 +362,24 @@ const Dashboard = () => {
           }
         });
       }
-      tasks.forEach(task => {
-        if (task.due_date && isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date)) && !overdueExcludeStatuses.includes(task.status)) {
+      tasks.forEach((task) => {
+        const dueDay = getDueDayStart(task.due_date);
+        if (
+          dueDay &&
+          isBefore(dueDay, dayStart) &&
+          taskCountsInOverdueAndUpcomingPipeline(task.status, dashboardConfig)
+        ) {
           newAlerts.push({
             type: 'overdue_task',
             text: task.title,
-            subtext: `Tarefa atrasada (${task.clientes?.empresa || 'N/A'})`
+            subtext: `Tarefa atrasada (${task.clientes?.empresa || 'N/A'})`,
           });
         }
       });
       setAlerts(newAlerts.slice(0, 5));
       
-      // Salva no cache
       setCachedData({
+        fetchedForDay: todayKey,
         stats: {
           executed,
           overdue,
@@ -322,43 +387,53 @@ const Dashboard = () => {
           upcoming
         },
         suggestions: scoredTasks,
-        alerts: newAlerts.slice(0, 5)
+        alerts: newAlerts.slice(0, 5),
+        executedTasksList: executedTasks,
+        overdueTasksList: overdueTasks,
+        todayTasksList: todayTasksFiltered,
+        upcomingTasksList: upcomingTasks,
       });
       
       setLoading(false);
     };
     
-    // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
+    const dayKeyNow = format(startOfDay(new Date()), 'yyyy-MM-dd');
+    let cacheInvalidatedForDayChange = false;
+    if (cachedData?.fetchedForDay && cachedData.fetchedForDay !== dayKeyNow) {
+      clearCache();
+      hasFetchedRef.current = false;
+      cacheInvalidatedForDayChange = true;
+    }
+
+    if (!user || !dashboardConfig) return;
+
+    const cacheUsable =
+      !cacheInvalidatedForDayChange &&
+      cachedData &&
+      !shouldFetch() &&
+      cachedData.fetchedForDay === dayKeyNow &&
+      Array.isArray(cachedData.overdueTasksList);
+
     if (hasFetchedRef.current) {
-      // Apenas sincroniza com cache se necessário, sem fazer fetch
-      if (!shouldFetch() && cachedData) {
-        setStats(cachedData.stats);
-        setSuggestions(cachedData.suggestions);
-        setAlerts(cachedData.alerts);
+      if (cacheUsable) {
+        applyDashboardFromCache(cachedData);
         setLoading(false);
       }
       return;
     }
-    
-    // Se tem cache válido, usa ele e marca como fetched
-    if (!shouldFetch() && cachedData) {
-      setStats(cachedData.stats);
-      setSuggestions(cachedData.suggestions);
-      setAlerts(cachedData.alerts);
+
+    if (cacheUsable) {
+      applyDashboardFromCache(cachedData);
       setLoading(false);
       hasFetchedRef.current = true;
       return;
     }
-    
-    // Se não tem cache e a configuração está carregada, faz fetch apenas uma vez
-    if (!hasFetchedRef.current && dashboardConfig) {
+
+    if (dashboardConfig) {
       hasFetchedRef.current = true;
       fetchData();
-    } else if (dashboardConfig && hasFetchedRef.current && !cachedData) {
-      // Se a configuração mudou e não tem cache, refaz o fetch
-      hasFetchedRef.current = false;
     }
-  }, [user, profile, dashboardConfig]); // Inclui dashboardConfig nas dependências
+  }, [user, profile, dashboardConfig, cachedData, shouldFetch, clearCache, applyDashboardFromCache]);
   
   const handleNotImplemented = () => toast({
     description: "🚧 Funcionalidade não implementada! Você pode solicitar no próximo prompt! 🚀"
@@ -496,9 +571,11 @@ const Dashboard = () => {
             <div className="space-y-3">
               {selectedTaskType && getTasksForType(selectedTaskType).length > 0 ? (
                 getTasksForType(selectedTaskType).map((task) => {
-                  const daysLate = task.due_date && selectedTaskType === 'atrasadas' 
-                    ? differenceInDays(today, new Date(task.due_date))
-                    : null;
+                  const dueDayModal = getDueDayStart(task.due_date);
+                  const daysLate =
+                    dueDayModal && selectedTaskType === 'atrasadas'
+                      ? differenceInCalendarDays(startOfDay(new Date()), dueDayModal)
+                      : null;
                   const dueDate = task.due_date 
                     ? format(new Date(task.due_date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
                     : 'Sem data';

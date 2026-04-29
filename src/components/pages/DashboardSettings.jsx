@@ -7,6 +7,10 @@ import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import {
+  DEFAULT_PIPELINE_STATUS_KEYS,
+  normalizeDashboardStatusKey,
+} from '@/lib/dashboardPipelineStatus';
 
 const CONFIG_KEY = 'dashboard_status_config';
 
@@ -18,10 +22,11 @@ const DashboardSettings = () => {
   
   // Configuração de cada box do dashboard
   const [config, setConfig] = useState({
-    executed: [], // Status que contam como "Executadas"
-    overdueExclude: [], // Status que NÃO devem ser contados como atrasadas
-    today: [], // Status que contam como "Hoje" (vazio = todos)
-    upcoming: [], // Status que contam como "Próximas" (vazio = todos)
+    executed: [],
+    overdueExclude: [],
+    overdueInclude: [],
+    today: [],
+    upcoming: [],
   });
 
   const loadStatuses = useCallback(async () => {
@@ -53,23 +58,29 @@ const DashboardSettings = () => {
       if (error) throw error;
       
       if (data?.value) {
-        const savedConfig = JSON.parse(data.value);
-        setConfig(savedConfig);
+        const saved = JSON.parse(data.value);
+        setConfig({
+          executed: saved.executed ?? [],
+          overdueExclude: saved.overdueExclude ?? [],
+          overdueInclude: Array.isArray(saved.overdueInclude) ? saved.overdueInclude : [],
+          today: saved.today ?? [],
+          upcoming: saved.upcoming ?? [],
+        });
       } else {
-        // Valores padrão
         setConfig({
           executed: ['published'],
           overdueExclude: ['published', 'scheduled', 'concluido'],
+          overdueInclude: [],
           today: [],
           upcoming: [],
         });
       }
     } catch (e) {
       console.warn('Configuração não carregada:', e?.message || e);
-      // Valores padrão em caso de erro
       setConfig({
         executed: ['published'],
         overdueExclude: ['published', 'scheduled', 'concluido'],
+        overdueInclude: [],
         today: [],
         upcoming: [],
       });
@@ -222,6 +233,73 @@ const DashboardSettings = () => {
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Atrasadas e Próximas — funil de produção</CardTitle>
+          <CardDescription>
+            Só entram no contador de <strong>Atrasadas</strong> e <strong>Próximas</strong> (7 dias) tarefas
+            nestes status (ex.: A Fazer, Produção, Revisão, Alteração, Josias, Aprovar cliente).{' '}
+            <strong>Lista vazia</strong> usa o conjunto padrão por nome do status no sistema. Selecione abaixo
+            para fixar exatamente quais valores de <code className="text-xs">task_statuses</code> contam.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {statuses.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum status disponível.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2 mb-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const values = statuses
+                      .filter((s) =>
+                        DEFAULT_PIPELINE_STATUS_KEYS.has(normalizeDashboardStatusKey(s.value))
+                      )
+                      .map((s) => s.value);
+                    setConfig((prev) => ({ ...prev, overdueInclude: values }));
+                  }}
+                >
+                  Marcar sugestão (funil editorial)
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfig((prev) => ({ ...prev, overdueInclude: [] }))}
+                >
+                  Limpar (usar padrão automático)
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {statuses.map((status) => (
+                  <div key={status.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`pipeline-${status.value}`}
+                      checked={(config.overdueInclude || []).includes(status.value)}
+                      onCheckedChange={() => handleToggleStatus('overdueInclude', status.value)}
+                    />
+                    <Label
+                      htmlFor={`pipeline-${status.value}`}
+                      className="flex items-center gap-2 cursor-pointer flex-1"
+                    >
+                      <Badge
+                        style={{ backgroundColor: status.color || '#6B7280' }}
+                        className="text-xs"
+                      >
+                        {status.label}
+                      </Badge>
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

@@ -247,10 +247,15 @@ export default defineConfig({
 			'Cross-Origin-Embedder-Policy': 'credentialless',
 		},
 		allowedHosts: true,
-		hmr: {
-			protocol: 'ws',
-			host: 'localhost',
-		},
+		// Quando acessar via proxy (ex: planeje.jbapex.com.br), defina no .env:
+		// VITE_HMR_HOST=planeje.jbapex.com.br  VITE_HMR_PROTOCOL=wss  VITE_HMR_CLIENT_PORT=443
+		hmr: process.env.VITE_HMR_HOST
+			? {
+					host: process.env.VITE_HMR_HOST,
+					protocol: (process.env.VITE_HMR_PROTOCOL || 'wss') === 'wss' ? 'wss' : 'ws',
+					clientPort: process.env.VITE_HMR_CLIENT_PORT ? parseInt(process.env.VITE_HMR_CLIENT_PORT, 10) : undefined,
+				}
+			: { protocol: 'ws', host: 'localhost' },
 		watch: {
 			usePolling: false,
 		},

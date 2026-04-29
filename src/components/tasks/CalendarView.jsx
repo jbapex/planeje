@@ -1,10 +1,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
-    import { ChevronLeft, ChevronRight } from 'lucide-react';
+    import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday, parse, isSameDay, add, sub } from 'date-fns';
     import { ptBR } from 'date-fns/locale';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Label } from '@/components/ui/label';
+    import {
+      AlertDialog,
+      AlertDialogAction,
+      AlertDialogCancel,
+      AlertDialogContent,
+      AlertDialogDescription,
+      AlertDialogFooter,
+      AlertDialogHeader,
+      AlertDialogTitle,
+    } from '@/components/ui/alert-dialog';
 
     const generateColor = (str) => {
       if (!str) return '#cccccc';
@@ -20,9 +30,10 @@ import React, { useState, useMemo, useEffect } from 'react';
       return color;
     };
 
-    const CalendarView = ({ tasks, onOpenTask, statusOptions, clients = [], showClientIndicator = false, forcedDateType = null }) => {
+    const CalendarView = ({ tasks, onOpenTask, onDeleteTask, statusOptions, clients = [], showClientIndicator = false, forcedDateType = null }) => {
       const [currentDate, setCurrentDate] = useState(new Date());
       const [dateType, setDateType] = useState(forcedDateType || 'due_date');
+      const [taskIdPendingDelete, setTaskIdPendingDelete] = useState(null);
 
       useEffect(() => {
         if (forcedDateType) {
@@ -66,7 +77,19 @@ import React, { useState, useMemo, useEffect } from 'react';
         setCurrentDate(add(currentDate, { months: 1 }));
       };
 
+      const taskPendingDelete = useMemo(
+        () => (taskIdPendingDelete ? tasks.find((t) => t.id === taskIdPendingDelete) : null),
+        [taskIdPendingDelete, tasks]
+      );
+
+      const confirmDelete = async () => {
+        if (!taskIdPendingDelete || !onDeleteTask) return;
+        await onDeleteTask(taskIdPendingDelete);
+        setTaskIdPendingDelete(null);
+      };
+
       return (
+        <>
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm">
           <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
             <div className="flex items-center gap-2">
@@ -100,14 +123,32 @@ import React, { useState, useMemo, useEffect } from 'react';
                     const statusInfo = statusOptions.find(s => s.value === task.status) || {};
                     const clientColor = showClientIndicator && task.client_id ? clientColors[task.client_id] : (statusInfo.color || generateColor(task.status || ''));
                     return (
-                      <div 
-                        key={task.id} 
-                        onClick={() => onOpenTask(task)} 
-                        className="text-xs p-1 rounded cursor-pointer text-white truncate"
+                      <div
+                        key={task.id}
+                        className="text-xs rounded overflow-hidden flex items-stretch gap-0 min-w-0 group/cal-task"
                         style={{ backgroundColor: clientColor }}
-                        title={`${task.clientes?.empresa ? task.clientes.empresa + ': ' : ''}${task.title}`}
                       >
-                        {task.title}
+                        <button
+                          type="button"
+                          onClick={() => onOpenTask(task)}
+                          className="flex-1 min-w-0 text-left p-1 text-white truncate cursor-pointer hover:brightness-110"
+                          title={`${task.clientes?.empresa ? task.clientes.empresa + ': ' : ''}${task.title}`}
+                        >
+                          {task.title}
+                        </button>
+                        {onDeleteTask ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTaskIdPendingDelete(task.id);
+                            }}
+                            className="shrink-0 px-1 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/20 opacity-80 sm:opacity-0 sm:group-hover/cal-task:opacity-100 focus-visible:opacity-100"
+                            aria-label={`Excluir tarefa: ${task.title}`}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -126,6 +167,29 @@ import React, { useState, useMemo, useEffect } from 'react';
             </div>
           )}
         </div>
+
+        <AlertDialog open={!!taskIdPendingDelete} onOpenChange={(open) => !open && setTaskIdPendingDelete(null)}>
+          <AlertDialogContent className="dark:bg-gray-800 dark:border-gray-700">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="dark:text-white">Excluir tarefa?</AlertDialogTitle>
+              <AlertDialogDescription className="dark:text-gray-400">
+                {taskPendingDelete
+                  ? `Remover permanentemente: "${taskPendingDelete.title}"?`
+                  : 'Esta ação não pode ser desfeita.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="dark:text-white dark:border-gray-600 dark:hover:bg-gray-700">Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => void confirmDelete()}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        </>
       );
     };
 

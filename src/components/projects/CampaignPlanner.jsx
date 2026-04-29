@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-    import { Save, Sparkles, AlertTriangle, PlusCircle, Trash2, Edit, Check, Plus, FileText, Video, Target, Megaphone, Lightbulb, DollarSign, List, Calendar, Loader2, Wand2, Bot, FileDown, BookOpen, Download } from 'lucide-react';
+    import { Save, Sparkles, AlertTriangle, PlusCircle, Trash2, Edit, Check, FileText, Video, Target, Megaphone, Lightbulb, DollarSign, List, Calendar, Loader2, Wand2, Bot, FileDown, BookOpen, Download, ClipboardList } from 'lucide-react';
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
     import { Textarea } from '@/components/ui/textarea';
     import { useToast } from '@/components/ui/use-toast';
     import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
     import { supabase } from '@/lib/customSupabaseClient';
-    import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle as AlertDialogTitleComponent } from "@/components/ui/alert-dialog";
+    import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as AlertDialogTitleComponent } from "@/components/ui/alert-dialog";
     import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
     import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
     import AiChatDialog from '@/components/projects/AiChatDialog';
+    import { invokeProjectsAiChat } from '@/lib/projectsAiCompletion';
+    import { getPlanItemTaskWarnings, buildTaskTitleFromPlanMaterial } from '@/lib/campaignPlanMateriais';
+    import { usePlataformasConteudo } from '@/hooks/usePlataformasConteudo';
+    import PlataformaMaterialSelect from '@/components/projects/PlataformaMaterialSelect';
     import jsPDF from 'jspdf';
     import autoTable from 'jspdf-autotable';
     import { format } from 'date-fns';
@@ -51,10 +55,17 @@ import { Checkbox } from '@/components/ui/checkbox';
       const [availableDocuments, setAvailableDocuments] = useState([]);
       const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
       const [loadingDocuments, setLoadingDocuments] = useState(false);
+      const [taskFromPlanDialogOpen, setTaskFromPlanDialogOpen] = useState(false);
+      const [taskFromPlanItem, setTaskFromPlanItem] = useState(null);
+      const [isInsertingPlanTask, setIsInsertingPlanTask] = useState(false);
+      const { plataformas, loading: platsLoading } = usePlataformasConteudo();
+      const defaultPlataformaNome = plataformas[0]?.nome ?? '';
       const { toast } = useToast();
       const { user, getOpenAIKey } = useAuth();
       const debounceTimeout = useRef(null);
       const isInitialMount = useRef(true);
+      const planRef = useRef(null);
+      planRef.current = plan;
       const [isExporting, setIsExporting] = useState(false);
 
       const handleExportPDF = async () => {
@@ -107,13 +118,13 @@ import { Checkbox } from '@/components/ui/checkbox';
                 yPos += 5;
             };
     
-            // Seções
-            addSection('📌 Objetivo Principal', plan.objetivo);
+            // Seções (sem emoji: jsPDF/Helvetica só suporta WinAnsi; emoji vira lixo tipo Ø=Üì)
+            addSection('1. Objetivo Principal', plan.objetivo);
             
-            addSection('1️⃣ Estratégia de Comunicação', `Mensagem Principal: ${plan.estrategia_comunicacao?.mensagem_principal || 'Não informado'}\nTom de Voz: ${plan.estrategia_comunicacao?.tom_voz || 'Não informado'}\nGatilhos Emocionais: ${plan.estrategia_comunicacao?.gatilhos || 'Não informado'}`);
+            addSection('2. Estratégia de Comunicação', `Mensagem Principal: ${plan.estrategia_comunicacao?.mensagem_principal || 'Não informado'}\nTom de Voz: ${plan.estrategia_comunicacao?.tom_voz || 'Não informado'}\nGatilhos Emocionais: ${plan.estrategia_comunicacao?.gatilhos || 'Não informado'}`);
     
             if (plan.conteudo_criativos?.fases?.length > 0) {
-                addSection('2️⃣ Conteúdo & Criativos', '');
+                addSection('3. Conteúdo e Criativos', '');
                 plan.conteudo_criativos.fases.forEach(fase => {
                     doc.setFontSize(12);
                     doc.setFont('helvetica', 'bold');
@@ -127,18 +138,19 @@ import { Checkbox } from '@/components/ui/checkbox';
                 });
             }
     
-            addSection('3️⃣ Tráfego Pago (Anúncios)', `Orçamento: R$ ${plan.trafego_pago?.orcamento || '0'}\nPúblico: ${plan.trafego_pago?.publico || 'Não informado'}\nObjetivo: ${plan.trafego_pago?.objetivo || 'Não informado'}`);
+            addSection('4. Tráfego Pago (Anúncios)', `Orçamento: R$ ${plan.trafego_pago?.orcamento || '0'}\nPúblico: ${plan.trafego_pago?.publico || 'Não informado'}\nObjetivo: ${plan.trafego_pago?.objetivo || 'Não informado'}`);
     
             // Tabela de Materiais
             if (plan.materiais?.length > 0) {
                 if (yPos > 220) { doc.addPage(); yPos = 20; }
                 doc.setFontSize(16);
                 doc.setFont('helvetica', 'bold');
-                doc.text('4️⃣ Materiais Necessários', 14, yPos);
+                doc.text('5. Materiais Necessários', 14, yPos);
                 yPos += 8;
                 
                 const materialBody = plan.materiais.map(item => [
                     item.tipo,
+                    item.plataforma || '-',
                     item.descricao,
                     item.data_entrega ? format(new Date(item.data_entrega), 'dd/MM/yy') : '-',
                     item.data_postagem ? format(new Date(item.data_postagem), 'dd/MM/yy') : '-',
@@ -147,7 +159,7 @@ import { Checkbox } from '@/components/ui/checkbox';
     
                 autoTable(doc, {
                     startY: yPos,
-                    head: [['Tipo', 'Descrição', 'Entrega', 'Postagem', 'Responsável']],
+                    head: [['Tipo', 'Plataforma', 'Descrição', 'Entrega', 'Postagem', 'Responsável']],
                     body: materialBody,
                     theme: 'grid',
                     headStyles: { fillColor: [75, 85, 99] },
@@ -160,7 +172,7 @@ import { Checkbox } from '@/components/ui/checkbox';
                 if (yPos > 220) { doc.addPage(); yPos = 20; }
                 doc.setFontSize(16);
                 doc.setFont('helvetica', 'bold');
-                doc.text('📆 Cronograma de Ações', 14, yPos);
+                doc.text('6. Cronograma de Ações', 14, yPos);
                 yPos += 8;
     
                 const cronogramaBody = plan.cronograma.map(item => [
@@ -250,32 +262,38 @@ import { Checkbox } from '@/components/ui/checkbox';
         setIsSaving(false);
       }, [toast]);
 
+      const savePlanRef = useRef(savePlan);
+      savePlanRef.current = savePlan;
+
       useEffect(() => {
         const fetchPlan = async () => {
           setLoading(true);
           
-          // Tenta restaurar do sessionStorage primeiro
-          const sessionKey = `campaign_plan_${project.id}`;
-          try {
-            const saved = sessionStorage.getItem(sessionKey);
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              if (parsed.timestamp && Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
-                const planData = parsed.data;
-                if (!planData.conteudo_criativos) planData.conteudo_criativos = { fases: [] };
-                if (!planData.materiais) planData.materiais = [];
-                if (!planData.cronograma) planData.cronograma = [];
-                setPlan(planData);
-                setLoading(false);
-                isInitialMount.current = false;
-                return; // Não busca do banco se tem cache válido
+          // Na página do projeto, sempre buscar do banco: sessionStorage + aba Calendário
+          // montada ao mesmo tempo causava restauração de plano antigo e autosave
+          // sobrescrevendo materiais recém-salvos no calendário.
+          if (!isPage) {
+            const sessionKey = `campaign_plan_${project.id}`;
+            try {
+              const saved = sessionStorage.getItem(sessionKey);
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.timestamp && Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
+                  const planData = parsed.data;
+                  if (!planData.conteudo_criativos) planData.conteudo_criativos = { fases: [] };
+                  if (!planData.materiais) planData.materiais = [];
+                  if (!planData.cronograma) planData.cronograma = [];
+                  setPlan(planData);
+                  setLoading(false);
+                  isInitialMount.current = false;
+                  return;
+                }
               }
+            } catch (error) {
+              console.error('Error restoring plan from session:', error);
             }
-          } catch (error) {
-            console.error('Error restoring plan from session:', error);
           }
           
-          // Se não tem cache, busca do banco
           const { data, error } = await supabase.from('campaign_plans').select('*').eq('project_id', project.id).maybeSingle();
           if (data) {
             const planData = data;
@@ -289,22 +307,22 @@ import { Checkbox } from '@/components/ui/checkbox';
           isInitialMount.current = false;
         };
         fetchPlan();
-      }, [project.id, toast]);
+      }, [project.id, toast, isPage]);
       
       useEffect(() => {
         if (!isInitialMount.current && plan && plan.id) {
-          // Salva no sessionStorage imediatamente (sem debounce)
-          const sessionKey = `campaign_plan_${project.id}`;
-          try {
-            sessionStorage.setItem(sessionKey, JSON.stringify({
-              data: plan,
-              timestamp: Date.now()
-            }));
-          } catch (error) {
-            console.error('Error saving plan to session:', error);
+          if (!isPage) {
+            const sessionKey = `campaign_plan_${project.id}`;
+            try {
+              sessionStorage.setItem(sessionKey, JSON.stringify({
+                data: plan,
+                timestamp: Date.now()
+              }));
+            } catch (error) {
+              console.error('Error saving plan to session:', error);
+            }
           }
           
-          // Salva no banco com debounce
           if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
           }
@@ -315,9 +333,24 @@ import { Checkbox } from '@/components/ui/checkbox';
         return () => {
           if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
+            debounceTimeout.current = null;
           }
         };
-      }, [plan, savePlan, project.id]);
+      }, [plan, savePlan, project.id, isPage]);
+
+      // Ao sair da aba Plano (desmontagem), persiste o que estava pendente no debounce (deps [] = só no unmount)
+      useEffect(() => {
+        return () => {
+          if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current);
+            debounceTimeout.current = null;
+          }
+          const p = planRef.current;
+          if (!isInitialMount.current && p?.id) {
+            void savePlanRef.current(p);
+          }
+        };
+      }, []);
 
       useEffect(() => {
         if (plan && plan.materiais) {
@@ -507,11 +540,6 @@ import { Checkbox } from '@/components/ui/checkbox';
       const checkClientData = () => !client?.publico_alvo || !client?.tom_de_voz;
 
       const processAIRequest = async (prompt, field, materialItem = null) => {
-        const apiKey = await getOpenAIKey();
-        if (!apiKey) {
-          setShowOpenAIAlert(true);
-          return;
-        }
         if (checkClientData()) {
           setShowIncompleteDataAlert(true);
           return;
@@ -520,37 +548,54 @@ import { Checkbox } from '@/components/ui/checkbox';
         setIsGenerating(true);
         setGeneratingField(field);
 
+        const messages = [{ role: 'user', content: prompt }];
+
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: 'gpt-3.5-turbo', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 500 })
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            if (data?.error?.code === 'insufficient_quota') {
-              toast({
-                title: "Sua cota da OpenAI esgotou!",
-                description: "Verifique seu plano e detalhes de faturamento na sua conta da OpenAI.",
-                variant: "destructive",
-                duration: 10000,
-              });
-            } else {
+          let result;
+          try {
+            result = await invokeProjectsAiChat({
+              messages,
+              openaiModel: 'gpt-3.5-turbo',
+              temperature: 0.7,
+              max_tokens: 500,
+            });
+          } catch (edgeErr) {
+            const apiKey = await getOpenAIKey();
+            if (!apiKey) {
+              setShowOpenAIAlert(true);
+              return;
+            }
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 500 })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+              if (data?.error?.code === 'insufficient_quota') {
+                toast({
+                  title: "Sua cota da OpenAI esgotou!",
+                  description: "Verifique seu plano e detalhes de faturamento na sua conta da OpenAI.",
+                  variant: "destructive",
+                  duration: 10000,
+                });
+                return;
+              }
               throw new Error(data?.error?.message || `API da OpenAI respondeu com status ${response.status}`);
             }
-            return;
+            result = data.choices[0].message.content.trim();
           }
-
-          let result = data.choices[0].message.content.trim();
           
           try {
             const parsedResult = JSON.parse(result);
             if (field === 'conteudo_criativos.fases') {
-                handleUpdate('conteudo_criativos', { fases: parsedResult.map(item => ({...item, id: Date.now() + Math.random()})) });
+                handleUpdate('conteudo_criativos', { fases: parsedResult.map(item => ({ ...item, id: Date.now() + Math.random(), data_entrega: item.data_entrega || '', data_postagem: item.data_postagem || '' })) });
             } else if (field === 'materiais') {
-                const newMaterials = parsedResult.map(item => ({...item, id: Date.now() + Math.random()}));
+                const newMaterials = parsedResult.map((item) => ({
+                  ...item,
+                  id: Date.now() + Math.random(),
+                  plataforma: item.plataforma || defaultPlataformaNome,
+                }));
                 handleUpdate('materiais', [...(plan.materiais || []), ...newMaterials]);
             }
           } catch (e) {
@@ -620,7 +665,7 @@ import { Checkbox } from '@/components/ui/checkbox';
             prompt = `Aja como um estrategista de conteúdo. ${baseContext} Sugira 3 fases de conteúdo (ex: Atração, Engajamento, Conversão). Formate como um JSON array com "id", "nome" e "descricao". Ex: [{"id": 1, "nome": "Fase 1", "descricao": "..."}]. Responda apenas com o JSON.`;
             break;
           case 'materiais':
-            prompt = `Aja como um planejador de conteúdo. ${baseContext} Sugira 3 ideias de materiais (artes ou vídeos) para esta campanha. Formate como um JSON array com "id", "tipo" ('arte' ou 'video'), "descricao" (curta), "detalhes" (vazio), "data_entrega" (vazio), "data_postagem" (vazio) e "responsavel_id" (vazio). Ex: [{"id": 1, "tipo": "arte", "descricao": "Post sobre...", "detalhes": "", "data_entrega": "", "data_postagem": "", "responsavel_id": ""}]. Responda apenas com o JSON.`;
+            prompt = `Aja como um planejador de conteúdo. ${baseContext} Sugira 3 ideias de materiais (artes ou vídeos) para esta campanha. Formate como um JSON array com "id", "tipo" ('arte' ou 'video'), "descricao" (curta), "detalhes" (vazio), "data_entrega" (vazio), "data_postagem" (vazio), "responsavel_id" (vazio) e opcionalmente "plataforma" (ex.: Instagram, TikTok). Ex: [{"id": 1, "tipo": "arte", "descricao": "Post sobre...", "detalhes": "", "data_entrega": "", "data_postagem": "", "responsavel_id": "", "plataforma": "Instagram"}]. Responda apenas com o JSON.`;
             break;
           case 'materiais.detalhes':
             if (!materialItem) return;
@@ -682,28 +727,43 @@ import { Checkbox } from '@/components/ui/checkbox';
         }
       };
 
-      const createTaskFromPlanItem = async (item) => {
-        if (!item.descricao) {
-            toast({ title: "Ação necessária", description: "Por favor, adicione uma descrição ao material antes de criar a tarefa.", variant: "destructive" });
-            return;
-        }
+      const openTaskFromPlanDialog = (item) => {
+        setTaskFromPlanItem(item);
+        setTaskFromPlanDialogOpen(true);
+      };
+
+      const confirmCreateTaskFromPlan = async () => {
+        if (!taskFromPlanItem) return;
+        const { blocking } = getPlanItemTaskWarnings(taskFromPlanItem);
+        if (blocking.length) return;
+
+        const item = taskFromPlanItem;
         const newTask = {
-          title: `[${item.tipo}] ${item.descricao}`,
-          description: item.detalhes,
+          title: buildTaskTitleFromPlanMaterial(client?.empresa, item.descricao),
+          description: item.detalhes || null,
           status: 'todo',
           project_id: project.id,
           client_id: project.client_id,
           owner_id: user.id,
           assignee_ids: item.responsavel_id ? [item.responsavel_id] : [],
           type: item.tipo,
-          due_date: item.data_entrega,
-          post_date: item.data_postagem
+          due_date: item.data_entrega || null,
+          post_date: item.data_postagem || null,
+          plataforma: (item.plataforma || '').trim() || null,
         };
-        const { error } = await supabase.from('tarefas').insert(newTask);
-        if (error) {
-          toast({ title: "Erro ao criar tarefa", description: error.message, variant: "destructive" });
-        } else {
-          toast({ title: "Tarefa criada com sucesso!", description: "Acesse a página de Tarefas para ver." });
+
+        setIsInsertingPlanTask(true);
+        try {
+          const { error } = await supabase.from('tarefas').insert(newTask);
+          if (error) {
+            toast({ title: 'Erro ao criar tarefa', description: error.message, variant: 'destructive' });
+          } else {
+            toast({ title: 'Tarefa criada!', description: 'Abra a página de Tarefas para acompanhar.' });
+            setTaskFromPlanDialogOpen(false);
+            setTaskFromPlanItem(null);
+          }
+        } finally {
+          setIsInsertingPlanTask(false);
         }
       };
 
@@ -719,6 +779,25 @@ import { Checkbox } from '@/components/ui/checkbox';
         handleUpdate('cronograma', updatedCronograma);
       };
       
+      const renderTaskPlanHints = (item) => {
+        const { blocking, optional } = getPlanItemTaskWarnings(item);
+        if (!blocking.length && !optional.length) return null;
+        return (
+          <div className="text-xs space-y-1 mt-1">
+            {blocking.length > 0 && (
+              <p className="text-red-600 dark:text-red-400">
+                <span className="font-medium">Obrigatório:</span> {blocking.join(', ')}
+              </p>
+            )}
+            {optional.length > 0 && (
+              <p className="text-amber-700 dark:text-amber-400">
+                <span className="font-medium">Pendente:</span> {optional.join(', ')}
+              </p>
+            )}
+          </div>
+        );
+      };
+
       const AiButtonGroup = ({ field, content, materialItem = null }) => (
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={() => generateWithAI(field, materialItem)} disabled={isGenerating}>
@@ -795,7 +874,7 @@ import { Checkbox } from '@/components/ui/checkbox';
               <SectionCard icon={<Lightbulb className="h-6 w-6 text-yellow-600" />} title="2️⃣ Conteúdo & Criativos">
                   <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => generateWithAI('conteudo_criativos.fases')} disabled={isGenerating}><Sparkles size={14} className="mr-1" />{isGenerating && generatingField === 'conteudo_criativos.fases' ? 'Gerando...' : 'Sugerir Fases com IA'}</Button>
-                      <Button variant="outline" size="sm" onClick={() => handleAddListItem('conteudo_criativos.fases', { id: Date.now(), nome: 'Nova Fase', descricao: '' })}><PlusCircle className="h-4 w-4 mr-2" />Adicionar Fase</Button>
+                      <Button variant="outline" size="sm" onClick={() => handleAddListItem('conteudo_criativos.fases', { id: Date.now(), nome: 'Nova Fase', descricao: '', data_entrega: '', data_postagem: '' })}><PlusCircle className="h-4 w-4 mr-2" />Adicionar Fase</Button>
                   </div>
                   {(plan.conteudo_criativos?.fases || []).map((fase) => (
                   <div key={fase.id} className="p-3 border rounded-lg space-y-2">
@@ -803,18 +882,56 @@ import { Checkbox } from '@/components/ui/checkbox';
                       <>
                           <Input value={fase.nome} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'nome', e.target.value)} className="font-bold" />
                           <Textarea value={fase.descricao} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'descricao', e.target.value)} />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <Label className="text-xs">Data de entrega</Label>
+                              <Input type="date" value={fase.data_entrega || ''} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'data_entrega', e.target.value)} />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Data de postagem</Label>
+                              <Input type="date" value={fase.data_postagem || ''} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'data_postagem', e.target.value)} />
+                            </div>
+                          </div>
                           <Button size="sm" onClick={() => setEditingItemId(null)}><Check className="h-4 w-4 mr-2" />Salvar</Button>
                       </>
                       ) : (
                       <>
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-start gap-2 flex-wrap">
                           <p className="font-bold">{fase.nome}</p>
-                          <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => createTaskFromPlanItem({descricao: `Fase: ${fase.nome}`, detalhes: fase.descricao, tipo: 'Planejamento'})}><Plus className="h-4 w-4 text-blue-500" /></Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingItemId(fase.id)}><Edit className="h-4 w-4" /></Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRemoveListItem('conteudo_criativos.fases', fase.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                          <div className="flex flex-wrap gap-1 items-center">
+                              <Button variant="outline" size="sm" className="h-8" onClick={() => openTaskFromPlanDialog({
+                                descricao: `Fase: ${fase.nome}`,
+                                detalhes: fase.descricao || '',
+                                tipo: 'Planejamento',
+                                data_entrega: fase.data_entrega || '',
+                                data_postagem: fase.data_postagem || '',
+                                responsavel_id: null,
+                              })}>
+                                <ClipboardList className="h-4 w-4 mr-1.5" />
+                                Criar tarefa
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingItemId(fase.id)}><Edit className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveListItem('conteudo_criativos.fases', fase.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                           </div>
                           </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <Label className="text-xs">Data de entrega</Label>
+                              <Input type="date" value={fase.data_entrega || ''} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'data_entrega', e.target.value)} />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Data de postagem</Label>
+                              <Input type="date" value={fase.data_postagem || ''} onChange={(e) => handleUpdateListItem('conteudo_criativos.fases', fase.id, 'data_postagem', e.target.value)} />
+                            </div>
+                          </div>
+                          {renderTaskPlanHints({
+                            descricao: `Fase: ${fase.nome}`,
+                            detalhes: fase.descricao || '',
+                            tipo: 'Planejamento',
+                            data_entrega: fase.data_entrega || '',
+                            data_postagem: fase.data_postagem || '',
+                            responsavel_id: null,
+                          })}
                           <p className="text-sm text-muted-foreground">{fase.descricao}</p>
                       </>
                       )}
@@ -831,7 +948,7 @@ import { Checkbox } from '@/components/ui/checkbox';
               <SectionCard icon={<List className="h-6 w-6 text-indigo-600" />} title="4️⃣ Materiais Necessários">
                   <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => generateWithAI('materiais')} disabled={isGenerating}><Sparkles size={14} className="mr-1" />{isGenerating && generatingField === 'materiais' ? 'Gerando...' : 'Sugerir com IA'}</Button>
-                      <Button variant="outline" size="sm" onClick={() => addToList('materiais', { id: Date.now(), tipo: 'arte', descricao: '', data_entrega: '', data_postagem: '', responsavel_id: null, detalhes: '' })}><PlusCircle className="h-4 w-4 mr-2" />Adicionar Material</Button>
+                      <Button variant="outline" size="sm" onClick={() => addToList('materiais', { id: Date.now(), tipo: 'arte', descricao: '', data_entrega: '', data_postagem: '', responsavel_id: null, detalhes: '', plataforma: defaultPlataformaNome })}><PlusCircle className="h-4 w-4 mr-2" />Adicionar Material</Button>
                   </div>
                   {(plan.materiais || []).map((item) => (
                       <div key={item.id} className="p-3 border rounded-lg space-y-3">
@@ -845,10 +962,14 @@ import { Checkbox } from '@/components/ui/checkbox';
                                   </SelectContent>
                               </Select>
                               <Input placeholder="Descrição do material..." value={item.descricao} onChange={e => handleUpdateListItem('materiais', item.id, 'descricao', e.target.value)} className="flex-grow min-w-[200px]" />
-                              <Button variant="ghost" size="icon" onClick={() => createTaskFromPlanItem(item)}><Plus className="h-4 w-4 text-blue-500" /></Button>
+                              <Button variant="outline" size="sm" className="shrink-0 h-9" onClick={() => openTaskFromPlanDialog(item)}>
+                                <ClipboardList className="h-4 w-4 mr-1.5" />
+                                Criar tarefa
+                              </Button>
                               <Button variant="ghost" size="icon" onClick={() => handleRemoveListItem('materiais', item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                           </div>
-                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {renderTaskPlanHints(item)}
+                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                               <div>
                                   <Label>Data de Entrega</Label>
                                   <Input type="date" value={item.data_entrega || ''} onChange={e => handleUpdateListItem('materiais', item.id, 'data_entrega', e.target.value)} />
@@ -856,6 +977,15 @@ import { Checkbox } from '@/components/ui/checkbox';
                               <div>
                                   <Label>Data de Postagem</Label>
                                   <Input type="date" value={item.data_postagem || ''} onChange={e => handleUpdateListItem('materiais', item.id, 'data_postagem', e.target.value)} />
+                              </div>
+                              <div>
+                                  <Label>Plataforma</Label>
+                                  <PlataformaMaterialSelect
+                                    value={item.plataforma}
+                                    onChange={(v) => handleUpdateListItem('materiais', item.id, 'plataforma', v)}
+                                    plataformas={plataformas}
+                                    loading={platsLoading}
+                                  />
                               </div>
                               <div>
                                   <Label>Responsável</Label>
@@ -942,10 +1072,102 @@ import { Checkbox } from '@/components/ui/checkbox';
           <AlertDialog open={showOpenAIAlert} onOpenChange={setShowOpenAIAlert}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitleComponent><AlertTriangle className="inline mr-2 text-yellow-500" />Chave da OpenAI não encontrada</AlertDialogTitleComponent>
-                <AlertDialogDescription>Para usar o assistente de IA, por favor, adicione sua chave da API da OpenAI na página de Configurações.</AlertDialogDescription>
+                <AlertDialogTitleComponent><AlertTriangle className="inline mr-2 text-yellow-500" />IA não disponível no navegador</AlertDialogTitleComponent>
+                <AlertDialogDescription>
+                  O servidor não conseguiu usar a IA e não há chave no dispositivo. Em Configurações, salve a chave OpenAI (superadmin) ou configure OpenRouter para campanhas. Confirme também se as Edge Functions <code className="text-xs">openai-chat</code> / <code className="text-xs">openrouter-chat</code> estão deployadas no Supabase.
+                </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogAction onClick={() => setShowOpenAIAlert(false)}>Entendi</AlertDialogAction>
+            </AlertDialogContent>
+          </AlertDialog>
+          <AlertDialog
+            open={taskFromPlanDialogOpen}
+            onOpenChange={(open) => {
+              setTaskFromPlanDialogOpen(open);
+              if (!open) setTaskFromPlanItem(null);
+            }}
+          >
+            <AlertDialogContent className="max-w-lg">
+              <AlertDialogHeader>
+                <AlertDialogTitleComponent>Criar tarefa a partir do plano?</AlertDialogTitleComponent>
+                <AlertDialogDescription className="sr-only">
+                  Confirme se deseja criar uma nova tarefa com os dados do material ou da fase selecionados.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              {taskFromPlanItem && (
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <p>
+                    Será criada uma tarefa na campanha{' '}
+                    <span className="font-medium text-foreground">{project.name}</span> com:
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1 text-foreground">
+                    <li>
+                      <span className="text-muted-foreground">Título:</span>{' '}
+                      {buildTaskTitleFromPlanMaterial(client?.empresa, taskFromPlanItem.descricao)}
+                    </li>
+                    <li>
+                      <span className="text-muted-foreground">Entrega:</span>{' '}
+                      {taskFromPlanItem.data_entrega || '—'}
+                    </li>
+                    <li>
+                      <span className="text-muted-foreground">Postagem:</span>{' '}
+                      {taskFromPlanItem.data_postagem || '—'}
+                    </li>
+                    <li>
+                      <span className="text-muted-foreground">Responsável:</span>{' '}
+                      {taskFromPlanItem.responsavel_id
+                        ? profiles.find((p) => p.id === taskFromPlanItem.responsavel_id)?.full_name || '—'
+                        : '—'}
+                    </li>
+                  </ul>
+                  {(() => {
+                    const { blocking, optional } = getPlanItemTaskWarnings(taskFromPlanItem);
+                    return (
+                      <>
+                        {blocking.length > 0 && (
+                          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200">
+                            <p className="font-medium text-sm">Corrija no plano antes de criar:</p>
+                            <ul className="list-disc pl-4 mt-1 text-sm">
+                              {blocking.map((x) => (
+                                <li key={x}>{x}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {optional.length > 0 && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                            <p className="font-medium text-sm">Recomendado preencher:</p>
+                            <ul className="list-disc pl-4 mt-1 text-sm">
+                              {optional.map((x) => (
+                                <li key={x}>{x}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isInsertingPlanTask}>Cancelar</AlertDialogCancel>
+                <Button
+                  type="button"
+                  onClick={confirmCreateTaskFromPlan}
+                  disabled={
+                    !taskFromPlanItem ||
+                    getPlanItemTaskWarnings(taskFromPlanItem).blocking.length > 0 ||
+                    isInsertingPlanTask
+                  }
+                >
+                  {isInsertingPlanTask ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Check className="h-4 w-4 mr-2" />
+                  )}
+                  Sim, criar tarefa
+                </Button>
+              </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </>

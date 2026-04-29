@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { AnimatePresence, motion } from 'framer-motion';
-    import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, DollarSign, Search } from 'lucide-react';
+import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, Search, Download } from 'lucide-react';
     import { useParams, useNavigate } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
@@ -237,6 +237,84 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
         });
       }, [clients, etapaFilter, etiquetaFilter, searchTerm]);
 
+      const escapeCsv = (value) => {
+        if (value === null || value === undefined) return '';
+        const text = String(value);
+        if (text.includes(',') || text.includes('"') || text.includes('\n') || text.includes('\r')) {
+          return `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+      };
+
+      const formatDate = (dateValue) => {
+        if (!dateValue) return '';
+        const date = new Date(dateValue);
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleDateString('pt-BR');
+      };
+
+      const exportClientsToCsv = () => {
+        if (!filteredClients.length) {
+          toast({
+            title: "Nada para exportar",
+            description: "Não há clientes nos filtros atuais.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const headers = [
+          'ID',
+          'Empresa',
+          'Contato',
+          'Email',
+          'Telefone',
+          'Etapa',
+          'Etiquetas',
+          'Valor',
+          'Vencimento',
+          'Responsavel',
+          'Data de cadastro',
+        ];
+
+        const userNameById = new Map(users.map((u) => [u.id, u.full_name || '']));
+        const rows = filteredClients.map((client) => [
+          client.id,
+          client.empresa,
+          client.nome_contato,
+          client.email,
+          client.telefone,
+          client.etapa,
+          Array.isArray(client.etiquetas) ? client.etiquetas.join(' | ') : '',
+          client.valor,
+          formatDate(client.vencimento),
+          userNameById.get(client.responsavel) || client.responsavel || '',
+          formatDate(client.created_at),
+        ]);
+
+        const csvRows = [
+          headers.map(escapeCsv).join(','),
+          ...rows.map((row) => row.map(escapeCsv).join(',')),
+        ];
+        const csvContent = '\uFEFF' + csvRows.join('\r\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const dateSuffix = new Date().toISOString().slice(0, 10);
+        a.download = `clientes_${dateSuffix}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        toast({
+          title: "Exportação concluída",
+          description: `${rows.length} cliente(s) exportado(s) para CSV.`,
+        });
+      };
+
       // Calcula estatísticas dos clientes filtrados (apenas para super admin)
       const stats = useMemo(() => {
         if (userRole !== 'superadmin') {
@@ -356,6 +434,9 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
                 </Command>
               </PopoverContent>
             </Popover>
+            <Button variant="outline" onClick={exportClientsToCsv}>
+              <Download size={16} className="mr-2" />Exportar CSV
+            </Button>
           </div>
 
           <div key={viewMode}>

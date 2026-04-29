@@ -143,3 +143,75 @@ export function buildContactTrackingFromRawPayload(rawPayload) {
     tracking_data: Object.keys(tracking).length ? tracking : null,
   };
 }
+
+const META_UTM_HINTS = ['facebook', 'meta', 'fb', 'instagram', 'ig', 'anúncio', 'anuncio'];
+
+function utmStringsSuggestMeta(parts) {
+  const flat = (parts || []).filter(Boolean).map((s) => String(s).toLowerCase());
+  return flat.some((p) => META_UTM_HINTS.some((m) => p.includes(m)));
+}
+
+/**
+ * Contagem e filtros na página Contatos: considera "Meta Ads" quem tem origem no banco
+ * ou rastreio típico de anúncio Meta no tracking (muitos registros ficam como nao_identificado).
+ * Inclui colunas UTM na raiz do contato (denormalizadas) e nomes de campanha no JSON.
+ */
+export function isMetaAdsContactForStats(c) {
+  if (!c) return false;
+  if (c.origin_source === 'meta_ads') return true;
+  if (
+    utmStringsSuggestMeta([
+      c.utm_source,
+      c.utm_medium,
+      c.utm_campaign,
+      c.utm_content,
+      c.utm_term,
+    ])
+  ) {
+    return true;
+  }
+  const td = c.tracking_data;
+  if (!td || typeof td !== 'object') return false;
+  if (utmStringsSuggestMeta([td.utm_source, td.utm_medium, td.utm_campaign, td.utm_content, td.utm_term, td.campaign_name])) {
+    return true;
+  }
+  if (td.meta_ad_details?.ad) return true;
+  if (td.source_id != null && String(td.source_id).trim() !== '') return true;
+  if (td.ad_id != null && String(td.ad_id).trim() !== '') return true;
+  if (td.fbclid != null && String(td.fbclid).trim() !== '') return true;
+  if (td.ctwaClid != null && String(td.ctwaClid).trim() !== '') return true;
+  if (Array.isArray(td.events_by_date) && td.events_by_date.length > 0) {
+    const hasMetaSignal = td.events_by_date.some(
+      (ev) =>
+        ev &&
+        (ev.source_id ||
+          ev.ad_id ||
+          ev.fbclid ||
+          ev.ctwaClid ||
+          (ev.tracking_data && typeof ev.tracking_data === 'object' && (ev.tracking_data.source_id || ev.tracking_data.ad_id)))
+    );
+    if (hasMetaSignal) return true;
+  }
+  return false;
+}
+
+/**
+ * Mesmo critério de "Meta Ads" que {@link isMetaAdsContactForStats}, para linhas da tabela `leads`
+ * (colunas utm_* na raiz + tracking_data). Garante contagem alinhada entre Contatos e Relatório Meta.
+ */
+export function isMetaAdsLeadForStats(lead) {
+  if (!lead) return false;
+  if (lead.origem === 'Meta Ads') return true;
+  const td0 = lead.tracking_data;
+  if (td0 && typeof td0 === 'object' && (td0.meta_lead_id || td0.form_id)) return true;
+  const asContact = {
+    origin_source: null,
+    utm_source: lead.utm_source ?? null,
+    utm_medium: lead.utm_medium ?? null,
+    utm_campaign: lead.utm_campaign ?? null,
+    utm_content: lead.utm_content ?? null,
+    utm_term: lead.utm_term ?? null,
+    tracking_data: lead.tracking_data ?? null,
+  };
+  return isMetaAdsContactForStats(asContact);
+}

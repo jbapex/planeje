@@ -2,7 +2,7 @@ import React from 'react';
     import { NavLink, useLocation, Routes, Route, Navigate } from 'react-router-dom';
     import ModuleManagement from './ModuleManagement';
     import ClientFieldPermissions from './ClientFieldPermissions';
-    import { ShieldCheck, Settings, Users, GitBranch, BarChart2, Sparkles, Bot } from 'lucide-react';
+    import { ShieldCheck, Settings, Users, GitBranch, BarChart2, Sparkles, Bot, LayoutDashboard, Share2 } from 'lucide-react';
     import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
     import AiAgentsManager from './AiAgentsManager';
     import DiagnosticSettings from './DiagnosticSettings';
@@ -14,7 +14,7 @@ import ApexIAClientPersonalitySettings from './ApexIAClientPersonalitySettings';
 import AssistantProjectModelSettings from './AssistantProjectModelSettings';
 import ClientUsersSuperAdmin from './ClientUsersSuperAdmin';
 import ClientApexIASettings from './ClientApexIASettings';
-import { LayoutDashboard } from 'lucide-react';
+import ContentPlatformsSettings from './ContentPlatformsSettings';
 
     const SuperAdmin = () => {
         const location = useLocation();
@@ -33,6 +33,7 @@ import { LayoutDashboard } from 'lucide-react';
             { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
             { path: '/super-admin/assistant-project-models', label: 'Modelos Assistente', icon: <Sparkles className="h-4 w-4" /> },
             { path: '/super-admin/client-apexia-settings', label: 'Config. ApexIA Clientes', icon: <Bot className="h-4 w-4" /> },
+            { path: '/super-admin/content-platforms', label: 'Plataformas de conteúdo', icon: <Share2 className="h-4 w-4" /> },
         ];
         
         return (
@@ -76,6 +77,7 @@ import { LayoutDashboard } from 'lucide-react';
                         <Route path="chat-limits" element={<ChatLimitsManager />} />
                         <Route path="assistant-project-models" element={<AssistantProjectModelSettings />} />
                         <Route path="client-apexia-settings" element={<ClientApexIASettings />} />
+                        <Route path="content-platforms" element={<ContentPlatformsSettings />} />
                         <Route index element={<Navigate to="modules" replace />} />
                    </Routes>
                 </main>

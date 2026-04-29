@@ -15,7 +15,18 @@ import React, { useState, useEffect } from 'react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useSessionFormState } from '@/hooks/useSessionFormState';
 
-    const TaskDetail = ({ task, onClose, onSave, onDelete, clients, projects, users, statusOptions, userRole }) => {
+    const TaskDetail = ({
+      task,
+      onClose,
+      onSave,
+      onDelete,
+      clients,
+      projects,
+      users,
+      statusOptions,
+      userRole,
+      requireDueDate = false,
+    }) => {
       const { id: taskIdFromUrl } = useParams();
       const isNewTask = taskIdFromUrl === 'new';
       const taskId = task?.id || taskIdFromUrl;
@@ -43,6 +54,7 @@ import React, { useState, useEffect } from 'react';
           due_date: '',
           post_date: '',
           type: '',
+          plataforma: '',
           priority: 'medium',
           subtasks: [],
           time_logs: [],
@@ -55,6 +67,8 @@ import React, { useState, useEffect } from 'react';
       
       const [isBoostDialogOpen, setIsBoostDialogOpen] = useState(false);
       const [subtasks, setSubtasks] = useState([]);
+      const [activeTab, setActiveTab] = useState('details');
+      const [dueDateHighlight, setDueDateHighlight] = useState(false);
       const { toast } = useToast();
       const { user } = useAuth();
 
@@ -72,11 +86,37 @@ import React, { useState, useEffect } from 'react';
         }
       }, [task?.id, formKey]);
 
-      const handleSave = () => {
+      const handleSave = async () => {
+        if (requireDueDate) {
+          const d = formData.due_date;
+          if (d == null || String(d).trim() === '') {
+            toast({
+              title: 'Data de entrega obrigatória',
+              description: 'Escolha a data de entrega abaixo e salve de novo. O restante do formulário foi mantido.',
+              variant: 'destructive',
+            });
+            setActiveTab('details');
+            setDueDateHighlight(true);
+            window.setTimeout(() => setDueDateHighlight(false), 4500);
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                document.getElementById('task-detail-due-date')?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'center',
+                });
+              });
+            });
+            return;
+          }
+        }
+
         const updatedTask = { ...formData, subtasks };
-        // Limpa o estado salvo após salvar com sucesso
-        clearFormData();
-        onSave(updatedTask, isNewTask);
+        const maybePromise = onSave(updatedTask, isNewTask);
+        const ok =
+          maybePromise != null && typeof maybePromise.then === 'function'
+            ? await maybePromise
+            : maybePromise;
+        if (ok === true) clearFormData();
       };
 
       const handleStatusChange = async (newStatus) => {
@@ -137,7 +177,7 @@ import React, { useState, useEffect } from 'react';
                   <DrawerDescription className="dark:text-gray-400 text-sm sm:text-base">{isNewTask ? 'Preencha os campos para criar uma nova tarefa.' : 'Edite os detalhes da sua tarefa aqui.'}</DrawerDescription>
                 </DrawerHeader>
                 <div className="p-4 overflow-y-auto flex-grow">
-                  <Tabs defaultValue="details" className="w-full">
+                  <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="dark:bg-gray-700 grid w-full grid-cols-4">
                       <TabsTrigger value="details" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-600 dark:data-[state=active]:text-white text-xs sm:text-sm">Detalhes</TabsTrigger>
                       <TabsTrigger value="comments" disabled={isNewTask} className="dark:text-gray-300 dark:data-[state=active]:bg-gray-600 dark:data-[state=active]:text-white text-xs sm:text-sm"><MessageSquare className="mr-1 h-4 w-4" /><span className="hidden sm:inline">Comentários</span></TabsTrigger>
@@ -157,6 +197,7 @@ import React, { useState, useEffect } from 'react';
                         onSubtasksChange={setSubtasks}
                         subtasks={subtasks}
                         isNewTask={isNewTask}
+                        highlightDueDate={dueDateHighlight}
                       />
                     </TabsContent>
                     <TabsContent value="comments" className="mt-4 h-[calc(100%-60px)]">
@@ -199,7 +240,7 @@ import React, { useState, useEffect } from 'react';
                     </div>
                     <div className="flex gap-2 justify-end">
                       <DrawerClose asChild><Button variant="ghost" size="sm" onClick={onClose} className="dark:text-white dark:hover:bg-gray-700">Cancelar</Button></DrawerClose>
-                      <Button onClick={handleSave} size="sm"><Save size={14} className="mr-1 sm:mr-2" />Salvar</Button>
+                      <Button onClick={() => void handleSave()} size="sm"><Save size={14} className="mr-1 sm:mr-2" />Salvar</Button>
                     </div>
                   </div>
                 </DrawerFooter>

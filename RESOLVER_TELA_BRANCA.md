@@ -4,6 +4,19 @@
 
 Se a aplicação funciona localmente mas mostra tela em branco na VPS, siga estes passos:
 
+### Checagem imediata: modo dev no ar em vez do build
+
+Se o Nginx aponta para a pasta do projeto (ou `index.html` na raiz) em vez de `dist/`, o navegador recebe o HTML do **Vite dev** com scripts `/@vite/client` e `/src/main.jsx`. Em produção isso **não existe** no disco → tela branca.
+
+Na sua máquina ou na VPS:
+
+```bash
+curl -sS https://planeje.jbapex.com.br/ | head -20
+```
+
+- **Errado:** aparece `/@vite/client` ou `/src/main.jsx` → corrija o `root` do Nginx para `.../dist` e rode `npm run build` nesse mesmo caminho.
+- **Certo:** aparece `/assets/index.` e um `.js` com hash → build estático servido corretamente.
+
 ---
 
 ## ✅ Passo 1: Executar Diagnóstico

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Save, Sparkles, Plus, Trash2, Edit, Check, AlertTriangle } from 'lucide-react';
+import { Save, Sparkles, Plus, Trash2, Edit, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
@@ -7,7 +7,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle as AlertDialogTitleComponent } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 const TASK_TYPES = ['Post Feed', 'Stories', 'Reels', 'Design', 'Copy', 'Planejamento', 'Reunião', 'Edição de Vídeo', 'Captação', 'Roteiro'];
@@ -16,17 +15,10 @@ const ChecklistGenerator = ({ project, onClose, fetchProjects, isPage = false })
   const [tasks, setTasks] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [showOpenAIAlert, setShowOpenAIAlert] = useState(false);
   const { toast } = useToast();
-  const { user, getOpenAIKey } = useAuth();
+  const { user } = useAuth();
 
   const generateChecklist = async () => {
-    const apiKey = await getOpenAIKey();
-    if (!apiKey) {
-      setShowOpenAIAlert(true);
-      return;
-    }
-    
     toast({ title: "🚧 Funcionalidade não implementada!", description: "A geração com IA será adicionada em breve. 🚀" });
     
     const mockTasks = [
@@ -100,18 +92,6 @@ const ChecklistGenerator = ({ project, onClose, fetchProjects, isPage = false })
     </div>
   );
 
-  const renderAlerts = () => (
-    <AlertDialog open={showOpenAIAlert} onOpenChange={setShowOpenAIAlert}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitleComponent><AlertTriangle className="inline mr-2 text-yellow-500" />Chave da OpenAI não encontrada</AlertDialogTitleComponent>
-          <AlertDialogDescription>Para usar o assistente de IA, por favor, adicione sua chave da API da OpenAI na página de Configurações.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogAction onClick={() => setShowOpenAIAlert(false)}>Entendi</AlertDialogAction>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-
   if (isPage) {
     return (
         <Card>
@@ -121,7 +101,6 @@ const ChecklistGenerator = ({ project, onClose, fetchProjects, isPage = false })
             </CardHeader>
             <CardContent>
                 {renderContent()}
-                {renderAlerts()}
             </CardContent>
         </Card>
     );
@@ -138,7 +117,6 @@ const ChecklistGenerator = ({ project, onClose, fetchProjects, isPage = false })
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
           <Button onClick={createTasks} disabled={tasks.length === 0}><Save size={16} className="mr-2" />Criar {tasks.length} Tarefa(s)</Button>
         </DialogFooter>
-        {renderAlerts()}
       </DialogContent>
     </Dialog>
   );
