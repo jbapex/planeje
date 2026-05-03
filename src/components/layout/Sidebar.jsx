@@ -1,6 +1,6 @@
 import React from 'react';
     import { NavLink } from 'react-router-dom';
-    import { Home, Users, FolderKanban, ListTodo, MessageSquare as MessageSquareWarning, Settings, Shield, Bell, LogOut, Megaphone, Rocket, BarChart2, ListChecks, HelpCircle, Bot, Activity, FileText, LayoutGrid } from 'lucide-react';
+    import { Home, Users, FolderKanban, ListTodo, MessageSquare as MessageSquareWarning, Settings, Shield, Bell, LogOut, Megaphone, Rocket, BarChart2, ListChecks, HelpCircle, Bot, Activity, FileText, LayoutGrid, Zap } from 'lucide-react';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
     import { useToast } from '@/components/ui/use-toast';
@@ -21,6 +21,7 @@ import {
       { to: '/tasks', icon: ListTodo, label: 'Tarefas', roles: ['superadmin', 'admin', 'colaborador'], module: 'tasks' },
       { to: '/assistant', icon: Bot, label: 'Assistente', roles: ['superadmin', 'admin', 'colaborador'] },
       { to: '/onboarding', icon: ListChecks, label: 'Onboarding', roles: ['superadmin', 'admin', 'colaborador'] },
+      { to: '/automacoes', icon: Zap, label: 'Automações', roles: ['superadmin', 'admin'] },
       { to: '/requests', icon: MessageSquareWarning, label: 'Solicitações', roles: ['superadmin', 'admin'], module: 'requests' },
       { to: '/social-media', icon: Megaphone, label: 'Redes Sociais', roles: ['superadmin', 'admin', 'colaborador'] },
       { to: '/paid-traffic', icon: Rocket, label: 'Tráfego Pago', roles: ['superadmin', 'admin', 'colaborador'], module: 'paid_traffic' },

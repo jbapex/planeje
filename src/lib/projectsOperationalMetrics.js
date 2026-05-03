@@ -1,5 +1,6 @@
 import { parseISO, isBefore, startOfDay, addDays } from 'date-fns';
 import { getMaterialCalendarDateKey, buildTaskTitleFromPlanMaterial } from '@/lib/campaignPlanMateriais';
+import { parseMesReferenciaLocal } from '@/lib/mesReferencia';
 
 const TERMINAL_TASK_STATUSES = new Set([
   'concluido',
@@ -12,7 +13,8 @@ const TERMINAL_TASK_STATUSES = new Set([
 
 export function projectInReferenceMonth(project, year, monthIndex) {
   if (!project?.mes_referencia) return false;
-  const d = new Date(project.mes_referencia);
+  const d = parseMesReferenciaLocal(project.mes_referencia);
+  if (!d) return false;
   return d.getFullYear() === year && d.getMonth() === monthIndex;
 }
 
@@ -24,7 +26,9 @@ export function periodStartForYearMonth(year, monthIndex) {
 function projectMesReferenciaStart(project) {
   if (!project?.mes_referencia) return null;
   try {
-    const d = startOfDay(parseISO(String(project.mes_referencia)));
+    const local = parseMesReferenciaLocal(project.mes_referencia);
+    if (!local) return null;
+    const d = startOfDay(local);
     return Number.isNaN(d.getTime()) ? null : d;
   } catch {
     return null;
@@ -299,15 +303,26 @@ export function aggregateOperationalStats({
   };
 }
 
+/** Valor normalizado de `projetos.status` (sem acentos, minúsculas). */
+export function normalizeProjetosStatus(raw) {
+  return String(raw ?? 'planejamento')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 const STATUS_LABEL = {
   planejamento: 'Planejamento',
+  aprovacao: 'Aprovação',
   execucao: 'Execução',
   concluido: 'Concluído',
   pausado: 'Pausado',
 };
 
 export function projectStatusLabel(status) {
-  return STATUS_LABEL[status] || status || '—';
+  if (status == null || String(status).trim() === '') return '—';
+  const k = normalizeProjetosStatus(status);
+  return STATUS_LABEL[k] || String(status);
 }
 
 function tasksProgress(projectTasks) {
@@ -517,9 +532,40 @@ export function buildPendencias({ clientRows, projects, tasks, campaignPlans, cl
   return { critico, atencao, aguardando };
 }
 
-export function buildCampaignRows({ projects, clients, campaignPlans, tasks, year, monthIndex }) {
-  const monthProjects = projects.filter((p) => projectInReferenceMonth(p, year, monthIndex));
+/**
+ * @param {'mes' | 'todas_abertas'} [referenceScope='mes'] — `mes`: só `mes_referencia` do ano/mês;
+ *   `todas_abertas`: todas as campanhas não concluídas com mês de referência (clientes do painel).
+ */
+export function buildCampaignRows({
+  projects,
+  clients,
+  campaignPlans,
+  tasks,
+  year,
+  monthIndex,
+  referenceScope = 'mes',
+}) {
   const clientById = Object.fromEntries(clients.map((c) => [c.id, c]));
+  const clientIds = new Set(clients.map((c) => c.id));
+
+  let monthProjects;
+  if (referenceScope === 'todas_abertas') {
+    monthProjects = projects.filter((p) => {
+      if (!p?.client_id || !clientIds.has(p.client_id)) return false;
+      if (!p.mes_referencia || !parseMesReferenciaLocal(p.mes_referencia)) return false;
+      return normalizeProjetosStatus(p.status) !== 'concluido';
+    });
+    monthProjects.sort((a, b) => {
+      const da = projectMesReferenciaStart(a);
+      const db = projectMesReferenciaStart(b);
+      const ta = da ? da.getTime() : 0;
+      const tb = db ? db.getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
+    });
+  } else {
+    monthProjects = projects.filter((p) => projectInReferenceMonth(p, year, monthIndex));
+  }
   const byProject = {};
   for (const t of tasks) {
     if (!t.project_id) continue;
@@ -542,8 +588,8 @@ export function buildCampaignRows({ projects, clients, campaignPlans, tasks, yea
       clientEmpresa: empresa,
       projectTasks: pTasks,
     });
-    const ref = p.mes_referencia ? new Date(p.mes_referencia) : null;
-    const st = String(p.status || '').toLowerCase();
+    const ref = p.mes_referencia ? parseMesReferenciaLocal(p.mes_referencia) : null;
+    const st = normalizeProjetosStatus(p.status);
     let faseKey = 'execucao';
     let faseLabel = 'execução';
     if (!plan) {
@@ -552,6 +598,9 @@ export function buildCampaignRows({ projects, clients, campaignPlans, tasks, yea
     } else if (st === 'planejamento') {
       faseKey = 'planejado';
       faseLabel = 'planejado';
+    } else if (st === 'aprovacao') {
+      faseKey = 'aprovacao';
+      faseLabel = 'aprovação';
     } else if (st === 'execucao') {
       faseKey = 'execucao';
       faseLabel = 'execução';
@@ -599,10 +648,11 @@ export function annualCellPresentation(project, plan, clientEmpresa, projectTask
   if (health.score < 60) {
     return { key: 'atencao', short: 'Atenção', pillLabel: 'Atenção', tone: 'risk' };
   }
-  const st = project.status || 'planejamento';
+  const st = normalizeProjetosStatus(project.status);
   if (st === 'concluido') return { key: 'concluido', short: 'Concluído', pillLabel: 'Concluído', tone: 'ok' };
   if (st === 'execucao') return { key: 'execucao', short: 'Execução', pillLabel: 'Execução', tone: 'run' };
   if (st === 'pausado') return { key: 'pausado', short: 'Pausado', pillLabel: 'Pausado', tone: 'muted' };
+  if (st === 'aprovacao') return { key: 'aprovacao', short: 'Aprovação', pillLabel: 'Aprovação cliente', tone: 'plan' };
   return { key: 'planejamento', short: 'Planejado', pillLabel: 'Planejado', tone: 'plan' };
 }
 

@@ -23,6 +23,15 @@ import {
   runDueDateArrivedAutomations,
   getAutomationErrorMessages,
 } from '@/lib/workflow';
+import { cn } from '@/lib/utils';
+
+/** Mesmo estilo visual das abas do painel operacional de Projetos (TabsList / TabsTrigger). */
+const tasksTabBar = cn(
+  'inline-flex h-auto w-full flex-shrink-0 flex-wrap items-center justify-center gap-1 rounded-full border border-gray-300/90 bg-gray-200/95 p-1 text-muted-foreground dark:border-gray-600 dark:bg-gray-900'
+);
+const tasksTabTrigger = cn(
+  'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:text-gray-400 dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
+);
 
     const Tasks = () => {
       const [tasks, setTasks] = useState([]);
@@ -760,12 +769,12 @@ import {
           </div>
 
           <Tabs value={activeTab} className="w-full flex-grow flex flex-col overflow-hidden" onValueChange={handleTabChange}>
-            <TabsList className="dark:bg-gray-800 dark:border-gray-700 flex-shrink-0">
+            <TabsList className={tasksTabBar}>
                {visibleTabs.map(tab => {
                 const Icon = tab.icon;
                 return (
-                  <TabsTrigger key={tab.value} value={tab.value} className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">
-                    <Icon className="mr-2 h-4 w-4" />
+                  <TabsTrigger key={tab.value} value={tab.value} className={tasksTabTrigger}>
+                    <Icon className="h-4 w-4 shrink-0" />
                     {isMobile && tab.value === 'automations' ? '' : tab.label.split(' ')[0]}
                   </TabsTrigger>
                 );

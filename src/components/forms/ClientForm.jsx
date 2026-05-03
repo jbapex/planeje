@@ -60,6 +60,8 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
         meta_custo_mensagem: client.meta_custo_mensagem || '',
         meta_custo_compra: client.meta_custo_compra || '',
         roas_alvo: client.roas_alvo || '',
+        tipo_servico: client.tipo_servico || 'execucao_completa',
+        entregaveis: client.entregaveis || { carrosseis: 0, posts: 0, stories: 0, videos: 0, anuncios: 0 },
       };
     }
     return {
@@ -84,6 +86,8 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
       meta_custo_mensagem: '',
       meta_custo_compra: '',
       roas_alvo: '',
+      tipo_servico: 'execucao_completa',
+      entregaveis: { carrosseis: 0, posts: 0, stories: 0, videos: 0, anuncios: 0 },
     };
   };
 
@@ -196,6 +200,23 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     console.log('📝 Salvando cliente com objetivo_meta:', formData.objetivo_meta);
+    if (formData.tipo_servico !== 'apenas_consultoria') {
+      const ent = formData.entregaveis || {};
+      const total =
+        Number(ent.carrosseis || 0) +
+        Number(ent.posts || 0) +
+        Number(ent.stories || 0) +
+        Number(ent.videos || 0) +
+        Number(ent.anuncios || 0);
+      if (total <= 0) {
+        toast({
+          title: 'Entregáveis inválidos',
+          description: 'Para execução completa/parcial, informe pelo menos um entregável maior que zero.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
     // Limpa o estado salvo após salvar com sucesso
     clearFormData();
     onSave(formData, !client);
@@ -359,6 +380,107 @@ const ClientForm = ({ client, users = [], onSave, onClose }) => {
                   )}
                 </div>
               ))}
+
+              <div className="rounded-lg border border-border bg-background p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Tipo de Serviço e Entregáveis</h3>
+                <div className="space-y-2">
+                  <Label className="text-gray-700 dark:text-gray-300">Tipo de serviço</Label>
+                  <Select value={formData.tipo_servico || 'execucao_completa'} onValueChange={(value) => handleChange('tipo_servico', value)}>
+                    <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                      <SelectValue placeholder="Selecione o tipo de serviço" />
+                    </SelectTrigger>
+                    <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                      <SelectItem value="execucao_completa" className="dark:text-white dark:hover:bg-gray-600">Execução completa</SelectItem>
+                      <SelectItem value="execucao_parcial" className="dark:text-white dark:hover:bg-gray-600">Execução parcial</SelectItem>
+                      <SelectItem value="apenas_consultoria" className="dark:text-white dark:hover:bg-gray-600">Apenas consultoria</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formData.tipo_servico !== 'apenas_consultoria' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Carrosséis</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formData.entregaveis?.carrosseis ?? 0}
+                        onChange={(e) =>
+                          handleChange('entregaveis', {
+                            ...(formData.entregaveis || {}),
+                            carrosseis: Math.max(0, Number(e.target.value || 0)),
+                          })
+                        }
+                        className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Posts (feed único)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formData.entregaveis?.posts ?? 0}
+                        onChange={(e) =>
+                          handleChange('entregaveis', {
+                            ...(formData.entregaveis || {}),
+                            posts: Math.max(0, Number(e.target.value || 0)),
+                          })
+                        }
+                        className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Stories</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formData.entregaveis?.stories ?? 0}
+                        onChange={(e) =>
+                          handleChange('entregaveis', {
+                            ...(formData.entregaveis || {}),
+                            stories: Math.max(0, Number(e.target.value || 0)),
+                          })
+                        }
+                        className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Vídeos</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formData.entregaveis?.videos ?? 0}
+                        onChange={(e) =>
+                          handleChange('entregaveis', {
+                            ...(formData.entregaveis || {}),
+                            videos: Math.max(0, Number(e.target.value || 0)),
+                          })
+                        }
+                        className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Anúncios</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={formData.entregaveis?.anuncios ?? 0}
+                        onChange={(e) =>
+                          handleChange('entregaveis', {
+                            ...(formData.entregaveis || {}),
+                            anuncios: Math.max(0, Number(e.target.value || 0)),
+                          })
+                        }
+                        className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">
+                  Esses números definem o pacote mensal contratado. A IA vai respeitar essa cota ao gerar o plano de campanha.
+                </p>
+              </div>
               <div className="space-y-2">
                   <Label className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
                     <Tags className="w-4 h-4" /> Etiquetas

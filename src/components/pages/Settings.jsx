@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { fetchOpenRouterModels } from '@/lib/openrouterModels';
 
 const OPENAI_FALLBACK_MODELS = [
   'openai/gpt-4o',
@@ -48,6 +49,9 @@ const Settings = () => {
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('');
   const [savedOpenRouterPreview, setSavedOpenRouterPreview] = useState('');
   const [isSavingProjectsAi, setIsSavingProjectsAi] = useState(false);
+  const [apiModelsLoading, setApiModelsLoading] = useState(false);
+  const [apiModelsDetected, setApiModelsDetected] = useState([]);
+  const [apiModelSelected, setApiModelSelected] = useState('');
   
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
@@ -71,6 +75,94 @@ const Settings = () => {
     : parsedAllowedModels.filter((m) => m.startsWith('openai/'));
   const effectiveProviderModels =
     visibleProviderModels.length > 0 ? visibleProviderModels : projectsAiProvider === 'openai' ? OPENAI_FALLBACK_MODELS : [];
+  const removeAllowedModel = useCallback((modelId) => {
+    const clean = String(modelId || '').trim();
+    if (!clean) return;
+    const next = parsedAllowedModels.filter((m) => m !== clean);
+    const safeNext = next.length > 0 ? next : ['openai/gpt-4o-mini'];
+    setProjectsAllowedModelsText(safeNext.join('\n'));
+    if (!safeNext.includes(projectsDefaultModel)) {
+      setProjectsDefaultModel(safeNext[0]);
+    }
+    if (projectsOpenRouterModel === clean) {
+      setProjectsOpenRouterModel(safeNext.find((m) => m.includes('/')) || 'openai/gpt-4o-mini');
+    }
+  }, [parsedAllowedModels, projectsDefaultModel, projectsOpenRouterModel]);
+
+  const keepOnlyProviderCompatibleModels = useCallback(() => {
+    const filtered =
+      projectsAiProvider === 'openai'
+        ? parsedAllowedModels.filter((m) => m.startsWith('openai/'))
+        : parsedAllowedModels.filter((m) => m.includes('/'));
+    const safeNext = filtered.length > 0 ? filtered : projectsAiProvider === 'openai' ? [...OPENAI_FALLBACK_MODELS] : ['openai/gpt-4o-mini'];
+    setProjectsAllowedModelsText(Array.from(new Set(safeNext)).join('\n'));
+    if (!safeNext.includes(projectsDefaultModel)) {
+      setProjectsDefaultModel(safeNext[0]);
+    }
+  }, [parsedAllowedModels, projectsAiProvider, projectsDefaultModel]);
+
+  const mergeModelIntoAllowed = useCallback((modelId) => {
+    const clean = String(modelId || '').trim();
+    if (!clean) return;
+    const merged = Array.from(new Set([...parsedAllowedModels, clean]));
+    setProjectsAllowedModelsText(merged.join('\n'));
+    if (!projectsDefaultModel) setProjectsDefaultModel(clean);
+  }, [parsedAllowedModels, projectsDefaultModel]);
+
+  const handleLoadApiModels = useCallback(async () => {
+    setApiModelsLoading(true);
+    setApiModelsDetected([]);
+    setApiModelSelected('');
+    try {
+      if (projectsAiProvider === 'openrouter') {
+        const models = await fetchOpenRouterModels();
+        const ids = models.map((m) => m.id).filter(Boolean);
+        setApiModelsDetected(ids);
+        if (ids.length > 0) setApiModelSelected(ids[0]);
+        return;
+      }
+
+      let keyToUse = apiKey?.trim();
+      if (!keyToUse) {
+        const { data: savedKey } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'OPENAI_API_KEY' });
+        keyToUse = String(savedKey || '').trim();
+      }
+      if (!keyToUse) {
+        toast({
+          title: 'Chave OpenAI ausente',
+          description: 'Salve a chave da OpenAI acima para buscar os modelos da API.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          Authorization: `Bearer ${keyToUse}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const payload = await resp.json();
+      if (!resp.ok) {
+        throw new Error(payload?.error?.message || `Falha ao listar modelos (${resp.status})`);
+      }
+      const rawIds = Array.isArray(payload?.data) ? payload.data.map((x) => x?.id).filter(Boolean) : [];
+      const ids = rawIds
+        .filter((id) => /(^gpt-|^o[1-4]|^chatgpt|^text-embedding)/i.test(id))
+        .map((id) => (id.startsWith('openai/') ? id : `openai/${id}`))
+        .sort((a, b) => a.localeCompare(b));
+      setApiModelsDetected(ids);
+      if (ids.length > 0) setApiModelSelected(ids[0]);
+    } catch (err) {
+      toast({
+        title: 'Erro ao carregar modelos da API',
+        description: err.message || 'Não foi possível buscar modelos.',
+        variant: 'destructive',
+      });
+    } finally {
+      setApiModelsLoading(false);
+    }
+  }, [projectsAiProvider, apiKey, toast]);
 
   const fetchUsers = useCallback(async () => {
     const { data, error } = await supabase.from('profiles').select('*');
@@ -689,6 +781,49 @@ const Settings = () => {
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       Um por linha (ou separados por vírgula). Esses modelos aparecem para escolha do usuário no Plano de Campanha.
                     </p>
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900/40 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleLoadApiModels}
+                          disabled={apiModelsLoading}
+                        >
+                          {apiModelsLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Buscar modelos da API
+                        </Button>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          {projectsAiProvider === 'openrouter'
+                            ? 'Busca do catálogo OpenRouter'
+                            : 'Busca dos modelos liberados na sua chave OpenAI'}
+                        </p>
+                      </div>
+                      {apiModelsDetected.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Select value={apiModelSelected} onValueChange={setApiModelSelected}>
+                            <SelectTrigger className="min-w-[280px] dark:bg-gray-700 dark:text-white dark:border-gray-600">
+                              <SelectValue placeholder="Selecione um modelo retornado pela API" />
+                            </SelectTrigger>
+                            <SelectContent className="dark:bg-gray-700 dark:border-gray-600 max-h-80">
+                              {apiModelsDetected.map((modelId) => (
+                                <SelectItem key={modelId} value={modelId} className="dark:text-white dark:hover:bg-gray-600">
+                                  {modelId}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => mergeModelIntoAllowed(apiModelSelected)}
+                            disabled={!apiModelSelected}
+                          >
+                            Adicionar à lista
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label className="dark:text-white">Modelo padrão para o Projeto</Label>
@@ -709,18 +844,33 @@ const Settings = () => {
                       </SelectContent>
                     </Select>
                     <div className="rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900/40">
-                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                        Modelos disponíveis para o provedor selecionado
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                          Modelos disponíveis para o provedor selecionado
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={keepOnlyProviderCompatibleModels}
+                        >
+                          Manter só compatíveis
+                        </Button>
+                      </div>
                       {effectiveProviderModels.length > 0 ? (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {effectiveProviderModels.map((modelId) => (
-                            <span
+                            <button
+                              type="button"
                               key={modelId}
-                              className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[11px] dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                              onClick={() => removeAllowedModel(modelId)}
+                              title="Remover modelo da lista permitida"
+                              className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[11px] transition-colors hover:border-red-300 hover:bg-red-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:border-red-700 dark:hover:bg-red-950/40"
                             >
                               {modelId}
-                            </span>
+                              <span className="font-bold text-red-600 dark:text-red-400">×</span>
+                            </button>
                           ))}
                         </div>
                       ) : (

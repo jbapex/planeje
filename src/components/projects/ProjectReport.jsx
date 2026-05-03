@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Target, DollarSign, Calendar, AlertTriangle, List, CheckCircle, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -49,17 +49,25 @@ const BarChart = ({ data }) => {
   return (
     <div className="space-y-4">
       {data.map((item, index) => (
-        <div key={index} className="grid grid-cols-4 gap-2 items-center">
-          <div className="text-xs font-medium text-muted-foreground col-span-1 truncate">{item.label}</div>
+        <div key={item.key ?? index} className="grid grid-cols-4 gap-2 items-center">
+          <div
+            className="col-span-1 truncate text-xs font-semibold"
+            style={{ color: item.color }}
+            title={item.label}
+          >
+            {item.label}
+          </div>
           <div className="col-span-3 flex items-center gap-2">
-            <motion.div 
+            <motion.div
               className="h-2 rounded-full"
               style={{ background: item.color }}
               initial={{ width: 0 }}
-              animate={{ width: `${(item.value / maxValue) * 100}%`}}
+              animate={{ width: `${(item.value / maxValue) * 100}%` }}
               transition={{ duration: 0.5, delay: 0.2 * index }}
             />
-            <span className="text-sm font-semibold text-foreground">{item.value}</span>
+            <span className="text-sm font-semibold tabular-nums" style={{ color: item.color }}>
+              {item.value}
+            </span>
           </div>
         </div>
       ))}
@@ -74,41 +82,103 @@ const InfoItem = ({ icon: Icon, label, value, colorClass = "text-gray-500 dark:t
     </div>
     <div className="flex-1 min-w-0"> {/* Added flex-1 min-w-0 */}
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-base font-semibold text-foreground dark:text-white break-words">{value || '-'}</p> {/* Changed truncate to break-words */}
+      <p className="text-sm font-normal leading-relaxed text-foreground dark:text-gray-200 break-words">{value || '-'}</p>
     </div>
   </div>
 );
 
 
-const ProjectReport = ({ project, tasks, campaignPlan }) => {
+const TERMINAL_TASK_STATUSES = new Set([
+  'published',
+  'concluido',
+  'concluído',
+  'done',
+  'completed',
+  'publicado',
+]);
+
+/** Rótulos/cores quando task_statuses ainda não carregou ou falta um valor na tabela. */
+const TASK_STATUS_FALLBACK = {
+  sem_status: { label: 'Sem status', color: '#6B7280' },
+  todo: { label: 'A fazer', color: '#9CA3AF' },
+  doing: { label: 'Em andamento', color: '#3B82F6' },
+  production: { label: 'Produção', color: '#2563EB' },
+  review: { label: 'Revisão', color: '#F97316' },
+  em_revisao: { label: 'Em revisão', color: '#F97316' },
+  approve: { label: 'Aprovação', color: '#EAB308' },
+  scheduled: { label: 'Agendado', color: '#A855F7' },
+  agendar: { label: 'Agendar', color: '#A855F7' },
+  published: { label: 'Publicado', color: '#10B981' },
+  concluido: { label: 'Concluído', color: '#10B981' },
+  'concluído': { label: 'Concluído', color: '#10B981' },
+  completed: { label: 'Concluído', color: '#10B981' },
+  done: { label: 'Concluído', color: '#10B981' },
+  publicado: { label: 'Publicado', color: '#10B981' },
+};
+
+const ProjectReport = ({ project, tasks, campaignPlan, taskStatuses = [] }) => {
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => ['published', 'concluido'].includes(t.status)).length;
+  const completedTasks = tasks.filter((t) =>
+    TERMINAL_TASK_STATUSES.has(String(t.status || '').toLowerCase())
+  ).length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-  
-  const statusCounts = tasks.reduce((acc, task) => {
-    const status = task.status || 'sem_status';
-    acc[status] = (acc[status] || 0) + 1;
+
+  const statusMetaByValue = useMemo(() => {
+    const map = {};
+    (taskStatuses || []).forEach((s) => {
+      const key = String(s.status_value || '').toLowerCase();
+      if (!key) return;
+      map[key] = { label: (s.label || key).trim(), color: s.color || '#6B7280' };
+    });
+    return map;
+  }, [taskStatuses]);
+
+  const statusCounts = useMemo(() => {
+    const acc = {};
+    tasks.forEach((task) => {
+      const raw = task.status;
+      const key =
+        raw != null && String(raw).trim() !== '' ? String(raw).toLowerCase() : 'sem_status';
+      acc[key] = (acc[key] || 0) + 1;
+    });
     return acc;
-  }, {});
+  }, [tasks]);
 
-  const statusDataForChart = Object.entries(statusCounts).map(([status, count]) => {
-    // This part should be ideally linked to a central status config
-    const statusInfo = {
-        'todo': { label: 'A Fazer', color: '#9CA3AF' }, // Gray
-        'doing': { label: 'Em Andamento', color: '#3B82F6' }, // Blue
-        'em_revisao': { label: 'Em Revisão', color: '#F97316' }, // Orange
-        'published': { label: 'Publicado', color: '#10B981' }, // Green
-        'concluido': { label: 'Concluído', color: '#10B981' }, // Green
-        'sem_status': { label: 'Sem Status', color: '#6B7280' },
-    };
-    return {
-        label: statusInfo[status]?.label || status,
+  const statusDataForChart = useMemo(() => {
+    const keysWithData = Object.entries(statusCounts)
+      .filter(([, n]) => n > 0)
+      .map(([k]) => k);
+    const ordered = [];
+    (taskStatuses || []).forEach((s) => {
+      const k = String(s.status_value || '').toLowerCase();
+      if (k && keysWithData.includes(k) && !ordered.includes(k)) ordered.push(k);
+    });
+    keysWithData.forEach((k) => {
+      if (!ordered.includes(k)) ordered.push(k);
+    });
+    return ordered.map((status) => {
+      const count = statusCounts[status];
+      const meta =
+        statusMetaByValue[status] ||
+        TASK_STATUS_FALLBACK[status] || { label: status, color: '#6B7280' };
+      return {
+        key: status,
+        label: meta.label,
         value: count,
-        color: statusInfo[status]?.color || '#6B7280'
-    };
-  });
+        color: meta.color,
+      };
+    });
+  }, [statusCounts, statusMetaByValue, taskStatuses]);
 
-  const pendingList = tasks.filter(t => !['published', 'concluido'].includes(t.status));
+  const pendingList = tasks.filter(
+    (t) => !TERMINAL_TASK_STATUSES.has(String(t.status || '').toLowerCase())
+  );
+
+  const metaForTaskStatus = (status) => {
+    const key =
+      status != null && String(status).trim() !== '' ? String(status).toLowerCase() : 'sem_status';
+    return statusMetaByValue[key] || TASK_STATUS_FALLBACK[key] || { label: String(status || '—'), color: '#6B7280' };
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -153,11 +223,23 @@ const ProjectReport = ({ project, tasks, campaignPlan }) => {
             </CardHeader>
             <CardContent>
                 <div className="max-h-64 overflow-y-auto space-y-3 pr-2">
-                {pendingList.length > 0 ? pendingList.map(task => (
+                {pendingList.length > 0 ? pendingList.map((task) => {
+                  const sm = metaForTaskStatus(task.status);
+                  return (
                     <div key={task.id} className="p-3 border dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50">
                     <p className="font-medium text-sm text-foreground dark:text-gray-200 truncate">{task.title}</p>
                     <div className="flex items-center justify-between mt-2 text-xs">
-                        <Badge variant="secondary" className="capitalize">{task.status}</Badge>
+                        <Badge
+                          variant="outline"
+                          className="max-w-[140px] truncate border font-medium capitalize"
+                          style={{
+                            color: sm.color,
+                            borderColor: `${sm.color}66`,
+                            backgroundColor: `${sm.color}18`,
+                          }}
+                        >
+                          {sm.label}
+                        </Badge>
                         {task.due_date ? (
                             <span className="flex items-center gap-1 text-muted-foreground dark:text-gray-400">
                                 <Clock className="w-3 h-3"/>
@@ -166,7 +248,8 @@ const ProjectReport = ({ project, tasks, campaignPlan }) => {
                         ) : null}
                     </div>
                     </div>
-                )) : (
+                  );
+                }) : (
                      <div className="flex flex-col items-center justify-center text-center py-8">
                         <CheckCircle className="w-12 h-12 text-green-500 mb-2"/>
                         <p className="font-semibold dark:text-white">Tudo em dia!</p>

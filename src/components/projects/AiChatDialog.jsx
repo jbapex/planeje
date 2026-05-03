@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter, DrawerClose } from "@/components/ui/drawer";
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bot, User, Send, Copy, RefreshCw, Maximize, Minimize, Sparkles, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { getDateTimeContext } from '@/lib/utils';
 
 // Estilo global para espaçamento de parágrafos no chat
 const chatParagraphStyle = `
@@ -32,7 +34,29 @@ if (typeof document !== 'undefined' && !document.getElementById('ai-chat-prose-s
     document.head.appendChild(style);
 }
 
-const AiChatDialog = ({ open, onOpenChange, project, client, plan, onPlanUpdate }) => {
+/** Escolhe edge function e parâmetro `model` (OpenRouter usa id com `/`; OpenAI nativo sem prefixo openai/). */
+function resolvePlannerChatEdge(model) {
+    const m = String(model || 'gpt-4o').trim();
+    const useOpenRouter = m.includes('/');
+    return {
+        useOpenRouter,
+        fnName: useOpenRouter ? 'openrouter-chat' : 'openai-chat',
+        modelParam: useOpenRouter ? m : (m.startsWith('openai/') ? m.slice('openai/'.length) : m) || 'gpt-4o',
+    };
+}
+
+const AiChatDialog = ({
+    open,
+    onOpenChange,
+    project,
+    client,
+    plan,
+    onPlanUpdate,
+    variant = 'drawer',
+    plannerModel,
+    onPlannerModelChange,
+    plannerModelOptions,
+}) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
@@ -74,18 +98,17 @@ const AiChatDialog = ({ open, onOpenChange, project, client, plan, onPlanUpdate 
     }, [messages, project.id]);
 
     useEffect(() => {
-        if (scrollAreaRef.current) {
-            const scrollContainer = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
-            if(scrollContainer) {
-              // Para streaming, usa requestAnimationFrame para scroll suave e sem "achatamento"
-              if (isGenerating) {
-                requestAnimationFrame(() => {
-                  scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                });
-              } else {
-                scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
-              }
-            }
+        if (!scrollAreaRef.current) return;
+        const root = scrollAreaRef.current;
+        const scrollContainer =
+            root.querySelector('div[data-radix-scroll-area-viewport]') ?? root;
+        if (!(scrollContainer instanceof HTMLElement)) return;
+        if (isGenerating) {
+            requestAnimationFrame(() => {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            });
+        } else {
+            scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
         }
     }, [messages, currentAIMessage, isGenerating]);
 
@@ -191,14 +214,17 @@ ${getDateTimeContext()}
         const conversationHistory = messages.slice(-5).map(m => ({ role: m.role, content: m.content }));
         const apiMessages = [{ role: 'system', content: systemPrompt }, ...conversationHistory, userMessage];
 
+        const chosenModel = typeof plannerModel === 'string' && plannerModel.trim() ? plannerModel.trim() : 'gpt-4o';
+        const { useOpenRouter, fnName, modelParam } = resolvePlannerChatEdge(chosenModel);
+
         try {
             // Tenta usar a Edge Function primeiro
             let fullResponse = '';
             let useDirectAPI = false;
             
             try {
-                const { data: response, error } = await supabase.functions.invoke('openai-chat', {
-                    body: JSON.stringify({ messages: apiMessages, model: 'gpt-4o' }),
+                const { data: response, error } = await supabase.functions.invoke(fnName, {
+                    body: JSON.stringify({ messages: apiMessages, model: modelParam, stream: true }),
                 });
                 
                 if (error) {
@@ -216,8 +242,11 @@ ${getDateTimeContext()}
                     throw new Error("Resposta inválida da Edge Function");
                 }
             } catch (edgeFunctionError) {
-                // Fallback: usa a API diretamente com streaming
+                // Fallback: API direta OpenAI só para modelos OpenAI (sem OpenRouter)
                 console.warn("Edge Function falhou, usando API direta:", edgeFunctionError);
+                if (useOpenRouter) {
+                    throw edgeFunctionError;
+                }
                 useDirectAPI = true;
                 
                 const apiKey = await getOpenAIKey();
@@ -232,7 +261,7 @@ ${getDateTimeContext()}
                         'Authorization': `Bearer ${apiKey}`
                     },
                     body: JSON.stringify({
-                        model: 'gpt-4o',
+                        model: modelParam,
                         messages: apiMessages,
                         stream: true
                     })
@@ -390,138 +419,238 @@ ${getDateTimeContext()}
         );
     };
 
+    const inputForm = (
+        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Pergunte algo ou peça para preencher o plano..."
+                className="flex-grow resize-none"
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                    }
+                }}
+                disabled={isGenerating}
+            />
+            <Button type="submit" disabled={isGenerating || !input.trim()}>
+                {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+        </form>
+    );
+
+    const showModelPicker =
+        Array.isArray(plannerModelOptions) &&
+        plannerModelOptions.length > 0 &&
+        typeof onPlannerModelChange === 'function' &&
+        typeof plannerModel === 'string';
+
+    const modelPickerEl = showModelPicker ? (
+        <Select value={plannerModel} onValueChange={onPlannerModelChange}>
+            <SelectTrigger
+                aria-label="Modelo de IA"
+                className="h-8 w-[min(160px,36vw)] shrink-0 bg-background text-xs dark:bg-gray-800"
+            >
+                <SelectValue placeholder="Modelo" />
+            </SelectTrigger>
+            <SelectContent align="end" className="max-h-64">
+                {plannerModelOptions.map((id) => (
+                    <SelectItem key={id} value={id} className="font-mono text-xs">
+                        {id}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    ) : null;
+
+    const messageListInner = (
+        <>
+            <div ref={aiMessageContainerRef} />
+            <div className="space-y-6">
+                <AnimatePresence initial={false}>
+                    {messages.map((msg, index) => {
+                        if (msg.isTemp && isGenerating) return null;
+                        return (
+                            <motion.div
+                                key={`msg-${index}-${msg.content.substring(0, 20)}`}
+                                layout={false}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                                className={`flex items-start gap-4 mb-6 ${msg.role === 'user' ? 'justify-end' : ''}`}
+                            >
+                                {msg.role === 'assistant' && <Bot className="h-6 w-6 flex-shrink-0 text-primary mt-1" />}
+                                <div
+                                    className={`relative group max-w-xl rounded-lg p-4 shadow-sm ${
+                                        msg.role === 'user'
+                                            ? 'bg-gradient-to-br from-orange-400 to-purple-600 text-white'
+                                            : 'bg-muted'
+                                    }`}
+                                >
+                                    {msg.role === 'user' ? (
+                                        <div className="break-words text-sm font-medium leading-relaxed text-white">
+                                            {msg.content}
+                                        </div>
+                                    ) : (
+                                        renderMessageContent(msg.content)
+                                    )}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className={`absolute -right-2 -top-2 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 ${
+                                                        msg.role === 'user'
+                                                            ? 'text-white hover:bg-white/20 hover:text-white'
+                                                            : ''
+                                                    }`}
+                                                    onClick={() => copyToClipboard(msg.content)}
+                                                >
+                                                    <Copy className="h-3 w-3" />
+                                                </Button>
+                                </div>
+                                {msg.role === 'user' && <User className="h-6 w-6 shrink-0 text-purple-300 dark:text-purple-200" />}
+                            </motion.div>
+                        );
+                    })}
+                    {isGenerating && currentAIMessage && (
+                        <motion.div
+                            key="streaming-message"
+                            layout={false}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.1 }}
+                            className="flex items-start gap-4 mb-6"
+                            style={{
+                                minHeight: '48px',
+                                willChange: 'contents',
+                            }}
+                        >
+                            <Bot className="h-6 w-6 flex-shrink-0 text-primary mt-1" />
+                            <div
+                                className="max-w-xl flex-1 rounded-lg bg-muted p-4"
+                                style={{
+                                    minHeight: '48px',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                }}
+                            >
+                                <div
+                                    className="prose prose-sm dark:prose-invert max-w-none break-words ai-chat-prose"
+                                    style={{
+                                        wordWrap: 'break-word',
+                                        overflowWrap: 'break-word',
+                                        hyphens: 'auto',
+                                        whiteSpace: 'pre-wrap',
+                                        lineHeight: '1.6',
+                                        width: '100%',
+                                    }}
+                                >
+                                    <span
+                                        dangerouslySetInnerHTML={{
+                                            __html: marked.parse(currentAIMessage, { breaks: true }),
+                                        }}
+                                    />
+                                    <span
+                                        style={{
+                                            display: 'inline-block',
+                                            width: '8px',
+                                            height: '1.2em',
+                                            marginLeft: '2px',
+                                            verticalAlign: 'text-bottom',
+                                            backgroundColor: 'currentColor',
+                                            animation: 'blink 1s infinite',
+                                        }}
+                                    />
+                                </div>
+                                <style>{`
+                                    @keyframes blink {
+                                        0%, 49% { opacity: 1; }
+                                        50%, 100% { opacity: 0.3; }
+                                    }
+                                `}</style>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </>
+    );
+
+    const messagesScroll =
+        variant === 'panel' ? (
+            <div ref={scrollAreaRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4">
+                {messageListInner}
+            </div>
+        ) : (
+            <ScrollArea className="min-h-0 flex-1 flex-grow p-4" ref={scrollAreaRef}>
+                {messageListInner}
+            </ScrollArea>
+        );
+
+    if (variant === 'panel') {
+        if (!open) return null;
+        return (
+            <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background dark:bg-gray-900 dark:text-white">
+                <div className="flex-shrink-0 border-b border-border p-3 dark:border-gray-700 sm:p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <Bot className="h-6 w-6 shrink-0 text-primary" />
+                            <div className="min-w-0">
+                                <h2 className="text-lg font-semibold leading-none tracking-tight">Assistente de Campanha IA</h2>
+                                <p className="truncate text-sm text-muted-foreground">Para a campanha &quot;{project.name}&quot;</p>
+                            </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+                            {modelPickerEl}
+                            <Button variant="ghost" size="icon" onClick={handleNewConversation} type="button">
+                                <RefreshCw className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" type="button" onClick={() => onOpenChange(false)} aria-label="Fechar assistente">
+                                X
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+                {messagesScroll}
+                <div className="mt-auto flex flex-shrink-0 flex-col gap-2 border-t border-border p-4 dark:border-gray-700">
+                    {inputForm}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <Drawer open={open} onOpenChange={onOpenChange}>
             <DrawerContent className={`transition-all duration-300 ${isMaximized ? 'h-screen' : 'h-[75vh]'} dark:bg-gray-900 dark:text-white`}>
-                <div className="mx-auto w-full h-full flex flex-col">
+                <div className="mx-auto flex h-full w-full flex-col">
                     <DrawerHeader className="flex-shrink-0">
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="flex items-center gap-2">
                                 <Bot className="h-6 w-6 text-primary" />
                                 <div>
                                     <DrawerTitle>Assistente de Campanha IA</DrawerTitle>
-                                    <DrawerDescription>Para a campanha "{project.name}"</DrawerDescription>
+                                    <DrawerDescription>Para a campanha &quot;{project.name}&quot;</DrawerDescription>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <Button variant="ghost" size="icon" onClick={handleNewConversation}><RefreshCw className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => setIsMaximized(!isMaximized)}>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                                {modelPickerEl}
+                                <Button variant="ghost" size="icon" onClick={handleNewConversation} type="button">
+                                    <RefreshCw className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" type="button" onClick={() => setIsMaximized(!isMaximized)}>
                                     {isMaximized ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
                                 </Button>
-                                <DrawerClose asChild><Button variant="ghost" size="icon">X</Button></DrawerClose>
+                                <DrawerClose asChild>
+                                    <Button variant="ghost" size="icon" type="button">
+                                        X
+                                    </Button>
+                                </DrawerClose>
                             </div>
                         </div>
                     </DrawerHeader>
-                    <ScrollArea className="flex-grow p-4" ref={scrollAreaRef}>
-                        <div ref={aiMessageContainerRef} />
-                        <div className="space-y-6">
-                            <AnimatePresence initial={false}>
-                                {messages.map((msg, index) => {
-                                    // Não renderiza mensagens temporárias durante streaming
-                                    if (msg.isTemp && isGenerating) return null;
-                                    return (
-                                        <motion.div
-                                            key={`msg-${index}-${msg.content.substring(0, 20)}`}
-                                            layout={false}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: -10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className={`flex items-start gap-4 mb-6 ${msg.role === 'user' ? 'justify-end' : ''}`}
-                                        >
-                                            {msg.role === 'assistant' && <Bot className="h-6 w-6 flex-shrink-0 text-primary mt-1" />}
-                                            <div className={`relative group max-w-xl p-4 rounded-lg ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                                                {renderMessageContent(msg.content)}
-                                                <Button variant="ghost" size="icon" className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => copyToClipboard(msg.content)}>
-                                                    <Copy className="h-3 w-3" />
-                                                </Button>
-                                            </div>
-                                            {msg.role === 'user' && <User className="h-6 w-6 flex-shrink-0" />}
-                                        </motion.div>
-                                    );
-                                })}
-                                {isGenerating && currentAIMessage && (
-                                    <motion.div
-                                        key="streaming-message"
-                                        layout={false}
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ duration: 0.1 }}
-                                        className="flex items-start gap-4 mb-6"
-                                        style={{ 
-                                            minHeight: '48px',
-                                            willChange: 'contents'
-                                        }}
-                                    >
-                                        <Bot className="h-6 w-6 flex-shrink-0 text-primary mt-1" />
-                                        <div 
-                                            className="max-w-xl p-4 rounded-lg bg-muted flex-1"
-                                            style={{
-                                                minHeight: '48px',
-                                                display: 'flex',
-                                                alignItems: 'flex-start'
-                                            }}
-                                        >
-                                            <div 
-                                                className="prose prose-sm dark:prose-invert max-w-none break-words ai-chat-prose"
-                                                style={{ 
-                                                    wordWrap: 'break-word',
-                                                    overflowWrap: 'break-word',
-                                                    hyphens: 'auto',
-                                                    whiteSpace: 'pre-wrap',
-                                                    lineHeight: '1.6',
-                                                    width: '100%'
-                                                }}
-                                            >
-                                                <span 
-                                                    dangerouslySetInnerHTML={{ 
-                                                        __html: marked.parse(currentAIMessage, { breaks: true }) 
-                                                    }} 
-                                                />
-                                                <span 
-                                                    style={{ 
-                                                        display: 'inline-block',
-                                                        width: '8px',
-                                                        height: '1.2em',
-                                                        marginLeft: '2px',
-                                                        verticalAlign: 'text-bottom',
-                                                        backgroundColor: 'currentColor',
-                                                        animation: 'blink 1s infinite'
-                                                    }}
-                                                />
-                                            </div>
-                                            <style>{`
-                                                @keyframes blink {
-                                                    0%, 49% { opacity: 1; }
-                                                    50%, 100% { opacity: 0.3; }
-                                                }
-                                            `}</style>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </ScrollArea>
-                    <DrawerFooter className="flex-shrink-0 border-t dark:border-gray-700">
-                        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                            <Textarea
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                placeholder="Pergunte algo ou peça para preencher o plano..."
-                                className="flex-grow resize-none"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSendMessage(e);
-                                    }
-                                }}
-                                disabled={isGenerating}
-                            />
-                            <Button type="submit" disabled={isGenerating || !input.trim()}>
-                                {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                            </Button>
-                        </form>
-                    </DrawerFooter>
+                    {messagesScroll}
+                    <DrawerFooter className="flex-shrink-0 border-t dark:border-gray-700">{inputForm}</DrawerFooter>
                 </div>
             </DrawerContent>
         </Drawer>

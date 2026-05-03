@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import {
   Search,
   Plus,
-  Filter,
   ChevronRight,
+  ChevronDown,
   MoreHorizontal,
   Users,
+  Table2,
+  Columns,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,13 +31,12 @@ import {
   buildCampaignRows,
   buildClientRows,
   buildPendencias,
-  calendarListEvents,
   getCampaignForClientMonth,
-  materialHasLinkedTask,
-  nextPublicationOrDeliveryEvents,
   planForProject,
   projectStatusLabel,
+  normalizeProjetosStatus,
 } from '@/lib/projectsOperationalMetrics';
+import { parseMesReferenciaLocal } from '@/lib/mesReferencia';
 
 const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -58,10 +60,10 @@ function isAnnualMonthFuture(viewYear, monthIdx, reference = new Date()) {
 }
 
 const tabBar = cn(
-  'inline-flex h-auto w-full flex-wrap gap-1 rounded-full border border-border/60 bg-muted/40 p-1 dark:bg-muted/20'
+  'inline-flex h-auto w-full flex-wrap gap-1 rounded-full border border-gray-300/90 bg-gray-200/95 p-1 dark:border-gray-600 dark:bg-gray-900'
 );
 const tabTrigger = cn(
-  'rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
+  'rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:text-gray-400 dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
 );
 
 function healthStroke(score) {
@@ -183,6 +185,7 @@ function annualToneClass(tone) {
 function fasePillClass(key) {
   if (key === 'sem_plano') return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
   if (key === 'planejado') return 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200';
+  if (key === 'aprovacao') return 'bg-indigo-100 text-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-100';
   if (key === 'execucao') return 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-100';
   if (key === 'concluido') return 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100';
   if (key === 'pausado') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
@@ -193,6 +196,30 @@ function planDotClass(key) {
   if (key === 'none') return 'bg-red-500';
   if (key === 'complete') return 'bg-emerald-500';
   return 'bg-amber-500';
+}
+
+/** Colunas do Kanban = status da campanha (projetos.status), igual ao select do formulário. */
+const PROJECT_KANBAN_STATUS_COLUMNS = [
+  { key: 'planejamento', title: 'Planejamento', color: '#2563EB' },
+  { key: 'aprovacao', title: 'Aprovação', color: '#7C3AED' },
+  { key: 'execucao', title: 'Execução', color: '#EA580C' },
+  { key: 'concluido', title: 'Concluído', color: '#059669' },
+  { key: 'pausado', title: 'Pausado', color: '#64748B' },
+];
+
+function projectStatusKanbanKey(project) {
+  const st = normalizeProjetosStatus(project?.status);
+  if (st === 'planejamento') return 'planejamento';
+  if (st === 'aprovacao') return 'aprovacao';
+  if (st === 'execucao') return 'execucao';
+  if (st === 'concluido') return 'concluido';
+  if (st === 'pausado') return 'pausado';
+  return 'planejamento';
+}
+
+function formatTaskStatusLabel(raw) {
+  if (raw == null || String(raw).trim() === '') return '—';
+  return String(raw).replace(/_/g, ' ');
 }
 
 export default function ProjectsOperationalPanel({
@@ -206,17 +233,67 @@ export default function ProjectsOperationalPanel({
   onNewCampaign,
   onNewClient,
   onOpenClientProjects,
+  onUpdateProjectStatus,
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [monthIndex, setMonthIndex] = useState(now.getMonth());
   const [search, setSearch] = useState('');
   const [healthFilter, setHealthFilter] = useState('all');
-  const [mainTab, setMainTab] = useState('geral');
+  const [mainTab, setMainTab] = useState('campanhas');
   const [tableFilter, setTableFilter] = useState('all');
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortHealth, setSortHealth] = useState(true);
   const [etapaFilter, setEtapaFilter] = useState('closed');
+  /** Aba Campanhas: tabela ou Kanban por status do projeto (igual formulário). */
+  const [campaignsView, setCampaignsView] = useState('kanban');
+  /** `mes`: alinha ao período global; `todas_abertas`: campanhas não concluídas de qualquer mês de referência. */
+  const [campaignsReferenceScope, setCampaignsReferenceScope] = useState('mes');
+  const [campaignDragOverKey, setCampaignDragOverKey] = useState(null);
+  const draggedCampaignRef = useRef(null);
+  /** Cartão do Kanban de campanhas com lista de tarefas expandida. */
+  const [expandedCampaignCardId, setExpandedCampaignCardId] = useState(null);
+  const campaignsKanbanScrollRef = useRef(null);
+  const campKbDragRef = useRef({ down: false, startX: 0, scrollLeft: 0 });
+
+  useEffect(() => {
+    if (campaignsView !== 'kanban') return;
+    const slider = campaignsKanbanScrollRef.current;
+    if (!slider) return;
+
+    const handleMouseDown = (e) => {
+      if (e.target.closest('button, a, [draggable="true"]')) return;
+      campKbDragRef.current.down = true;
+      slider.classList.add('active');
+      campKbDragRef.current.startX = e.pageX - slider.offsetLeft;
+      campKbDragRef.current.scrollLeft = slider.scrollLeft;
+    };
+    const handleMouseLeave = () => {
+      campKbDragRef.current.down = false;
+      slider.classList.remove('active');
+    };
+    const handleMouseUp = () => {
+      campKbDragRef.current.down = false;
+      slider.classList.remove('active');
+    };
+    const handleMouseMove = (e) => {
+      if (!campKbDragRef.current.down) return;
+      e.preventDefault();
+      const x = e.pageX - slider.offsetLeft;
+      const walk = (x - campKbDragRef.current.startX) * 2;
+      slider.scrollLeft = campKbDragRef.current.scrollLeft - walk;
+    };
+
+    slider.addEventListener('mousedown', handleMouseDown);
+    slider.addEventListener('mouseleave', handleMouseLeave);
+    slider.addEventListener('mouseup', handleMouseUp);
+    slider.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      slider.removeEventListener('mousedown', handleMouseDown);
+      slider.removeEventListener('mouseleave', handleMouseLeave);
+      slider.removeEventListener('mouseup', handleMouseUp);
+      slider.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [campaignsView]);
 
   const clientsForPanel = useMemo(() => {
     if (etapaFilter === 'all') return clients;
@@ -260,11 +337,6 @@ export default function ProjectsOperationalPanel({
     return raw.charAt(0).toUpperCase() + raw.slice(1);
   }, [year, monthIndex]);
 
-  const clientsById = useMemo(
-    () => Object.fromEntries(clientsForPanel.map((c) => [c.id, c])),
-    [clientsForPanel]
-  );
-
   const clientRows = useMemo(
     () =>
       buildClientRows({
@@ -301,24 +373,21 @@ export default function ProjectsOperationalPanel({
       tasks,
       year,
       monthIndex,
+      referenceScope: campaignsReferenceScope,
     });
     return rows.filter((r) => r.client);
-  }, [projects, clientsForPanel, campaignPlans, tasks, year, monthIndex]);
+  }, [projects, clientsForPanel, campaignPlans, tasks, year, monthIndex, campaignsReferenceScope]);
 
-  const upcoming7 = useMemo(
-    () => nextPublicationOrDeliveryEvents({ projects, campaignPlans, clientsById, daysAhead: 7 }),
-    [projects, campaignPlans, clientsById]
-  );
-
-  const upcomingCal = useMemo(
-    () => nextPublicationOrDeliveryEvents({ projects, campaignPlans, clientsById, daysAhead: 28 }),
-    [projects, campaignPlans, clientsById]
-  );
-
-  const calEvents = useMemo(
-    () => calendarListEvents({ projects, campaignPlans, clients: clientsForPanel, year, monthIndex }),
-    [projects, campaignPlans, clientsForPanel, year, monthIndex]
-  );
+  const campaignsKanbanColumns = useMemo(() => {
+    const buckets = Object.fromEntries(PROJECT_KANBAN_STATUS_COLUMNS.map((c) => [c.key, []]));
+    for (const cr of campaignRows) {
+      buckets[projectStatusKanbanKey(cr.project)].push(cr);
+    }
+    return PROJECT_KANBAN_STATUS_COLUMNS.map((col) => ({
+      ...col,
+      rows: buckets[col.key],
+    }));
+  }, [campaignRows]);
 
   const byProjectTasks = useMemo(() => {
     const m = {};
@@ -387,28 +456,6 @@ export default function ProjectsOperationalPanel({
     const abbr = MONTHS_PT[monthIndex];
     return `${abbr} · ${year} · ${stats.activeClients} ${stats.activeClients === 1 ? 'cliente ativo' : 'clientes ativos'}`;
   }, [monthIndex, year, stats.activeClients]);
-
-  const coverage = useMemo(() => {
-    const inMonth = clientRows.filter((r) => r.monthProject);
-    const withPlanComplete = inMonth.filter((r) => r.planStatus.key === 'complete').length;
-    let matTotal = 0;
-    let matWithTask = 0;
-    for (const r of inMonth) {
-      const mats = r.plan?.materiais || [];
-      for (const m of mats) {
-        matTotal += 1;
-        const pTasks = byProjectTasks[r.monthProject.id] || [];
-        const empresa = r.client.empresa || '';
-        if (materialHasLinkedTask(m, pTasks, empresa)) matWithTask += 1;
-      }
-    }
-    const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
-    return {
-      withCampaign: pct(inMonth.length, clientsForPanel.length),
-      planComplete: pct(withPlanComplete, Math.max(inMonth.length, 1)),
-      materialsTasked: pct(matWithTask, Math.max(matTotal, 1)),
-    };
-  }, [clientRows, clientsForPanel.length, byProjectTasks]);
 
   const queueItems = useMemo(() => {
     const noCamp = clientRows.filter((r) => !r.monthProject).map((r) => r.client.empresa);
@@ -503,10 +550,46 @@ export default function ProjectsOperationalPanel({
     else navigate(`/projects/new?client_id=${clientId}&year=${year}&month=${mIdx}`);
   };
 
+  const handleCampaignKanbanDragStart = (e, project) => {
+    draggedCampaignRef.current = project;
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', project.id);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleCampaignKanbanDragEnd = () => {
+    draggedCampaignRef.current = null;
+    setCampaignDragOverKey(null);
+  };
+
+  const handleCampaignKanbanDragOver = (e, columnKey) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setCampaignDragOverKey(columnKey);
+  };
+
+  const handleCampaignKanbanDrop = (e, columnKey) => {
+    e.preventDefault();
+    const proj = draggedCampaignRef.current;
+    setCampaignDragOverKey(null);
+    draggedCampaignRef.current = null;
+    if (!proj || !onUpdateProjectStatus) return;
+    const from = projectStatusKanbanKey(proj);
+    if (from !== columnKey) {
+      onUpdateProjectStatus(proj.id, columnKey);
+    }
+  };
+
   const yearOptions = useMemo(() => {
     const ys = new Set([year, now.getFullYear(), now.getFullYear() + 1]);
     projects.forEach((p) => {
-      if (p.mes_referencia) ys.add(new Date(p.mes_referencia).getFullYear());
+      if (p.mes_referencia) {
+        const d = parseMesReferenciaLocal(p.mes_referencia);
+        if (d) ys.add(d.getFullYear());
+      }
     });
     return Array.from(ys).sort((a, b) => a - b);
   }, [projects, year, now]);
@@ -518,8 +601,6 @@ export default function ProjectsOperationalPanel({
         ? 'border-emerald-600 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-100'
         : 'border-border/80 bg-background text-muted-foreground hover:bg-muted/50'
     );
-
-  const showFiltersToolbar = mainTab === 'geral' || filtersOpen;
 
   const renderClientTable = (compact) => {
     const nRisco = clientRows.filter((r) => r.health.label === 'Risco').length;
@@ -705,7 +786,7 @@ export default function ProjectsOperationalPanel({
                   </TableCell>
                 )}
                 <TableCell className="align-top py-3 text-right">
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-row flex-wrap items-center justify-end gap-1">
                     {row.monthProject ? (
                       <Button
                         size="sm"
@@ -748,9 +829,9 @@ export default function ProjectsOperationalPanel({
   };
 
   return (
-    <div className="text-foreground">
-      <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
-        <div className="-mx-6 border-b border-gray-200/80 bg-background px-6 pb-4 pt-1 dark:border-gray-800">
+    <div className="flex w-full min-w-0 flex-col text-foreground">
+      <Tabs value={mainTab} onValueChange={setMainTab} className="flex w-full min-w-0 flex-col">
+        <div className="sticky top-0 z-30 -mx-6 shrink-0 border-b border-gray-200 bg-background px-6 pb-3 pt-1 shadow-sm dark:border-gray-700 dark:bg-gray-950">
           <div className="space-y-4">
             <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-1">
@@ -758,15 +839,8 @@ export default function ProjectsOperationalPanel({
                 <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
                   Projetos<span className="text-emerald-600 dark:text-emerald-400">.</span>
                 </h1>
-                <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  Saúde operacional dos clientes, pendências críticas e o que precisa sair hoje.
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-1.5 border-gray-200 bg-card dark:border-gray-700" onClick={() => setFiltersOpen((v) => !v)}>
-                  <Filter className="h-4 w-4" />
-                  Filtros
-                </Button>
                 <Button variant="outline" size="sm" className="border-gray-200 bg-card dark:border-gray-700" onClick={onNewClient}>
                   <Plus className="h-4 w-4" />
                   Cliente
@@ -782,70 +856,141 @@ export default function ProjectsOperationalPanel({
               </div>
             </header>
 
-            {showFiltersToolbar && (
-              <div className="flex flex-col gap-3 rounded-xl border border-gray-200/90 bg-muted/25 p-3 dark:border-gray-800 lg:flex-row lg:items-end lg:justify-between">
-                <div className="relative max-w-md flex-1">
-                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar por cliente, campanha ou responsável…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="h-10 border-border/80 bg-background pl-9 text-sm shadow-sm"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">Período</span>
-                  <Select value={String(year)} onValueChange={(v) => setYear(parseInt(v, 10))}>
-                    <SelectTrigger className="h-10 w-[104px] text-sm bg-background">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {yearOptions.map((y) => (
-                        <SelectItem key={y} value={String(y)}>
-                          {y}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={String(monthIndex)} onValueChange={(v) => setMonthIndex(parseInt(v, 10))}>
-                    <SelectTrigger className="h-10 w-[148px] text-sm bg-background">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTHS_PT.map((label, i) => (
-                        <SelectItem key={label} value={String(i)}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={healthFilter} onValueChange={setHealthFilter}>
-                    <SelectTrigger className="h-10 w-[168px] text-sm bg-background">
-                      <SelectValue placeholder="Saúde" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as saúdes</SelectItem>
-                      <SelectItem value="saudavel">Saudável</SelectItem>
-                      <SelectItem value="atencao">Atenção</SelectItem>
-                      <SelectItem value="risco">Risco</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={etapaFilter} onValueChange={setEtapaFilter}>
-                    <SelectTrigger className="h-10 w-[188px] text-sm bg-background">
-                      <SelectValue placeholder="Etapa do cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as etapas</SelectItem>
-                      {CLIENT_ETAPAS.map((e) => (
-                        <SelectItem key={e.value} value={e.value}>
-                          {e.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            <div className="flex flex-col gap-3 rounded-xl border border-gray-200/90 bg-muted/25 p-3 dark:border-gray-800 lg:flex-row lg:items-end lg:justify-between">
+              <div className="relative max-w-md flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por cliente, campanha ou responsável…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-10 border-border/80 bg-background pl-9 text-sm shadow-sm"
+                />
               </div>
-            )}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-medium text-muted-foreground">Período</span>
+                <Select value={String(year)} onValueChange={(v) => setYear(parseInt(v, 10))}>
+                  <SelectTrigger className="h-10 w-[104px] text-sm bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(monthIndex)} onValueChange={(v) => setMonthIndex(parseInt(v, 10))}>
+                  <SelectTrigger className="h-10 w-[148px] text-sm bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS_PT.map((label, i) => (
+                      <SelectItem key={label} value={String(i)}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={healthFilter} onValueChange={setHealthFilter}>
+                  <SelectTrigger className="h-10 w-[168px] text-sm bg-background">
+                    <SelectValue placeholder="Saúde" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as saúdes</SelectItem>
+                    <SelectItem value="saudavel">Saudável</SelectItem>
+                    <SelectItem value="atencao">Atenção</SelectItem>
+                    <SelectItem value="risco">Risco</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={etapaFilter} onValueChange={setEtapaFilter}>
+                  <SelectTrigger className="h-10 w-[188px] text-sm bg-background">
+                    <SelectValue placeholder="Etapa do cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as etapas</SelectItem>
+                    {CLIENT_ETAPAS.map((e) => (
+                      <SelectItem key={e.value} value={e.value}>
+                        {e.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {mainTab === 'campanhas' && (
+                  <div
+                    className="inline-flex rounded-lg border border-border/80 bg-muted/40 p-0.5 dark:bg-muted/25"
+                    role="group"
+                    aria-label="Modo de visualização das campanhas"
+                  >
+                    <Button
+                      type="button"
+                      variant={campaignsView === 'tabela' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className={cn(
+                        'h-10 gap-1 rounded-md px-2.5 text-xs',
+                        campaignsView === 'tabela' && 'bg-background shadow-sm dark:bg-gray-900'
+                      )}
+                      onClick={() => setCampaignsView('tabela')}
+                    >
+                      <Table2 className="h-3.5 w-3.5" />
+                      Tabela
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={campaignsView === 'kanban' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className={cn(
+                        'h-10 gap-1 rounded-md px-2.5 text-xs',
+                        campaignsView === 'kanban' && 'bg-background shadow-sm dark:bg-gray-900'
+                      )}
+                      onClick={() => setCampaignsView('kanban')}
+                    >
+                      <Columns className="h-3.5 w-3.5" />
+                      Kanban
+                    </Button>
+                  </div>
+                )}
+                {mainTab === 'campanhas' && (
+                  <div
+                    className="inline-flex rounded-lg border border-border/80 bg-muted/40 p-0.5 dark:bg-muted/25"
+                    role="group"
+                    aria-label="Período das campanhas na tabela e no Kanban"
+                    title="Todas em aberto: campanhas não concluídas, qualquer mês de referência (respeita busca e etapa do cliente)."
+                  >
+                    <Button
+                      type="button"
+                      variant={campaignsReferenceScope === 'mes' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className={cn(
+                        'h-10 gap-1 rounded-md px-2.5 text-xs',
+                        campaignsReferenceScope === 'mes' && 'bg-background shadow-sm dark:bg-gray-900'
+                      )}
+                      onClick={() => {
+                        setCampaignsReferenceScope('mes');
+                        setExpandedCampaignCardId(null);
+                      }}
+                    >
+                      Este mês
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={campaignsReferenceScope === 'todas_abertas' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className={cn(
+                        'h-10 max-w-[140px] gap-1 truncate rounded-md px-2.5 text-xs sm:max-w-none',
+                        campaignsReferenceScope === 'todas_abertas' && 'bg-background shadow-sm dark:bg-gray-900'
+                      )}
+                      onClick={() => {
+                        setCampaignsReferenceScope('todas_abertas');
+                        setExpandedCampaignCardId(null);
+                      }}
+                    >
+                      Todas em aberto
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
 
             <TabsList className={tabBar}>
               <TabsTrigger value="geral" className={tabTrigger}>
@@ -857,9 +1002,6 @@ export default function ProjectsOperationalPanel({
               <TabsTrigger value="campanhas" className={tabTrigger}>
                 Campanhas
               </TabsTrigger>
-              <TabsTrigger value="calendario" className={tabTrigger}>
-                Calendário
-              </TabsTrigger>
               <TabsTrigger value="porCliente" className={tabTrigger}>
                 Por cliente
               </TabsTrigger>
@@ -870,7 +1012,7 @@ export default function ProjectsOperationalPanel({
           </div>
         </div>
 
-        <TabsContent value="geral" className="mt-5 space-y-8">
+        <TabsContent value="geral" className="mt-0 min-h-0 space-y-8 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
           {loading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">Carregando…</p>
           ) : (
@@ -999,7 +1141,6 @@ export default function ProjectsOperationalPanel({
                       <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
                       <h2 className="text-base font-semibold tracking-tight text-foreground">Fila de ação</h2>
                     </div>
-                    <p className="mt-0.5 pl-4 text-xs text-muted-foreground">O que destrava a operação agora</p>
                   </div>
                   <button
                     type="button"
@@ -1074,85 +1215,13 @@ export default function ProjectsOperationalPanel({
                   <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
                   <h2 className="text-base font-semibold tracking-tight text-foreground">Clientes</h2>
                 </div>
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
-                  <div className="min-w-0 xl:col-span-9">{renderClientTable(false)}</div>
-                  <aside className="space-y-4 xl:col-span-3">
-                    <div className="rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm dark:border-gray-800">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
-                            <h3 className="text-sm font-semibold">Próximos 7 dias</h3>
-                          </div>
-                          <p className="mt-1 pl-4 text-[11px] text-muted-foreground">Publicações e entregas</p>
-                        </div>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[11px] font-semibold text-emerald-700 hover:underline dark:text-emerald-400"
-                          onClick={() => setMainTab('calendario')}
-                        >
-                          Calendário →
-                        </button>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {upcoming7.length === 0 ? (
-                          <div className="rounded-lg border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
-                            Nada agendado.
-                          </div>
-                        ) : (
-                          upcoming7.map((ev) => {
-                            const kindLabel = ev.kind === 'publicação' ? 'Publicação' : 'Entrega';
-                            return (
-                              <button
-                                key={`${ev.projectId}-${ev.label}-${ev.date}-${ev.kind}`}
-                                type="button"
-                                className="w-full rounded-lg border border-gray-100 bg-muted/20 px-3 py-2.5 text-left text-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50/30 dark:border-gray-800 dark:hover:border-emerald-900 dark:hover:bg-emerald-950/20"
-                                onClick={() => openProject(ev.projectId)}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">
-                                    {ev.dateObj?.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                                  </span>
-                                  <Badge
-                                    variant="secondary"
-                                    className="shrink-0 border-0 bg-orange-100 text-[9px] font-semibold text-orange-900 dark:bg-orange-950/50 dark:text-orange-100"
-                                  >
-                                    {kindLabel}
-                                  </Badge>
-                                </div>
-                                <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-foreground">{ev.label}</p>
-                                <p className="mt-0.5 text-[11px] text-muted-foreground">{ev.clientName}</p>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm dark:border-gray-800">
-                      <h3 className="text-sm font-semibold">Cobertura</h3>
-                      <dl className="mt-3 space-y-2.5 text-sm">
-                        <div className="flex justify-between gap-2 border-b border-border/50 pb-2">
-                          <dt className="text-muted-foreground">Campanha</dt>
-                          <dd className="font-semibold tabular-nums">{coverage.withCampaign}%</dd>
-                        </div>
-                        <div className="flex justify-between gap-2 border-b border-border/50 pb-2">
-                          <dt className="text-muted-foreground">Plano ok</dt>
-                          <dd className="font-semibold tabular-nums">{coverage.planComplete}%</dd>
-                        </div>
-                        <div className="flex justify-between gap-2">
-                          <dt className="text-muted-foreground">Mat. → tarefa</dt>
-                          <dd className="font-semibold tabular-nums">{coverage.materialsTasked}%</dd>
-                        </div>
-                      </dl>
-                    </div>
-                  </aside>
-                </div>
+                <div className="min-w-0">{renderClientTable(false)}</div>
               </section>
             </>
           )}
         </TabsContent>
 
-        <TabsContent value="porCliente" className="mt-6">
+        <TabsContent value="porCliente" className="mt-0 min-h-0 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
           {loading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">Carregando…</p>
           ) : (
@@ -1163,7 +1232,7 @@ export default function ProjectsOperationalPanel({
           )}
         </TabsContent>
 
-        <TabsContent value="anual" className="mt-6">
+        <TabsContent value="anual" className="mt-0 min-h-0 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
           {loading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">Carregando…</p>
           ) : (
@@ -1324,178 +1393,282 @@ export default function ProjectsOperationalPanel({
           )}
         </TabsContent>
 
-        <TabsContent value="campanhas" className="mt-6">
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold">
-                Campanhas · {MONTHS_PT[monthIndex]} {year}
-              </h3>
-              <p className="text-xs text-muted-foreground">{campaignRows.length} campanhas · {stats.inExecution} em execução</p>
-            </div>
-            <Button size="sm" className="gap-1 bg-violet-600 text-white hover:bg-violet-700" onClick={onNewCampaign}>
-              <Plus className="h-4 w-4" />
-              Nova campanha
-            </Button>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs font-semibold">Campanha</TableHead>
-                  <TableHead className="text-xs font-semibold">Cliente</TableHead>
-                  <TableHead className="text-xs font-semibold">Fase</TableHead>
-                  <TableHead className="text-xs font-semibold">Plano</TableHead>
-                  <TableHead className="text-xs font-semibold">Materiais</TableHead>
-                  <TableHead className="text-xs font-semibold">Tarefas</TableHead>
-                  <TableHead className="text-xs font-semibold">Saúde</TableHead>
-                  <TableHead className="text-right text-xs font-semibold">Ação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {campaignRows.length === 0 ? (
+        <TabsContent value="campanhas" className="mt-0 min-h-0 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
+          {campaignsView === 'tabela' ? (
+            <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                      Nenhuma campanha neste mês.
-                    </TableCell>
+                    <TableHead className="text-xs font-semibold">Campanha</TableHead>
+                    <TableHead className="text-xs font-semibold">Cliente</TableHead>
+                    {campaignsReferenceScope === 'todas_abertas' ? (
+                      <TableHead className="whitespace-nowrap text-xs font-semibold">Ref.</TableHead>
+                    ) : null}
+                    <TableHead className="text-xs font-semibold">Fase</TableHead>
+                    <TableHead className="text-xs font-semibold">Plano</TableHead>
+                    <TableHead className="text-xs font-semibold">Materiais</TableHead>
+                    <TableHead className="text-xs font-semibold">Tarefas</TableHead>
+                    <TableHead className="text-xs font-semibold">Saúde</TableHead>
+                    <TableHead className="text-right text-xs font-semibold">Ação</TableHead>
                   </TableRow>
-                ) : (
-                  campaignRows.map((cr) => (
-                    <TableRow key={cr.project.id} className="text-sm">
-                      <TableCell className="max-w-[200px] truncate font-medium" title={cr.project.name}>
-                        {cr.project.name}
-                      </TableCell>
-                      <TableCell>{cr.client?.empresa}</TableCell>
-                      <TableCell>
-                        <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize', fasePillClass(cr.faseKey))}>
-                          {cr.faseLabel}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className={cn('h-2 w-2 shrink-0 rounded-full', planDotClass(cr.planStatus.key))} />
-                          {cr.planStatus.label}
-                        </div>
-                      </TableCell>
-                      <TableCell className="tabular-nums text-xs">
-                        {cr.materialsCount}
-                        {cr.materialsWithoutTask > 0 && (
-                          <span className="text-amber-700 dark:text-amber-400"> ({cr.materialsWithoutTask} s/ tarefa)</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="tabular-nums text-xs">{cr.tasksCount}</TableCell>
-                      <TableCell>
-                        <span
-                          className={cn(
-                            'text-xs font-semibold tabular-nums',
-                            cr.health.score >= 85 && 'text-emerald-600',
-                            cr.health.score >= 60 && cr.health.score < 85 && 'text-amber-600',
-                            cr.health.score < 60 && 'text-red-600'
-                          )}
-                        >
-                          {cr.health.score}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          className="h-8 gap-1 rounded-full bg-zinc-900 px-3 text-xs text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900"
-                          onClick={() => openProject(cr.project.id)}
-                        >
-                          Abrir <ChevronRight className="h-3.5 w-3.5" />
-                        </Button>
+                </TableHeader>
+                <TableBody>
+                  {campaignRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={campaignsReferenceScope === 'todas_abertas' ? 9 : 8}
+                        className="py-10 text-center text-sm text-muted-foreground"
+                      >
+                        {campaignsReferenceScope === 'todas_abertas'
+                          ? 'Nenhuma campanha em aberto para estes clientes.'
+                          : 'Nenhuma campanha neste mês.'}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="calendario" className="mt-6">
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <h3 className="text-sm font-semibold">Calendário geral</h3>
-            <p className="text-xs text-muted-foreground">Publicações e entregas de todos os clientes (próximas semanas)</p>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {upcomingCal.length === 0 ? (
-                <p className="col-span-full py-8 text-center text-sm text-muted-foreground">Nada agendado neste intervalo.</p>
-              ) : (
-                upcomingCal.map((ev) => (
-                  <button
-                    key={`${ev.projectId}-${ev.label}-${ev.date}-${ev.kind}`}
-                    type="button"
-                    className="flex flex-col rounded-xl border border-border bg-background p-4 text-left shadow-sm transition-shadow hover:shadow-md"
-                    onClick={() => openProject(ev.projectId)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">
-                        {ev.dateObj?.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
-                      </span>
-                      <Badge variant="secondary" className="shrink-0 text-[10px]">
-                        Agendado
-                      </Badge>
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-sm font-semibold leading-snug">{ev.label}</p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {ev.kind} · {ev.clientName}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-            {calEvents.length > 0 && (
-              <div className="mt-8 border-t border-border pt-6">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Todas as datas no mês filtrado ({MONTHS_PT[monthIndex]})</h4>
-                <div className="mt-2 overflow-x-auto rounded-lg border border-border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Data</TableHead>
-                        <TableHead className="text-xs">Tipo</TableHead>
-                        <TableHead className="text-xs">Cliente</TableHead>
-                        <TableHead className="text-xs">Descrição</TableHead>
-                        <TableHead className="text-right text-xs">Ação</TableHead>
+                  ) : (
+                    campaignRows.map((cr) => (
+                      <TableRow key={cr.project.id} className="text-sm">
+                        <TableCell className="max-w-[200px] truncate font-medium" title={cr.project.name}>
+                          {cr.project.name}
+                        </TableCell>
+                        <TableCell>{cr.client?.empresa}</TableCell>
+                        {campaignsReferenceScope === 'todas_abertas' ? (
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{cr.monthLabel}</TableCell>
+                        ) : null}
+                        <TableCell>
+                          <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize', fasePillClass(cr.faseKey))}>
+                            {cr.faseLabel}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className={cn('h-2 w-2 shrink-0 rounded-full', planDotClass(cr.planStatus.key))} />
+                            {cr.planStatus.label}
+                          </div>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-xs">
+                          {cr.materialsCount}
+                          {cr.materialsWithoutTask > 0 && (
+                            <span className="text-amber-700 dark:text-amber-400"> ({cr.materialsWithoutTask} s/ tarefa)</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-xs">{cr.tasksCount}</TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              'text-xs font-semibold tabular-nums',
+                              cr.health.score >= 85 && 'text-emerald-600',
+                              cr.health.score >= 60 && cr.health.score < 85 && 'text-amber-600',
+                              cr.health.score < 60 && 'text-red-600'
+                            )}
+                          >
+                            {cr.health.score}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            className="h-8 gap-1 rounded-full bg-zinc-900 px-3 text-xs text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900"
+                            onClick={() => openProject(cr.project.id)}
+                          >
+                            Abrir <ChevronRight className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {calEvents.map((ev) => (
-                        <TableRow key={ev.id}>
-                          <TableCell className="whitespace-nowrap text-xs tabular-nums">
-                            {(() => {
-                              try {
-                                return new Date(`${ev.date}T12:00:00`).toLocaleDateString('pt-BR');
-                              } catch {
-                                return ev.date;
-                              }
-                            })()}
-                          </TableCell>
-                          <TableCell className="text-xs">{ev.type}</TableCell>
-                          <TableCell className="text-sm">{ev.clientName}</TableCell>
-                          <TableCell className="max-w-xs truncate text-xs text-muted-foreground">{ev.label}</TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => openProject(ev.projectId)}>
-                              Abrir
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-          </div>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div
+              ref={campaignsKanbanScrollRef}
+              className="flex h-[calc(100dvh-26rem)] w-full cursor-grab gap-6 overflow-x-auto overflow-y-hidden pb-0 md:h-[calc(100dvh-22rem)] active:cursor-grabbing"
+            >
+                {campaignsKanbanColumns.map((col) => (
+                  <div
+                    key={col.key}
+                    onDragOver={(e) => handleCampaignKanbanDragOver(e, col.key)}
+                    onDrop={(e) => handleCampaignKanbanDrop(e, col.key)}
+                    className={cn(
+                      'flex h-full min-h-0 w-80 shrink-0 flex-col rounded-lg bg-gray-50 shadow-sm transition-colors dark:bg-gray-800/50',
+                      campaignDragOverKey === col.key && 'bg-blue-50 dark:bg-blue-900/30'
+                    )}
+                  >
+                    <div
+                      className="flex-shrink-0 rounded-t-lg px-3 py-2"
+                      style={{ backgroundColor: col.color }}
+                    >
+                      <h3 className="text-sm font-medium text-white">
+                        {col.title} ({col.rows.length})
+                      </h3>
+                    </div>
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+                      {col.rows.length === 0 ? (
+                        <p className="rounded-md border border-dashed border-gray-200 py-6 text-center text-xs text-muted-foreground dark:border-gray-600">
+                          Nenhuma campanha
+                        </p>
+                      ) : (
+                        col.rows.map((cr) => {
+                          const owner = cr.project?.owner_id
+                            ? users.find((u) => u.id === cr.project.owner_id)
+                            : null;
+                          const pTasks = byProjectTasks[cr.project.id] || [];
+                          const expanded = expandedCampaignCardId === cr.project.id;
+                          return (
+                            <motion.div
+                              key={cr.project.id}
+                              layout
+                              draggable
+                              onDragStart={(e) => handleCampaignKanbanDragStart(e, cr.project)}
+                              onDragEnd={handleCampaignKanbanDragEnd}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  if (pTasks.length === 0) openProject(cr.project.id);
+                                  else
+                                    setExpandedCampaignCardId((id) => (id === cr.project.id ? null : cr.project.id));
+                                }
+                              }}
+                              onClick={() => {
+                                if (pTasks.length === 0) openProject(cr.project.id);
+                                else
+                                  setExpandedCampaignCardId((id) => (id === cr.project.id ? null : cr.project.id));
+                              }}
+                              className="cursor-grab rounded-md border border-gray-200 bg-white p-3 text-left shadow-sm active:cursor-grabbing dark:border-gray-700 dark:bg-gray-800"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium leading-snug dark:text-white">
+                                    {pTasks.length > 0 ? (
+                                      <span
+                                        className="cursor-pointer rounded-sm hover:text-violet-700 hover:underline dark:hover:text-violet-300"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openProject(cr.project.id);
+                                        }}
+                                      >
+                                        {cr.project.name}
+                                      </span>
+                                    ) : (
+                                      cr.project.name
+                                    )}
+                                  </p>
+                                  <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{cr.client?.empresa}</p>
+                                  {campaignsReferenceScope === 'todas_abertas' ? (
+                                    <p className="mt-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                                      Ref. {cr.monthLabel}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                {pTasks.length > 0 ? (
+                                  <ChevronDown
+                                    className={cn(
+                                      'mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                                      expanded && 'rotate-180'
+                                    )}
+                                    aria-hidden
+                                  />
+                                ) : null}
+                              </div>
+                              <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                <span className={cn('h-2 w-2 shrink-0 rounded-full', planDotClass(cr.planStatus.key))} />
+                                <span className="min-w-0 truncate">{cr.planStatus.label}</span>
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                                <span className="tabular-nums">{cr.tasksCount} tarefa(s)</span>
+                                {pTasks.length > 0 ? (
+                                  <span className="text-[10px]">· clique para {expanded ? 'recolher' : 'ver lista'}</span>
+                                ) : null}
+                              </div>
+                              <div className="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
+                                <span
+                                  className={cn(
+                                    'font-semibold tabular-nums',
+                                    cr.health.score >= 85 && 'text-emerald-600 dark:text-emerald-400',
+                                    cr.health.score >= 60 && cr.health.score < 85 && 'text-amber-600 dark:text-amber-400',
+                                    cr.health.score < 60 && 'text-red-600 dark:text-red-400'
+                                  )}
+                                >
+                                  Saúde {cr.health.score}%
+                                </span>
+                                <div className="flex items-center -space-x-2">
+                                  {owner ? (
+                                    <Avatar className="h-6 w-6 border-2 border-white dark:border-gray-800">
+                                      <AvatarImage src={owner.avatar_url} />
+                                      <AvatarFallback className="text-xs">
+                                        {owner.full_name ? owner.full_name[0] : '?'}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  ) : (
+                                    <Avatar className="h-6 w-6 border-2 border-white dark:border-gray-800">
+                                      <AvatarFallback className="bg-gray-200 text-xs dark:bg-gray-700">
+                                        <Users className="h-3 w-3" />
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  )}
+                                </div>
+                              </div>
+                              {expanded && pTasks.length > 0 ? (
+                                <div
+                                  className="mt-3 max-h-44 space-y-1.5 overflow-y-auto border-t border-border/60 pt-2 dark:border-border/50"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {pTasks.map((t) => (
+                                    <div
+                                      key={t.id}
+                                      className="flex items-start justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 dark:bg-muted/20"
+                                    >
+                                      <p className="min-w-0 flex-1 text-[11px] font-medium leading-snug text-foreground">
+                                        {t.title || 'Sem título'}
+                                      </p>
+                                      <Badge variant="outline" className="max-w-[100px] shrink-0 truncate text-[9px] capitalize">
+                                        {formatTaskStatusLabel(t.status)}
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </motion.div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </TabsContent>
 
-        <TabsContent value="pendencias" className="mt-6">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            {[
-              { title: 'Crítico', items: pendencias.critico, tone: 'border-red-200 dark:border-red-900/50' },
-              { title: 'Atenção', items: pendencias.atencao, tone: 'border-amber-200 dark:border-amber-900/50' },
-              { title: 'Aguardando', items: pendencias.aguardando, tone: 'border-slate-200 dark:border-slate-700' },
-            ].map((col) => (
-              <div key={col.title} className={cn('min-h-[200px] rounded-xl border bg-card p-4 shadow-sm', col.tone)}>
+        <TabsContent value="pendencias" className="mt-0 min-h-0 pt-4 focus-visible:ring-0 focus-visible:ring-offset-0">
+          {(() => {
+            const pendenciaCols = [
+              { key: 'critico', title: 'Crítico', items: pendencias.critico, tone: 'border-red-200 dark:border-red-900/50' },
+              { key: 'atencao', title: 'Atenção', items: pendencias.atencao, tone: 'border-amber-200 dark:border-amber-900/50' },
+            ];
+            if (pendencias.aguardando.length > 0) {
+              pendenciaCols.push({
+                key: 'revisao',
+                title: 'Em revisão',
+                subtitle: 'Tarefas com status revisão ou alteração no mês filtrado.',
+                items: pendencias.aguardando,
+                tone: 'border-slate-200 dark:border-slate-700',
+              });
+            }
+            return (
+          <div
+            className={cn(
+              'grid grid-cols-1 gap-3',
+              pendenciaCols.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+            )}
+          >
+            {pendenciaCols.map((col) => (
+              <div key={col.key} className={cn('min-h-[200px] rounded-xl border bg-card p-4 shadow-sm', col.tone)}>
                 <h3 className="text-xs font-semibold uppercase tracking-wide">{col.title}</h3>
+                {col.subtitle ? (
+                  <p className="mt-1 text-[10px] leading-snug text-muted-foreground">{col.subtitle}</p>
+                ) : null}
                 <div className="mt-2 max-h-[480px] space-y-2 overflow-y-auto">
                   {col.items.length === 0 ? (
                     <p className="text-xs text-muted-foreground">Nada aqui.</p>
@@ -1519,6 +1692,8 @@ export default function ProjectsOperationalPanel({
               </div>
             ))}
           </div>
+            );
+          })()}
         </TabsContent>
       </Tabs>
     </div>

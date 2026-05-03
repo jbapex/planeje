@@ -6,10 +6,17 @@ import React, { useState, useEffect } from 'react';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Label } from '@/components/ui/label';
     import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-    import { useSessionFormState } from '@/hooks/useSessionFormState';
-    import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useSessionFormState } from '@/hooks/useSessionFormState';
+import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { parseMesReferenciaLocal } from '@/lib/mesReferencia';
 
-const STATUS_OPTIONS = ['planejamento', 'execucao', 'concluido', 'pausado'];
+const PROJECT_STATUS_ITEMS = [
+  { value: 'planejamento', label: 'Planejamento' },
+  { value: 'aprovacao', label: 'Aprovação (enviado ao cliente)' },
+  { value: 'execucao', label: 'Execução' },
+  { value: 'concluido', label: 'Concluído' },
+  { value: 'pausado', label: 'Pausado' },
+];
 
 const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultClientId, defaultYear, defaultMonth }) => {
   const isNew = !project;
@@ -39,14 +46,15 @@ const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultCli
   const getInitialData = () => {
     const now = new Date();
     if (project) {
-      const projectDate = project.mes_referencia ? new Date(project.mes_referencia) : now;
+      const projectDate = project.mes_referencia ? parseMesReferenciaLocal(project.mes_referencia) : null;
+      const ref = projectDate && !Number.isNaN(projectDate.getTime()) ? projectDate : now;
       return {
         name: project.name || '',
         client_id: project.client_id || '',
         owner_id: project.owner_id || user?.id || '',
-        month: projectDate.getMonth().toString(),
-        year: projectDate.getFullYear().toString(),
-        mes_referencia: project.mes_referencia ? new Date(project.mes_referencia).toISOString() : now.toISOString(),
+        month: ref.getMonth().toString(),
+        year: ref.getFullYear().toString(),
+        mes_referencia: project.mes_referencia ? ref.toISOString() : now.toISOString(),
         status: project.status || 'planejamento'
       };
     }
@@ -207,7 +215,11 @@ const ProjectForm = ({ project, clients, users = [], onSave, onClose, defaultCli
             <Select value={formData.status} onValueChange={(v) => handleChange('status', v)}>
               <SelectTrigger><SelectValue placeholder="Selecione o status" /></SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                {PROJECT_STATUS_ITEMS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

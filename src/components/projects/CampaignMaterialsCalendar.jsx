@@ -49,6 +49,11 @@ import {
   getMaterialCalendarDateKey,
   mergeCronogramaWithMaterials,
   buildTaskTitleFromPlanMaterial,
+  planMateriaisAsRows,
+  editorMateriaisShapeToDbRows,
+  dbMateriaisToEditorShape,
+  pickWritableCampaignPlanPayload,
+  patchCampaignPlanRow,
 } from '@/lib/campaignPlanMateriais';
 import { usePlataformasConteudo } from '@/hooks/usePlataformasConteudo';
 import PlataformaMaterialSelect from '@/components/projects/PlataformaMaterialSelect';
@@ -130,12 +135,14 @@ function postPublicadoCell(m) {
 
 function materialEmoji(m) {
   if (m.tipo === 'video') return '💜';
+  if (m.tipo === 'post') return '🟢';
   if (m.tipo === 'arte') return '💙';
   return '📎';
 }
 
 function tipoLabel(t) {
   if (t === 'video') return 'Vídeo';
+  if (t === 'post') return 'Post';
   if (t === 'arte') return 'Arte';
   if (t === 'outro') return 'Outro';
   return (t && String(t)) || '';
@@ -143,6 +150,7 @@ function tipoLabel(t) {
 
 const TIPO_BADGE_CAL = {
   arte: 'bg-sky-500/14 text-sky-800 dark:text-sky-200 border-sky-500/20',
+  post: 'bg-emerald-500/14 text-emerald-900 dark:text-emerald-200 border-emerald-500/20',
   video: 'bg-violet-500/14 text-violet-800 dark:text-violet-200 border-violet-500/20',
   outro: 'bg-slate-500/12 text-slate-700 dark:text-slate-300 border-slate-500/18',
 };
@@ -216,9 +224,12 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
       toast({ title: 'Erro ao carregar plano', description: error.message, variant: 'destructive' });
       setPlan(null);
     } else if (data) {
-      if (!data.materiais) data.materiais = [];
       if (!data.cronograma) data.cronograma = [];
       if (!data.conteudo_criativos) data.conteudo_criativos = { fases: [] };
+      if (!data.materiais) data.materiais = [];
+      if (!Array.isArray(data.materiais)) {
+        data.materiais = editorMateriaisShapeToDbRows(dbMateriaisToEditorShape(data.materiais));
+      }
       setPlan(data);
     } else {
       setPlan(null);
@@ -245,19 +256,28 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   }, []);
 
   const persistPlan = async (nextPlan, { silent } = {}) => {
-    if (!nextPlan?.id) return;
+    if (!nextPlan?.id) return false;
     setSaving(true);
-    const merged = {
+    const materiaisRows = editorMateriaisShapeToDbRows(dbMateriaisToEditorShape(nextPlan.materiais));
+    const planForCron = { ...nextPlan, materiais: materiaisRows };
+    const payload = pickWritableCampaignPlanPayload({
       ...nextPlan,
-      cronograma: mergeCronogramaWithMaterials(nextPlan),
-    };
-    const { error } = await supabase.from('campaign_plans').update(merged).eq('id', nextPlan.id);
+      materiais: materiaisRows,
+      cronograma: mergeCronogramaWithMaterials(planForCron),
+    });
+
+    const { error } = await patchCampaignPlanRow(supabase, nextPlan.id, payload);
+
     setSaving(false);
     if (error) {
-      toast({ title: 'Erro ao salvar', description: error.message, variant: 'destructive' });
+      toast({
+        title: 'Erro ao salvar',
+        description: [error.message, error.details, error.hint].filter(Boolean).join(' — ') || error.message,
+        variant: 'destructive',
+      });
       return false;
     }
-    setPlan(merged);
+    setPlan({ ...nextPlan, ...payload, materiais: materiaisRows });
     if (!silent) toast({ title: 'Salvo', duration: 2000 });
     onRefresh?.();
     return true;
@@ -277,7 +297,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
 
   const materialsByDay = useMemo(() => {
     const map = new Map();
-    for (const m of plan?.materiais || []) {
+    for (const m of planMateriaisAsRows(plan)) {
       const key = getMaterialCalendarDateKey(m);
       if (!key) continue;
       if (!map.has(key)) map.set(key, []);
@@ -287,7 +307,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   }, [plan?.materiais]);
 
   const unscheduled = useMemo(
-    () => (plan?.materiais || []).filter((m) => !getMaterialCalendarDateKey(m)),
+    () => planMateriaisAsRows(plan).filter((m) => !getMaterialCalendarDateKey(m)),
     [plan?.materiais]
   );
 
@@ -296,7 +316,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
     if (peekDayKey) {
       return materialsByDay.get(peekDayKey) || [];
     }
-    const one = plan.materiais?.find((x) => x.id === peekMaterialId);
+    const one = planMateriaisAsRows(plan).find((x) => x.id === peekMaterialId);
     return one ? [one] : [];
   }, [peekOpen, peekMaterialId, peekDayKey, materialsByDay, plan]);
 
@@ -305,11 +325,11 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
     return i >= 0 ? i : 0;
   }, [peekList, peekMaterialId]);
 
-  const peekMaterial = peekList[peekIndex] ?? plan?.materiais?.find((x) => x.id === peekMaterialId) ?? null;
+  const peekMaterial = peekList[peekIndex] ?? planMateriaisAsRows(plan).find((x) => x.id === peekMaterialId) ?? null;
 
   useEffect(() => {
-    if (!peekOpen || !peekMaterialId || !plan?.materiais) return;
-    const exists = plan.materiais.some((x) => x.id === peekMaterialId);
+    if (!peekOpen || !peekMaterialId || !plan) return;
+    const exists = planMateriaisAsRows(plan).some((x) => x.id === peekMaterialId);
     if (!exists) {
       setPeekOpen(false);
       setPeekMaterialId(null);
@@ -360,7 +380,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
 
   const saveEditor = async () => {
     if (!plan || !editorDraft) return;
-    const list = [...(plan.materiais || [])];
+    const list = [...planMateriaisAsRows(plan)];
     const idx = list.findIndex((x) => x.id === editorDraft.id);
     let next;
     if (idx >= 0) {
@@ -375,7 +395,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
 
   const removeMaterial = async (id) => {
     if (!plan) return;
-    const next = (plan.materiais || []).filter((m) => m.id !== id);
+    const next = planMateriaisAsRows(plan).filter((m) => m.id !== id);
     const ok = await persistPlan({ ...plan, materiais: next });
     if (ok) {
       setDeleteTarget(null);
@@ -386,7 +406,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   const moveMaterialToDay = async (materialIdStr, targetDay) => {
     if (!plan) return;
     const targetKey = format(targetDay, 'yyyy-MM-dd');
-    const mats = [...(plan.materiais || [])];
+    const mats = [...planMateriaisAsRows(plan)];
     const idx = mats.findIndex((m) => String(m.id) === String(materialIdStr));
     if (idx < 0) return;
     const orig = mats[idx];
@@ -447,7 +467,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   /** Garante material salvo no plano antes de criar tarefa (evita rascunho só na memória). */
   const prepareTaskFromEditor = async () => {
     if (!editorDraft || !plan) return;
-    const list = [...(plan.materiais || [])];
+    const list = [...planMateriaisAsRows(plan)];
     const idx = list.findIndex((x) => x.id === editorDraft.id);
     const nextMats = idx >= 0 ? list.map((x) => (x.id === editorDraft.id ? editorDraft : x)) : [...list, editorDraft];
     const ok = await persistPlan({ ...plan, materiais: nextMats }, { silent: true });
@@ -928,6 +948,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="arte">Arte</SelectItem>
+                      <SelectItem value="post">Post (feed único)</SelectItem>
                       <SelectItem value="video">Vídeo</SelectItem>
                       <SelectItem value="outro">Outro</SelectItem>
                     </SelectContent>
@@ -1014,7 +1035,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
             </div>
           )}
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            {editorDraft && plan.materiais?.some((m) => m.id === editorDraft.id) && (
+            {editorDraft && planMateriaisAsRows(plan).some((m) => m.id === editorDraft.id) && (
               <Button type="button" variant="destructive" className="sm:mr-auto" onClick={() => setDeleteTarget(editorDraft.id)}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Excluir

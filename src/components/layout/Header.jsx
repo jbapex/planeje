@@ -27,7 +27,7 @@ const Header = () => {
   };
 
   return (
-    <header className="sticky top-0 z-10 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-3">
+    <header className="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-950 md:px-6">
       <div className="flex items-center justify-between w-full">
         <div className="md:hidden">
             <h1 className="text-xl font-bold gradient-text">JB APEX</h1>

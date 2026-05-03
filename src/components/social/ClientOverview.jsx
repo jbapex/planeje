@@ -4,6 +4,7 @@ import React from 'react';
     import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
     import { Badge } from '@/components/ui/badge';
     import { FolderKanban } from 'lucide-react';
+    import { normalizeProjetosStatus } from '@/lib/projectsOperationalMetrics';
 
     const ClientOverview = ({ selectedClientId, projects, tasks, clients }) => {
       const navigate = useNavigate();
@@ -22,6 +23,7 @@ import React from 'react';
 
       const statusOptions = [
         { value: 'planejamento', label: 'Planejamento', color: 'bg-blue-500' },
+        { value: 'aprovacao', label: 'Aprovação', color: 'bg-violet-500' },
         { value: 'execucao', label: 'Execução', color: 'bg-yellow-500' },
         { value: 'concluido', label: 'Concluído', color: 'bg-green-500' },
         { value: 'pausado', label: 'Pausado', color: 'bg-gray-500' },
@@ -44,7 +46,8 @@ import React from 'react';
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
             {clientProjects.map(project => {
               const summary = getProjectTaskSummary(project.id);
-              const statusInfo = statusOptions.find(s => s.value === project.status) || { label: project.status, color: 'bg-gray-400' };
+              const st = normalizeProjetosStatus(project.status);
+              const statusInfo = statusOptions.find((s) => s.value === st) || { label: project.status, color: 'bg-gray-400' };
               return (
                 <motion.div key={project.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <Card 

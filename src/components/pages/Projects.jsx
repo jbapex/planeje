@@ -235,6 +235,20 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         setStatusFilter('all');
       };
 
+      const handleUpdateProjectStatus = useCallback(
+        async (projectId, newStatus) => {
+          const { error } = await supabase.from('projetos').update({ status: newStatus }).eq('id', projectId);
+          if (error) {
+            toast({ title: 'Erro ao atualizar status', description: error.message, variant: 'destructive' });
+            return;
+          }
+          toast({ title: 'Status da campanha atualizado' });
+          setCachedData(null);
+          fetchData();
+        },
+        [toast, setCachedData, fetchData]
+      );
+
       const getProjectProgress = (projectId) => {
         const projectTasks = tasks.filter(t => t.project_id === projectId);
         if (projectTasks.length === 0) return 0;
@@ -260,6 +274,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
       const statusOptions = [
         { value: 'planejamento', label: 'Planejamento' },
+        { value: 'aprovacao', label: 'Aprovação' },
         { value: 'execucao', label: 'Execução' },
         { value: 'concluido', label: 'Concluído' },
         { value: 'pausado', label: 'Pausado' },
@@ -480,6 +495,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                   onNewCampaign={() => handleOpenForm()}
                   onNewClient={() => navigate('/clients/new')}
                   onOpenClientProjects={(clientId) => handleSelectClient(clientId)}
+                  onUpdateProjectStatus={handleUpdateProjectStatus}
                 />
               )}
             </>
