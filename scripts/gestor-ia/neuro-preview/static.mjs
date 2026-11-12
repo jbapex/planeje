@@ -11,7 +11,7 @@ const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': '
 
 /** Freeze bundled assets so dependency optimization and HMR cannot interrupt the review. */
 export async function serveStaticPreview(db, port) {
-  if (![4393, 4394].includes(port)) throw new Error('Preview port must be 4393 or 4394');
+  if (![4393, 4394, 4395, 4396].includes(port)) throw new Error('Preview port must be 4393, 4394, 4395 or 4396');
   const output = mkdtempSync('/tmp/planeje-neuro-web-');
   const api = previewMiddleware(db);
   let server;

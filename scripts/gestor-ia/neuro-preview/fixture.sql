@@ -2,10 +2,13 @@
 ALTER TABLE public.tarefas ADD COLUMN due_date date DEFAULT '2026-11-16';
 ALTER TABLE public.tarefas ADD COLUMN created_at timestamptz DEFAULT now();
 ALTER TABLE public.clientes ADD COLUMN logo_urls jsonb DEFAULT '[]';
-CREATE TABLE public.cliente_meta_accounts(id uuid PRIMARY KEY,cliente_id uuid,meta_account_id text,meta_account_name text,is_active boolean);
+CREATE TABLE IF NOT EXISTS public.cliente_meta_accounts(id uuid PRIMARY KEY,cliente_id uuid,meta_account_id text,meta_account_name text,is_active boolean);
+ALTER TABLE public.cliente_meta_accounts ADD COLUMN IF NOT EXISTS id uuid DEFAULT gen_random_uuid();
+ALTER TABLE public.cliente_meta_accounts ADD COLUMN IF NOT EXISTS meta_account_name text;
 CREATE TABLE public.cliente_google_ads_accounts(id uuid PRIMARY KEY,cliente_id uuid,google_customer_id text,google_customer_name text,is_active boolean);
 CREATE TABLE public.paid_campaigns(id uuid PRIMARY KEY,client_id uuid);
-INSERT INTO public.cliente_meta_accounts VALUES('00000000-0000-0000-0000-000000000010','9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','act_preview_impacto','Impacto · conta sintética',true);
+INSERT INTO public.cliente_meta_accounts(id,cliente_id,meta_account_id,meta_account_name,is_active)
+VALUES('00000000-0000-0000-0000-000000000010','9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','act_preview_impacto','Impacto · conta sintética',true);
 CREATE OR REPLACE FUNCTION planeje_private.traffic_routine_accounts(uuid) RETURNS jsonb LANGUAGE sql STABLE AS $$
  SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'platform','meta','account_id',meta_account_id,'account_name',meta_account_name)),'[]')
  FROM public.cliente_meta_accounts WHERE cliente_id=$1 AND is_active
@@ -27,11 +30,12 @@ REVOKE ALL ON FUNCTION public.traffic_weekly_board() FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.traffic_weekly_board() TO authenticated;
 
 GRANT SELECT ON public.clientes,public.profiles,public.traffic_client_ops,public.cliente_meta_accounts,public.cliente_google_ads_accounts,public.paid_campaigns,public.tarefas,public.cliente_whatsapp_contact TO authenticated;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT SELECT ON public.cliente_meta_accounts,public.cliente_google_ads_accounts,public.paid_campaigns TO service_role;
 GRANT SELECT ON auth.users TO service_role;
 
+-- fixture: routine leads
 INSERT INTO public.cliente_whatsapp_config VALUES('00000000-0000-0000-0000-000000000020','9196d07f-f0a8-4eb2-9f9a-3dade28d4a69',NULL);
-INSERT INTO public.mini_crm_config VALUES('9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','[{"key":"agendado","label":"Agendado"},{"key":"nao_agendado","label":"Não agendado"}]','[]');
+INSERT INTO public.mini_crm_config(cliente_id,statuses,columns) VALUES('9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','[{"key":"agendado","label":"Agendado"},{"key":"nao_agendado","label":"Não agendado"}]','[]');
 INSERT INTO public.cliente_whatsapp_contact(id,cliente_id,from_jid,phone,sender_name,whatsapp_config_id,first_seen_at,last_message_at,origin_source,tracking_data,mini_crm) VALUES
  ('00000000-0000-0000-0000-000000000101','9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','5511900001001@s.whatsapp.net','5511900001001','Noiva exemplo · CRM agendado','00000000-0000-0000-0000-000000000020','2026-11-09T12:00:00Z','2026-11-12T12:00:00Z','meta','{"source":"meta","account_id":"preview_impacto","campaign_id":"preview_campanha","adset_id":"preview_conjunto_a","ad_id":"preview_anuncio_a"}','{"status":"agendado"}'),
  ('00000000-0000-0000-0000-000000000102','9196d07f-f0a8-4eb2-9f9a-3dade28d4a69','5511900001002@s.whatsapp.net','5511900001002','Noiva exemplo · confirmação na conversa','00000000-0000-0000-0000-000000000020','2026-11-10T12:00:00Z','2026-11-13T12:00:00Z','meta','{"source":"meta","account_id":"preview_impacto","campaign_id":"preview_campanha","adset_id":"preview_conjunto_a","ad_id":"preview_anuncio_a"}','{"status":"nao_agendado"}'),

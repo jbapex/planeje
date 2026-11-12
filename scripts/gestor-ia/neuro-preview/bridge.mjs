@@ -8,7 +8,7 @@ const procedures = {
   save_traffic_weekly_review: { p_review: 'uuid', p_revision: 'integer', p_data: 'jsonb', p_finalize: 'boolean' },
   start_traffic_week_record: { p_client: 'uuid', p_week: 'date', p_kind: 'text' },
   central_trafego_can_access_client: { p_cliente_id: 'uuid' },
-  gestor_ia_routine_leads_data: { p_client: 'uuid', p_week: 'date', p_actor: 'uuid' },
+  gestor_ia_routine_leads_data: { p_client: 'uuid', p_week: 'date', p_actor: 'uuid', p_mode: 'text' },
   traffic_weekly_board: {},
   traffic_routine_client_history: { p_client: 'uuid', p_kind: 'text', p_before: 'date', p_limit: 'integer' },
 };
@@ -92,7 +92,7 @@ export function previewMiddleware(db) {
     if (!req.url?.startsWith('/rest/v1/') && !req.url?.startsWith('/auth/v1/')) return next();
     const origin = req.headers.origin;
     const host = req.headers.host;
-    if (!/^127\.0\.0\.1:(4393|4394)$/.test(host || '') || origin && origin !== `http://${host}`) {
+    if (!/^127\.0\.0\.1:(4393|4394|4395|4396)$/.test(host || '') || origin && origin !== `http://${host}`) {
       res.writeHead(403); res.end('Local preview only'); return;
     }
     if (req.headers.authorization !== 'Bearer fixture-human-only') {

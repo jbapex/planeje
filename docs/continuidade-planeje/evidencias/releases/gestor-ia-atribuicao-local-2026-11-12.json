@@ -1,0 +1,263 @@
+{
+  "recorded_at": "2026-11-12T23:07:24.116077+00:00",
+  "status": "preview_only_pending_josias_approval",
+  "branch": "feat/gestor-ia-atribuicao",
+  "base_commit": "d64bef77cfd70d9739bebc6b310487eda8c62fbd",
+  "preview": "http://127.0.0.1:4395/gestor-ia/rotina?semana=2026-11-09&cliente=9196d07f-f0a8-4eb2-9f9a-3dade28d4a69",
+  "preview_data": "synthetic reproduction of anonymous aggregates; no real contacts loaded",
+  "tests": {
+    "check": "passed",
+    "directed": 104,
+    "react_editor_assertions": 76,
+    "legacy_regressions": 42,
+    "sql_groups": 23,
+    "e2e": 5,
+    "mcp_in_check": 130
+  },
+  "observed_impacto": {
+    "new_leads": 78,
+    "campaign_adset_ids_before": 0,
+    "unique_review_name_match": 14,
+    "appointments": 22,
+    "new_appointments": 15,
+    "old_appointments": 7,
+    "attributed_appointments": 4
+  },
+  "backfill_dry_run": {
+    "scanned": 78,
+    "eligible": 16,
+    "updated": 0,
+    "missingAd": 62,
+    "conflicts": 0,
+    "unlinked": 0,
+    "failed": 0,
+    "rateLimited": 0,
+    "concurrent": 0,
+    "queried": 8,
+    "truncated": 0,
+    "dbReads": 17,
+    "secretReads": 1,
+    "graphGets": 8,
+    "writes": 0,
+    "blocked": 0
+  },
+  "browser": {
+    "viewport": [
+      1422,
+      800
+    ],
+    "body_overflow": false,
+    "dialog_overflow": false,
+    "console_errors": 0,
+    "phone_search": "last four only",
+    "old_cohort": 7
+  },
+  "production": {
+    "promoted": false,
+    "migration_applied": false,
+    "backfill_applied": false,
+    "runtime_changed": false,
+    "checkout_reset": false
+  },
+  "candidate_meta_sha256": "52887b2510a100f763513bc516384e64855a2532c3dd5180ed440f47c3fdee23",
+  "manifest": {
+    "planeje-mcp/src/gestorIaRoutineTools.ts": {
+      "sha256": "41b452736417f4d1db84d569d3a9bb3b1e9bb3f92f8a774b19af1a6ab507d23b",
+      "bytes": 12437
+    },
+    "scripts/gestor-ia/attribution-database-checks.sql": {
+      "sha256": "64af70f35efdb84e30d930260a5f4d7ea35f8f0572638d9241073a76c8f8076c",
+      "bytes": 31638
+    },
+    "scripts/gestor-ia/attribution-database-fixture.sql": {
+      "sha256": "a0edab2f24f067e1682f06dbe2a7b60f007fd2a05fdfdb4ae6f934ad54f3327f",
+      "bytes": 9009
+    },
+    "scripts/gestor-ia/attribution-events.test.mjs": {
+      "sha256": "c17a843afe167b4680ae0e72b250d823e075b5cc8bb0bc986a7a7f51961f7ab3",
+      "bytes": 13839
+    },
+    "scripts/gestor-ia/attribution-mcp.e2e.test.mjs": {
+      "sha256": "448f7ab67ced0951260e3f42091b7250258d19778f6a41b11c11d3366943a2c5",
+      "bytes": 7427
+    },
+    "scripts/gestor-ia/attribution.component.test.mjs": {
+      "sha256": "10bc0298945c63dbdf1baed70eb6d21c8f32e6b3346a1a379ecf870a69a2355b",
+      "bytes": 6770
+    },
+    "scripts/gestor-ia/attribution.test.mjs": {
+      "sha256": "cc337a986cd2839b8f21dfef5d7805543ecc298d8a39c5e820ec26b94338a033",
+      "bytes": 17927
+    },
+    "scripts/gestor-ia/backfill-meta-attribution.mjs": {
+      "sha256": "3380fd560d0941e741e3c0a4ed0b45e18ef5a85a93b2ab2e02f635cd4a2c13eb",
+      "bytes": 6759
+    },
+    "scripts/gestor-ia/backfill-meta-attribution.test.mjs": {
+      "sha256": "956bee872b60c82a61833cd19c3d98f1316c03dec4e0c5136512dc8150f81473",
+      "bytes": 9483
+    },
+    "scripts/gestor-ia/fixtures/meta-ads-api-runtime-baseline.ts.txt": {
+      "sha256": "29f9a787d3255e2b858eaa0b718c1e11b8c011e7a0cd00d75b128520ee687e38",
+      "bytes": 233287
+    },
+    "scripts/gestor-ia/link-attribution.component.test.mjs": {
+      "sha256": "9e175db8116b06e39719af7f4a6d19f056c60d9409f42307f539c8e6659acae3",
+      "bytes": 8449
+    },
+    "scripts/gestor-ia/link-attribution.test.mjs": {
+      "sha256": "12e511d0a387c310ffa4d10c2313d691cb401f630f79f6cb75f25b61654ed804",
+      "bytes": 11119
+    },
+    "scripts/gestor-ia/meta-enrichment.test.mjs": {
+      "sha256": "8585004d46732a1ede361f7c620771de2db42ebc546ca045531902cc9432dacc",
+      "bytes": 12256
+    },
+    "scripts/gestor-ia/meta-runtime.test.mjs": {
+      "sha256": "2ac47de788d7bc11efe2e7273f4e45018ab61a84ee21755ff3e6649998d43121",
+      "bytes": 9151
+    },
+    "scripts/gestor-ia/neuro-preview/README.md": {
+      "sha256": "d749bffb5b074d9e393d56787a35596a30b3499fd7fc1ae945b70856cbe7250c",
+      "bytes": 5038
+    },
+    "scripts/gestor-ia/neuro-preview/attribution-current.sql": {
+      "sha256": "45caae84b403f292a6b015174d7e1de73b304b6fac9e759a925b40815dba5b9e",
+      "bytes": 1338
+    },
+    "scripts/gestor-ia/neuro-preview/attribution.mjs": {
+      "sha256": "275cfbbdf0bc084150b1018b7c0901102dd91d3fa787dcb92c876e0dbc374211",
+      "bytes": 6290
+    },
+    "scripts/gestor-ia/neuro-preview/attribution.sql": {
+      "sha256": "0e036fd95b2b624db1f2bb8b29b545e56009c065a4b7b5f6681bfdfdc9b557e3",
+      "bytes": 3983
+    },
+    "scripts/gestor-ia/neuro-preview/bridge.mjs": {
+      "sha256": "7eb1990164c86909e6a47d61316b91b899985f54c9a542e0b45790b8bc8a4fd5",
+      "bytes": 6811
+    },
+    "scripts/gestor-ia/neuro-preview/db.mjs": {
+      "sha256": "c15090383fb206b2ab46ebafb36e5fb7b0fd1702f10fa5d70731cd8e849cd9e9",
+      "bytes": 5484
+    },
+    "scripts/gestor-ia/neuro-preview/fixture.sql": {
+      "sha256": "5226293c87303bbfff1981093e16c31065f2c35a2bf9e46940146e94de11c4bc",
+      "bytes": 6794
+    },
+    "scripts/gestor-ia/neuro-preview/main.jsx": {
+      "sha256": "f0c3e599490a5e0c4885d8964ec41eb3781e1aacfa538a12c96ef7af05768e90",
+      "bytes": 1038
+    },
+    "scripts/gestor-ia/neuro-preview/scenario.mjs": {
+      "sha256": "68241d943c590aef50f312210358390113702567c7b8e201be394b23a8d67a60",
+      "bytes": 7251
+    },
+    "scripts/gestor-ia/neuro-preview/server.mjs": {
+      "sha256": "712901dc3fd7137389249058a9105e57d60c0e04afdee0dc711afc2fc1e251a1",
+      "bytes": 1534
+    },
+    "scripts/gestor-ia/neuro-preview/static-server.mjs": {
+      "sha256": "a28cecc6b7ec35e7326d111a97e5dacf1f38be1b950587a1c6534a89f2ae86c0",
+      "bytes": 680
+    },
+    "scripts/gestor-ia/neuro-preview/static.mjs": {
+      "sha256": "a6eb254fdb4e392026c4b74d5b829e5eabdb7f9ebf0ee87cc4055f631ade6e19",
+      "bytes": 3989
+    },
+    "scripts/gestor-ia/patch-meta-runtime.mjs": {
+      "sha256": "a11690e496738d6d883b9db83f2910ae76403d00494002aacb8026ce3e758686",
+      "bytes": 9607
+    },
+    "scripts/gestor-ia/routine-data.test.mjs": {
+      "sha256": "f8056288c4608e233cd11f62c24fb9a1678430a9cd20b3b38f204c30c9b8ad46",
+      "bytes": 7538
+    },
+    "scripts/gestor-ia/routine.test.mjs": {
+      "sha256": "fadc465a4edb5435e0cac5aacb2c9b41084e1bc11f015e069289614cbc0d8b0f",
+      "bytes": 5252
+    },
+    "scripts/gestor-ia/verify-attribution-database.py": {
+      "sha256": "79ea13feb35480f20c03f0efcc728e6d2e8f409683082dc6ca0a33c26731d932",
+      "bytes": 3584
+    },
+    "scripts/rastreamentoOriginConsistency.test.mjs": {
+      "sha256": "530c12b25595883e47f8e2b0c8c1421b174727b0ce7f72b024a27799517f488a",
+      "bytes": 6290
+    },
+    "src/components/crm/RastreamentoLeadFicha.jsx": {
+      "sha256": "389cad0e123e89efa307842df93d49deb6bec7c60b0e101bc298144617b29829",
+      "bytes": 33870
+    },
+    "src/components/crm/RastreamentoTrackableLinks.jsx": {
+      "sha256": "832533695c48de224e903f38975ddc0af828001c47cf2293198792c9c45e3bea",
+      "bytes": 35634
+    },
+    "src/components/gestor-ia/GestorIaRoutine.css": {
+      "sha256": "5732ed5806ab0408632a9d4d2001b1a10298a3f1ff50f9475bfc771d26b48063",
+      "bytes": 9486
+    },
+    "src/components/gestor-ia/GestorIaRoutine.jsx": {
+      "sha256": "48faec7f7fa125d5302120770fcf1c0195afc9490d2cc47797dce90be8b9305b",
+      "bytes": 13432
+    },
+    "src/components/gestor-ia/GestorIaRoutineLeads.jsx": {
+      "sha256": "21276f7a6dd1cbbe697aec26dcd8dc16a033cba86b0e709d6c06d2e36d57f9ad",
+      "bytes": 10318
+    },
+    "src/components/gestor-ia/gestorIaRoutineData.js": {
+      "sha256": "d2717e48d2996fc1fec5176f5542d63338895afdf4a83b3c50656af5d841e420",
+      "bytes": 6733
+    },
+    "src/components/traffic/TrafficCampaignMetrics.jsx": {
+      "sha256": "1880e49d4a1fa8c952d4beef128c7306de347cca285a6f02838b0dbac7738dbc",
+      "bytes": 26807
+    },
+    "src/lib/funilMetaCreative.js": {
+      "sha256": "193b002125e0667972ac4037935a8ce0cc1fc8609fde19a94dcaf696df1809dd",
+      "bytes": 3113
+    },
+    "src/lib/gestorIaRoutine.d.ts": {
+      "sha256": "e65b842690c714c33c973c9fbc70c0f0f6a14b50eb4598dbb27b60bb7b6b3a43",
+      "bytes": 2615
+    },
+    "src/lib/gestorIaRoutine.js": {
+      "sha256": "c0173d6a2c6b8e18a7b903885e7d0691a41eb1a8e0daa8f99024e3157d551824",
+      "bytes": 16324
+    },
+    "src/lib/rastreamentoTrackableLink.js": {
+      "sha256": "760d873e4404236b701a9afd192857b3d24fbaae8512fb15ae1c971103310168",
+      "bytes": 13349
+    },
+    "supabase/functions/_shared/metaAdEnrichment.js": {
+      "sha256": "0a52ed2df0be76efa1f918cc1d8f3401586a9378aa28145211c1852cd906c451",
+      "bytes": 3458
+    },
+    "supabase/functions/_shared/rastreamentoMessageAttribution.js": {
+      "sha256": "2cadeac12bea5ad2be693c6d5123dae2c4daca2ba672f9c71999d1f682286cd9",
+      "bytes": 4288
+    },
+    "supabase/functions/_shared/rastreamentoTrackableLink.ts": {
+      "sha256": "e003aaf2ed8d1540b2fc4e609daa36ecf9692f7a9baf13c669727ff0b033c815",
+      "bytes": 9088
+    },
+    "supabase/functions/meta-ads-api/index.ts": {
+      "sha256": "a7b589254115a97b663390b32fae8a3b5bc81eebc8139611a60549bcec6c5857",
+      "bytes": 173697
+    },
+    "supabase/functions/rastreamento-link-redirect/index.ts": {
+      "sha256": "88e0697c4236e3bdb8c65a41c78ae34ae6fc215f960a4df585c38b0870dfcebf",
+      "bytes": 6011
+    },
+    "supabase/migrations/20261112145805_gestor_ia_atribuicao.sql": {
+      "sha256": "7e191a62eabc1017953e9a4fad9e80acc7150729738be99abfacbeb2431ebed7",
+      "bytes": 34008
+    }
+  },
+  "not_checked": [
+    "production behavior after deployment",
+    "full-portfolio load",
+    "real mobile device",
+    "manual appointments predating the new ledger"
+  ]
+}

@@ -12,7 +12,9 @@ export const lines = [
 const analysis = 'Rascunho sintético pelo MCP: R$ 560 investidos e 32 mensagens. Dois agendamentos no conjunto A; conferir evidências e aprovar o próximo passo.';
 const scope = { cliente_id: CLIENT, semana: WEEK };
 
-export async function runRoutineScenario(db) {
+export async function runRoutineScenario(db, fixture = {}) {
+  const scenarioLines = fixture.lines || lines;
+  const scenarioAnalysis = fixture.analysis || analysis;
   const mcp = await createPreviewMcp(db);
   const human = previewClient(db);
   const service = previewClient(db, 'service_role');
@@ -22,7 +24,7 @@ export async function runRoutineScenario(db) {
     const catalog = await mcp.client.listTools();
     assert.ok(catalog.tools.some(({ name }) => name === 'gestor_ia_salvar_semana'));
     assert.ok(!catalog.tools.some(({ name }) => /^gestor_ia_.*(?:validar|concluir|reabrir)/.test(name)));
-    const saved = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: lines, analise: analysis } })).review;
+    const saved = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: scenarioLines, analise: scenarioAnalysis } })).review;
     assert.equal(saved.fill_origin, 'ia');
     assert.equal(saved.validation_state, 'rascunho_ia');
     assert.equal(saved.finalized_at, null);
@@ -31,10 +33,10 @@ export async function runRoutineScenario(db) {
     assert.equal(suggestion.validation_state, 'rascunho_ia');
     assert.equal(state().task_status, 'pending');
 
-    const forbidden = await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: lines, revision: suggestion.revision, finalize: true } });
+    const forbidden = await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: scenarioLines, revision: suggestion.revision, finalize: true } });
     assert.equal(forbidden.isError, true);
     assert.equal((await read()).revision, suggestion.revision);
-    const attempt = await human.rpc('gestor_ia_routine_mcp', { p_actor: ACTOR, p_action: 'save', p_client: CLIENT, p_week: WEEK, p_payload: { linhas: lines } });
+    const attempt = await human.rpc('gestor_ia_routine_mcp', { p_actor: ACTOR, p_action: 'save', p_client: CLIENT, p_week: WEEK, p_payload: { linhas: scenarioLines } });
     assert.equal(attempt.error?.code, '42501');
 
     const review = state();
@@ -48,40 +50,45 @@ export async function runRoutineScenario(db) {
     assert.equal(state().task_status, 'completed');
     assert.equal(state().finalized_by, ACTOR);
     const validated = await read();
-    const blocked = await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: lines, revision: validated.revision } });
+    const blocked = await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: scenarioLines, revision: validated.revision } });
     assert.equal(blocked.isError, true);
     assert.match(blocked.content[0].text, /validada|humana/i);
     assert.equal(state().revision, validated.revision);
 
     const reopened = await human.rpc('save_traffic_weekly_review', { p_review: review.id, p_revision: validated.revision,
-      p_data: { ...data, analysis: `${analysis} Reaberta pela equipe sintética.` }, p_finalize: false });
+      p_data: { ...data, analysis: `${scenarioAnalysis} Reaberta pela equipe sintética.` }, p_finalize: false });
     assert.equal(reopened.error, null, reopened.error?.message);
     assert.equal(state().validation_state, 'em_revisao');
     assert.equal(state().task_status, 'pending');
-    const final = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: lines, analise: analysis, revision: state().revision } })).review;
+    const final = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_salvar_semana', arguments: { ...scope, linhas: scenarioLines, analise: scenarioAnalysis, revision: state().revision } })).review;
     assert.equal(final.validation_state, 'rascunho_ia');
     assert.equal(state().task_status, 'pending');
-    const rawResponse = await createPreviewFetch(db)('http://127.0.0.1:4393/rest/v1/rpc/gestor_ia_routine_leads_data', {
-      method: 'POST', body: JSON.stringify({ p_client: CLIENT, p_week: WEEK }),
-    });
-    const rawText = await rawResponse.text();
-    assert.equal(rawResponse.status, 200, rawText);
-    for (const forbiddenText of ['NEURO_PRIVATE_CANARY', '@s.whatsapp.net', ...[1, 2, 3, 4, 5, 6].map((number) => `551190000100${number}`)]) {
-      assert.ok(!rawText.includes(forbiddenText), 'Raw UI RPC must redact private data before the list receives it');
-    }
-    const rawLeads = JSON.parse(rawText);
-    assert.equal(rawLeads.contacts.length, 5, 'raw RPC preserves only the requested first-entry cohort');
-    assert.ok(rawLeads.messages.length > 0, 'safe conversation signals remain available');
-    assert.ok(rawLeads.messages.every((message) => !message.text.includes('seu agendamento dia')), 'free conversation bodies must not reach the list');
-    const leads = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_ver_leads', arguments: { ...scope, conjunto_ids: ['preview_conjunto_a'] } }));
-    assert.equal(leads.leads.length, 2);
-    assert.equal(leads.unmatchedLeads.length, 2);
-    assert.ok(leads.leads.every((lead) => !JSON.stringify(lead).includes('@s.whatsapp.net')));
-    assert.ok(leads.leads.some((lead) => lead.routineCrmOutdated === true));
-    assert.ok(leads.leads.every((lead) => lead.phone.includes('*') || lead.phone.includes('•')));
+    const inspected = await (fixture.inspectLeads || inspectRoutineLeads)(db, mcp);
     const history = db.json(`SELECT jsonb_agg(jsonb_build_object('event',event,'actor_type',actor_type)) FROM public.traffic_weekly_history WHERE review_id=${literal(review.id)}::uuid`);
     assert.ok(history.some((event) => event.actor_type === 'ia'));
     assert.ok(history.some((event) => event.event === 'finalized' && event.actor_type === 'pessoa'));
-    return { review: final, history, leads, rawPrivacyChecked: true };
+    return { review: final, history, ...inspected };
   } finally { await mcp.close(); }
+}
+
+async function inspectRoutineLeads(db, mcp) {
+  const rawResponse = await createPreviewFetch(db)('http://127.0.0.1:4393/rest/v1/rpc/gestor_ia_routine_leads_data', {
+    method: 'POST', body: JSON.stringify({ p_client: CLIENT, p_week: WEEK }),
+  });
+  const rawText = await rawResponse.text();
+  assert.equal(rawResponse.status, 200, rawText);
+  for (const forbiddenText of ['NEURO_PRIVATE_CANARY', '@s.whatsapp.net', ...[1, 2, 3, 4, 5, 6].map((number) => `551190000100${number}`)]) {
+    assert.ok(!rawText.includes(forbiddenText), 'Raw UI RPC must redact private data before the list receives it');
+  }
+  const rawLeads = JSON.parse(rawText);
+  assert.equal(rawLeads.contacts.length, 5, 'raw RPC preserves only the requested first-entry cohort');
+  assert.ok(rawLeads.messages.length > 0, 'safe conversation signals remain available');
+  assert.ok(rawLeads.messages.every((message) => !message.text.includes('seu agendamento dia')), 'free conversation bodies must not reach the list');
+  const leads = toolPayload(await mcp.client.callTool({ name: 'gestor_ia_ver_leads', arguments: { ...scope, conjunto_ids: ['preview_conjunto_a'] } }));
+  assert.equal(leads.leads.length, 2);
+  assert.equal(leads.unmatchedLeads.length, 2);
+  assert.ok(leads.leads.every((lead) => !JSON.stringify(lead).includes('@s.whatsapp.net')));
+  assert.ok(leads.leads.some((lead) => lead.routineCrmOutdated === true));
+  assert.ok(leads.leads.every((lead) => lead.phone.includes('*') || lead.phone.includes('•')));
+  return { leads, rawPrivacyChecked: true };
 }

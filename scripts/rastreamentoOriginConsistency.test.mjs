@@ -16,8 +16,8 @@ const linktree = {
 };
 
 const cases = [
-  [linktree, 'site', 'Linktree'],
-  [{ ...linktree, utm_source: ' ', tracking_data: { ...linktree.tracking_data, utm_source: ' Linktree ' } }, 'site', 'Linktree'],
+  [linktree, 'meta_ads', 'Meta Ads'],
+  [{ ...linktree, utm_source: ' ', tracking_data: { ...linktree.tracking_data, utm_source: ' Linktree ' } }, 'meta_ads', 'Meta Ads'],
   [{ origin_source: 'site', utm_source: 'chatgpt.com', utm_campaign: 'Instagram outubro', tracking_data: { fbclid: 'later-click' } }, 'site', 'chatgpt.com'],
   [{ ...linktree, tracking_data: { ...linktree.tracking_data, ctwa_clid: 'original-ad' } }, 'meta_ads', 'Meta Ads'],
   [{ ...linktree, origin_source: 'google_ads', tracking_data: { ...linktree.tracking_data, gclid: 'original-google' } }, 'google_ads', 'Google Ads'],
@@ -44,7 +44,7 @@ assert.equal(isUntracked({ origin_source: 'nao_identificado' }), true);
 const legacyGoogle = { origem: 'Google Ads', utm_source: 'Linktree', tracking_data: { planeje_link_id: 'example' } };
 assert.equal(recordedOriginSource(legacyGoogle, true), 'google_ads', 'legacy Google origin precedes the Linktree compatibility rule');
 assert.equal(buildLeadFicha({ lead: legacyGoogle }).origin, 'Google Ads');
-assert.equal(isMetaAdsLeadForStats(lead), false);
+assert.equal(isMetaAdsLeadForStats(lead), true);
 assert.equal(isMetaAdsLeadForStats({ origem: 'Meta Ads', tracking_data: { planeje_link_origin: 'site' } }), false);
 assert.equal(isMetaAdsContactForStats({ origin_source: 'nao_identificado', utm_source: 'facebook' }), true, 'legacy inference remains available');
 assert.equal(isMetaAdsLeadForStats({ origem: 'Meta Ads' }), true);
@@ -73,7 +73,7 @@ const mappings = vm.runInNewContext(`
   ({ displayRows, mapLeadsToExportDisplayRows, leadMatchesOriginFilter, contactMatchesOriginFilter, originBadgeForContact });
 `, pageContext);
 const legacySite = { id: 'legacy-site', origem: 'Site', utm_source: 'Newsletter', tracking_data: { gclid: 'later-google' } };
-for (const [row, origin, label] of [[legacySite, 'site', 'Newsletter'], [legacyGoogle, 'google_ads', 'Google Ads'], [lead, 'site', 'Linktree']]) {
+for (const [row, origin, label] of [[legacySite, 'site', 'Newsletter'], [legacyGoogle, 'google_ads', 'Google Ads'], [lead, 'meta_ads', 'Meta Ads']]) {
   const before = JSON.stringify(row);
   assert.equal(mappings.leadMatchesOriginFilter(row, origin, isMetaAdsLeadForStats), true);
   for (const mapped of [mappings.displayRows([row])[0], mappings.mapLeadsToExportDisplayRows([row])[0]]) {
@@ -86,7 +86,7 @@ for (const [row, origin, label] of [[legacySite, 'site', 'Newsletter'], [legacyG
 }
 
 const period = { since: '2026-10-28', until: '2026-10-28' };
-assert.equal(selectRelatorioTrackingContacts([linktree], () => true).length, 0);
+assert.equal(selectRelatorioTrackingContacts([linktree], () => true).length, 1);
 assert.equal(buildGoogleReportRows([linktree], [], period).rows.length, 0);
-assert.equal(buildSiteReportRows([linktree], [], period).rows.length, 1);
+assert.equal(buildSiteReportRows([linktree], [], period).rows.length, 0);
 console.log('PASS origin consistency: Linktree, custom site sources, original paid attribution, legacy fallback and reports');

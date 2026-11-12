@@ -54,7 +54,7 @@ export function attachPreviewDatabase(directory) {
 }
 
 /** No DSN is accepted: every invocation owns an empty cluster with no TCP listener. */
-export function createPreviewDatabase() {
+export function createPreviewDatabase({ attribution = false } = {}) {
   const bindir = path.dirname(run('/usr/bin/which', ['psql']));
   const directory = mkdtempSync('/tmp/planeje-neuro-');
   const data = path.join(directory, 'pg');
@@ -71,8 +71,13 @@ export function createPreviewDatabase() {
     run(path.join(bindir, 'initdb'), ['-D', data, '-U', 'postgres', '--auth=trust', '--encoding=UTF8', '--no-locale']);
     run(path.join(bindir, 'pg_ctl'), ['-D', data, '-l', path.join(directory, 'postgres.log'), '-o', `-k ${directory} -p ${port} -c listen_addresses='' -c unix_socket_permissions=0700`, '-w', 'start']);
     started = true;
-    sql(run('python3', [path.join(ROOT, 'scripts/gestor-ia/verify-routine-database.py'), '--schema']));
-    sql(readFileSync(new URL('./fixture.sql', import.meta.url), 'utf8'));
+    sql(run('python3', [path.join(ROOT, 'scripts/gestor-ia/verify-attribution-database.py'), '--schema']));
+    sql('DELETE FROM public.cliente_whatsapp_contact; DELETE FROM public.cliente_whatsapp_inbox; DELETE FROM public.cliente_whatsapp_sent; DELETE FROM public.cliente_whatsapp_config; DELETE FROM public.mini_crm_config; DELETE FROM public.cliente_meta_accounts; DELETE FROM public.gestor_ia_meta_cache;');
+    const fixture = readFileSync(new URL('./fixture.sql', import.meta.url), 'utf8');
+    const [common, routine] = fixture.split('-- fixture: routine leads');
+    if (!common || !routine) throw new Error('Preview fixture must separate common readers from routine leads');
+    sql(common);
+    sql(attribution ? readFileSync(new URL('./attribution.sql', import.meta.url), 'utf8') : routine);
     sql(canonicalFunction('20260917110000_traffic_campaigns_and_optimization.sql', 'public.traffic_routine_client_history'));
     sql('REVOKE ALL ON FUNCTION public.traffic_routine_client_history(uuid,text,date,integer) FROM PUBLIC,anon; GRANT EXECUTE ON FUNCTION public.traffic_routine_client_history(uuid,text,date,integer) TO authenticated;');
     return { ...connection(directory), close };

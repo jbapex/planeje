@@ -1,5 +1,6 @@
 /** Links rastreáveis Planeje → WhatsApp (Deno). Espelho de src/lib/rastreamentoTrackableLink.js */
 import { encodeHiddenMatchCode, extractMatchCode as extractTrackableMatchCode } from "./rastreamentoHiddenMatchCode.js";
+import { linkAttributionSnapshot } from "./rastreamentoMessageAttribution.js";
 export { TRACKABLE_MATCH_CODE_RE } from "./rastreamentoHiddenMatchCode.js";
 
 const META_UTM = ["facebook", "meta", "fb", "meta_ads", "meta ads", "facebook_ads", "fb_ads", "ig", "instagram"];
@@ -22,6 +23,13 @@ export type MatchedClick = {
   utm_content: string | null;
   utm_term: string | null;
   origin_resolved: TrackableOrigin;
+  link_attribution?: {
+    platform: "meta" | "google" | "site";
+    campaign_id?: string;
+    campaign_name?: string;
+    adset_id?: string;
+    adset_name?: string;
+  } | null;
   matched_at?: string | null;
   matched_from_jid?: string | null;
   clicked_at?: string | null;
@@ -169,6 +177,7 @@ export function trackingFromMatchedClick(
   next.planeje_click_id = click.id;
   next.planeje_link_id = click.link_id;
   next.planeje_link_origin = click.origin_resolved;
+  if (click.link_attribution != null) next.planeje_link_attribution = linkAttributionSnapshot(click.link_attribution);
   if (click.clicked_at) next.planeje_clicked_at = click.clicked_at;
   return next;
 }
@@ -183,7 +192,7 @@ export async function claimTrackableClickMatch(
 ): Promise<MatchedClick | null> {
   const code = String(opts.matchCode || "").trim().toUpperCase();
   if (!/^PJ-[A-Z0-9]{6}$/.test(code)) return null;
-  const fields = "id, link_id, cliente_id, match_code, gclid, fbclid, utm_source, utm_medium, utm_campaign, utm_content, utm_term, origin_resolved, matched_at, matched_from_jid, clicked_at";
+  const fields = "id, link_id, cliente_id, match_code, gclid, fbclid, utm_source, utm_medium, utm_campaign, utm_content, utm_term, origin_resolved, link_attribution, matched_at, matched_from_jid, clicked_at";
 
   const { data: existing, error: findError } = await supabase
     .from("cliente_rastreamento_link_clicks")

@@ -185,7 +185,7 @@ export default function RastreamentoTrackableLinks({ clienteId, clienteName, onC
       supabase
         .from('cliente_rastreamento_links')
         .select(
-          'id, slug, label, destination_phone, default_origin, is_default, is_active, whatsapp_config_id, initial_message, append_match_code, whatsapp_open_mode, default_utm_source, default_utm_medium, default_utm_campaign, default_utm_content, default_utm_term, created_at'
+          'id, slug, label, destination_phone, default_origin, is_default, is_active, whatsapp_config_id, initial_message, append_match_code, whatsapp_open_mode, default_utm_source, default_utm_medium, default_utm_campaign, default_utm_content, default_utm_term, campaign_id, campaign_name, adset_id, adset_name, created_at'
         )
         .eq('cliente_id', clienteId)
         .order('is_default', { ascending: false })
@@ -248,7 +248,8 @@ export default function RastreamentoTrackableLinks({ clienteId, clienteName, onC
     const { error } = await supabase
       .from('cliente_rastreamento_links')
       .update({ is_active: false, is_default: false })
-      .eq('id', link.id);
+      .eq('id', link.id)
+      .eq('cliente_id', clienteId);
     if (error) {
       toast({ variant: 'destructive', title: 'Falha ao desativar', description: error.message });
     } else {
@@ -463,6 +464,10 @@ export default function RastreamentoTrackableLinks({ clienteId, clienteName, onC
                   default_utm_campaign: payload.utmCampaign || null,
                   default_utm_content: payload.utmContent || null,
                   default_utm_term: payload.utmTerm || null,
+                  campaign_id: payload.campaign_id,
+                  campaign_name: payload.campaign_name,
+                  adset_id: payload.adset_id,
+                  adset_name: payload.adset_name,
                   is_default: !hasDefault,
                   is_active: true,
                 });
@@ -528,12 +533,17 @@ export default function RastreamentoTrackableLinks({ clienteId, clienteName, onC
                   default_utm_campaign: payload.utmCampaign || null,
                   default_utm_content: payload.utmContent || null,
                   default_utm_term: payload.utmTerm || null,
+                  campaign_id: payload.campaign_id,
+                  campaign_name: payload.campaign_name,
+                  adset_id: payload.adset_id,
+                  adset_name: payload.adset_name,
                 };
                 if (!payload.isActive) updates.is_default = false;
                 const { error } = await supabase
                   .from('cliente_rastreamento_links')
                   .update(updates)
-                  .eq('id', editingLink.id);
+                  .eq('id', editingLink.id)
+                  .eq('cliente_id', clienteId);
                 if (error) {
                   toast({ variant: 'destructive', title: 'Não salvou', description: error.message });
                 } else {
@@ -628,6 +638,17 @@ function LinkFormModal({
   const [utmCampaign, setUtmCampaign] = useState(link?.default_utm_campaign || '');
   const [utmContent, setUtmContent] = useState(link?.default_utm_content || '');
   const [utmTerm, setUtmTerm] = useState(link?.default_utm_term || '');
+  const [campaignId, setCampaignId] = useState(link?.campaign_id || '');
+  const [campaignName, setCampaignName] = useState(link?.campaign_name || '');
+  const [adsetId, setAdsetId] = useState(link?.adset_id || '');
+  const [adsetName, setAdsetName] = useState(link?.adset_name || '');
+
+  useEffect(() => {
+    setCampaignId(link?.campaign_id || '');
+    setCampaignName(link?.campaign_name || '');
+    setAdsetId(link?.adset_id || '');
+    setAdsetName(link?.adset_name || '');
+  }, [link]);
 
   useEffect(() => {
     if (!link) return;
@@ -663,6 +684,10 @@ function LinkFormModal({
         e.preventDefault();
         const phone = resolvePhone();
         if (!phone || phone.length < 10) return;
+        const attribution = { campaign_id: campaignId.trim() || null, campaign_name: campaignName.trim() || null,
+          adset_id: adsetId.trim() || null, adset_name: adsetName.trim() || null };
+        if ([attribution.campaign_id, attribution.adset_id].some((id) => id && !/^\d{1,32}$/.test(id))
+          || [attribution.campaign_name, attribution.adset_name].some((name) => name?.length > 500)) return;
         void onSubmit({
           label,
           origin,
@@ -677,6 +702,7 @@ function LinkFormModal({
           utmCampaign: utmCampaign.trim(),
           utmContent: utmContent.trim(),
           utmTerm: utmTerm.trim(),
+          ...attribution,
         });
       }}
     >
@@ -741,6 +767,28 @@ function LinkFormModal({
           ))}
         </select>
       </label>
+
+      <details className="rt-links-utm">
+        <summary>Campanha e conjunto (opcional)</summary>
+        <div className="rt-links-utm__grid">
+          <label className="rt-links-field">
+            <span>ID da campanha</span>
+            <Input name="campaign_id" aria-label="ID da campanha" inputMode="numeric" pattern="[0-9]{1,32}" maxLength={32} value={campaignId} onChange={(e) => setCampaignId(e.target.value)} />
+          </label>
+          <label className="rt-links-field">
+            <span>Nome da campanha</span>
+            <Input name="campaign_name" aria-label="Nome da campanha" maxLength={500} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} />
+          </label>
+          <label className="rt-links-field">
+            <span>ID do conjunto</span>
+            <Input name="adset_id" aria-label="ID do conjunto" inputMode="numeric" pattern="[0-9]{1,32}" maxLength={32} value={adsetId} onChange={(e) => setAdsetId(e.target.value)} />
+          </label>
+          <label className="rt-links-field">
+            <span>Nome do conjunto</span>
+            <Input name="adset_name" aria-label="Nome do conjunto" maxLength={500} value={adsetName} onChange={(e) => setAdsetName(e.target.value)} />
+          </label>
+        </div>
+      </details>
 
       <fieldset className="rt-links-utm">
         <legend>UTM no link (opcional)</legend>

@@ -4,6 +4,7 @@
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { linkAttributionSnapshot } from '../_shared/rastreamentoMessageAttribution.js';
 import {
   buildWaMeRedirectUrl,
   generateMatchCode,
@@ -75,7 +76,7 @@ serve(async (req) => {
   const { data: link, error: linkError } = await supabase
     .from('cliente_rastreamento_links')
     .select(
-      'id, cliente_id, slug, destination_phone, default_origin, is_active, initial_message, append_match_code, whatsapp_open_mode, default_utm_source, default_utm_medium, default_utm_campaign, default_utm_content, default_utm_term',
+      'id, cliente_id, slug, destination_phone, default_origin, is_active, initial_message, append_match_code, whatsapp_open_mode, default_utm_source, default_utm_medium, default_utm_campaign, default_utm_content, default_utm_term, campaign_id, campaign_name, adset_id, adset_name',
     )
     .eq('slug', slug)
     .eq('is_active', true)
@@ -127,6 +128,7 @@ serve(async (req) => {
       referer: (req.headers.get('referer') || '').slice(0, 500) || null,
       user_agent: (req.headers.get('user-agent') || '').slice(0, 500) || null,
       origin_resolved,
+      link_attribution: linkAttributionSnapshot(link),
     });
     if (!insertError) {
       inserted = true;

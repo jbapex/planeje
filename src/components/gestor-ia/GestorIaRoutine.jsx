@@ -68,7 +68,7 @@ function RoutineEditor({ board, profile, modules, clientId, weekStart, choose, c
     <TrafficWeeklyReviewEditor review={record.review} previous={record.previous} board={board} clients={board.clients}
       onNavigate={(id, week) => choose(id, week)} onClose={close}
       onSaved={(id) => setRecord((current) => ({ ...current, review: { ...current.review, id } }))}
-      sheetView={{ source, onInspectLeads: canReadLeads ? (rows, appointmentsOnly) => setInspecting({ rows, appointmentsOnly }) : undefined }} />
+      sheetView={{ source, onInspectLeads: canReadLeads ? (rows, appointmentsOnly, allRows) => setInspecting({ rows, appointmentsOnly, allRows }) : undefined }} />
     {!canReadLeads && <p className="gia-caption">A consulta dos leads requer acesso ao Rastreamento.</p>}
     {record.review.metric_mode === 'client' && <p className="gia-caption">Esta semana foi registrada em resumo. Os dados originais foram preservados.</p>}
     {canReadLeads && inspecting && <GestorIaRoutineLeads client={client} weekStart={weekStart} selection={inspecting} profile={profile} modules={modules} close={() => setInspecting(null)} />}

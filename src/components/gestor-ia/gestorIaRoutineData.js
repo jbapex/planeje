@@ -1,5 +1,5 @@
 import { canUseGestorIa } from './gestorIaAccess';
-import { normalizeRoutineWeek, selectRoutineLeads } from '@/lib/gestorIaRoutine';
+import { normalizeRoutineWeek, routineLeadSummary, selectRoutineLeads } from '@/lib/gestorIaRoutine';
 import { shiftDate } from '@/lib/trafficWeeklyReview';
 
 function requireAccess(profile, modules) {
@@ -59,19 +59,22 @@ export async function loadRoutineSummary(db, { profile, modules, clientIds, week
 
 const CONTACT_FIELDS = 'id,cliente_id,from_jid,phone,sender_name,profile_pic_url,instance_name,whatsapp_config_id,first_seen_at,last_message_at,origin_source,utm_source,utm_medium,utm_campaign,utm_content,utm_term,tracking_data,mini_crm,qualificado,comprou,valor_venda';
 
-export async function loadRoutineLeads(db, { profile, modules, clientId, weekStart, rows, niche, appointmentsOnly, signal }) {
+export async function loadRoutineLeads(db, { profile, modules, clientId, weekStart, rows, allRows = rows, niche, mode = 'entrada', appointmentsOnly, signal }) {
   requireAccess(profile, modules);
   if (modules.rastreamento !== true) throw new Error('Acesso ao Rastreamento necessário para consultar os leads.');
-  if (!clientId || normalizeRoutineWeek(weekStart) !== weekStart) throw new Error('Escolha cliente e semana válidos.');
+  if (!clientId || normalizeRoutineWeek(weekStart) !== weekStart || !['entrada', 'agendados_na_semana'].includes(mode)) throw new Error('Escolha cliente e semana válidos.');
   const authorize = async () => {
     const { data, error } = await db.rpc('central_trafego_can_access_client', { p_cliente_id: clientId }).abortSignal(signal);
     if (error || data !== true) throw new Error('Acesso aos leads deste cliente indisponível.');
   };
   await authorize();
-  const { data, error } = await db.rpc('gestor_ia_routine_leads_data', { p_client: clientId, p_week: weekStart }).abortSignal(signal);
-  if (error || !Array.isArray(data?.contacts) || !Array.isArray(data?.messages)) throw new Error('Não foi possível consultar os leads e as evidências de agendamento. Tente novamente.');
+  const { data, error } = await db.rpc('gestor_ia_routine_leads_data', { p_client: clientId, p_week: weekStart, p_actor: null, p_mode: mode }).abortSignal(signal);
+  if (error || !Array.isArray(data?.contacts) || !Array.isArray(data?.messages)
+    || (mode === 'agendados_na_semana' && !Array.isArray(data?.appointment_events))
+    || (data?.origin_catalog != null && !Array.isArray(data.origin_catalog))) throw new Error('Não foi possível consultar os leads e as evidências de agendamento. Tente novamente.');
   await authorize();
-  return selectRoutineLeads(data.contacts, { clientId, weekStart, rows, niche: data.niche || niche, config: data.config, appointmentsOnly, messages: data.messages });
+  const selected = selectRoutineLeads(data.contacts, { clientId, weekStart, rows, allRows, mode, appointmentEvents: data.appointment_events || [], originCatalog: data.origin_catalog || [], niche: data.niche || niche, config: data.config, appointmentsOnly, messages: data.messages });
+  return { ...selected, mode, summary: routineLeadSummary(selected, rows) };
 }
 
 /** O contato completo só é consultado quando a pessoa abre a ficha. */

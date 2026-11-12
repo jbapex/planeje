@@ -1,3 +1,12 @@
+export type RoutineLeadMode = 'entrada' | 'agendados_na_semana';
+export type RoutineOrigin = {
+  account_id: string;
+  campaign_id: string;
+  campaign_name: string;
+  adset_id: string;
+  adset_name: string;
+  ad_name: string;
+};
 export type RoutineLead = {
   id: string;
   cliente_id: string;
@@ -9,9 +18,45 @@ export type RoutineLead = {
   comprou: boolean | null;
   routineAppointment: string;
   routineScheduled: boolean;
-  routineScheduleSource: 'crm' | 'conversation' | null;
+  routineScheduleSource: 'crm' | 'conversation' | 'automatico' | 'manual' | null;
   routineCrmOutdated: boolean;
   routineMatchReason: string;
+  routineMatchMethod: 'id' | 'name' | 'link' | null;
+  routineOrigin: RoutineOrigin;
+  routineCohort: 'novo' | 'antigo';
+  routineScheduledAt: string;
+};
+export type RoutineLeadCounts = {
+  total: number;
+  novos: number;
+  antigos: number;
+  agendamentos: number;
+  agendamentosNovos: number;
+  agendamentosAntigos: number;
+};
+export type RoutineOriginRow = Readonly<Omit<RoutineOrigin, 'ad_name'> & Omit<RoutineLeadCounts, 'total'> & {
+  spend: 0;
+  readOnly: true;
+  status: 'campanha_encerrada' | 'fora_da_revisao';
+  cpa: null;
+}>;
+export type RoutineLeadResult = {
+  leads: RoutineLead[];
+  unmatchedLeads: RoutineLead[];
+  unattributed: number;
+  unresolvedRows: number;
+  originRows: RoutineOriginRow[];
+};
+export type RoutineLeadSummary = RoutineLeadCounts & {
+  atribuidos: RoutineLeadCounts & { cpaNovos: number; cpa: number | null };
+  semVinculo: RoutineLeadCounts;
+};
+export type RoutineAppointmentEvent = {
+  contact_id: string;
+  cliente_id?: string;
+  at: string;
+  source: 'automatico' | 'manual';
+  appointment_day?: string;
 };
 export function normalizeRoutineWeek(value?: string): string;
 export function maskRoutinePhone(value: unknown): string;
@@ -21,8 +66,13 @@ export function selectRoutineLeads(contacts: Record<string, unknown>[], options:
   clientId: string;
   weekStart: string;
   rows?: Record<string, unknown>[];
+  allRows?: Record<string, unknown>[];
+  originCatalog?: Record<string, unknown>[];
+  mode?: RoutineLeadMode;
+  appointmentEvents?: Record<string, unknown>[];
   config?: unknown;
   niche?: string;
   appointmentsOnly?: boolean;
   messages?: Record<string, unknown>[];
-}): { leads: RoutineLead[]; unmatchedLeads: RoutineLead[]; unattributed: number; unresolvedRows: number };
+}): RoutineLeadResult;
+export function routineLeadSummary(result: Pick<RoutineLeadResult, 'leads' | 'unmatchedLeads'>, rows?: Record<string, unknown>[]): RoutineLeadSummary;

@@ -28,9 +28,10 @@
     "verify:context": "node scripts/toolkit/verify-context.mjs",
     "test:harness": "node --test scripts/toolkit/toolkitScripts.test.mjs",
     "test:mcp": "node planeje-mcp/node_modules/tsx/dist/cli.mjs --test planeje-mcp/scripts/metaTraffic.test.ts planeje-mcp/scripts/accountAccess.test.ts planeje-mcp/scripts/sdkTransport.test.ts planeje-mcp/scripts/messageHistory.test.ts planeje-mcp/scripts/researchTools.test.ts planeje-mcp/scripts/toolAuthorization.test.ts planeje-mcp/scripts/messageNormalize.test.ts planeje-mcp/scripts/gestorIaRoutine.test.ts",
-    "test:gestor-ia": "node --test scripts/gestor-ia/routine.test.mjs scripts/gestor-ia/routine-data.test.mjs scripts/gestor-ia/routine-signals.test.mjs scripts/gestor-ia/routine-coverage.test.mjs && node scripts/gestor-ia/routine.component.test.mjs",
+    "test:gestor-ia": "node --test scripts/gestor-ia/routine.test.mjs scripts/gestor-ia/routine-data.test.mjs scripts/gestor-ia/routine-signals.test.mjs scripts/gestor-ia/routine-coverage.test.mjs scripts/gestor-ia/attribution.test.mjs scripts/gestor-ia/attribution-events.test.mjs scripts/gestor-ia/attribution.component.test.mjs scripts/gestor-ia/meta-enrichment.test.mjs scripts/gestor-ia/backfill-meta-attribution.test.mjs scripts/gestor-ia/meta-runtime.test.mjs scripts/gestor-ia/link-attribution.test.mjs scripts/gestor-ia/link-attribution.component.test.mjs && node scripts/gestor-ia/routine.component.test.mjs",
     "preview:gestor-ia": "node planeje-mcp/node_modules/tsx/dist/cli.mjs scripts/gestor-ia/neuro-preview/server.mjs 4394",
-    "test:gestor-ia:e2e": "node planeje-mcp/node_modules/tsx/dist/cli.mjs --test scripts/gestor-ia/routine-mcp.e2e.test.mjs"
+    "test:gestor-ia:e2e": "node planeje-mcp/node_modules/tsx/dist/cli.mjs --test --test-concurrency=1 scripts/gestor-ia/routine-mcp.e2e.test.mjs scripts/gestor-ia/attribution-mcp.e2e.test.mjs",
+    "preview:gestor-ia:atribuicao": "node planeje-mcp/node_modules/tsx/dist/cli.mjs scripts/gestor-ia/neuro-preview/server.mjs 4395"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.3.1",

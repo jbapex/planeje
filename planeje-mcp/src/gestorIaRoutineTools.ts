@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { denyModule, loadModuleAccess, type McpActorLike } from './access.js';
-import { maskRoutinePhone, maskRoutineText, normalizeRoutineWeek, selectRoutineLeads } from '../../src/lib/gestorIaRoutine.js';
+import { maskRoutinePhone, maskRoutineText, normalizeRoutineWeek, routineLeadSummary, selectRoutineLeads } from '../../src/lib/gestorIaRoutine.js';
 
 const week = z.string().refine(value => Boolean(value) && normalizeRoutineWeek(value) === value,
   'Informe a segunda-feira de uma semana válida no formato YYYY-MM-DD.');
@@ -24,7 +24,7 @@ const scope = { cliente_id: z.string().uuid(), semana: week };
 type Json = Record<string, unknown>;
 type RoutineAction = 'panel' | 'read' | 'save' | 'suggest' | 'leads';
 const maskedTextFields = new Set(['empresa', 'analysis', 'data_note', 'ai_suggestion', 'result_label',
-  'account_name', 'campaign_name', 'adset_name', 'conversion_label', 'sender_name']);
+  'account_name', 'campaign_name', 'adset_name', 'ad_name', 'conversion_label', 'sender_name']);
 
 class RoutineError extends Error {}
 function jsonText(value: unknown) {
@@ -64,7 +64,9 @@ function reviewResult(data: Json) {
 function safeLead(value: unknown) {
   const lead = record(value);
   return { ...fields(lead, ['id', 'cliente_id', 'sender_name', 'first_seen_at', 'qualificado', 'comprou',
-    'routineAppointment', 'routineScheduled', 'routineScheduleSource', 'routineCrmOutdated', 'routineMatchReason']),
+    'routineAppointment', 'routineScheduled', 'routineScheduleSource', 'routineCrmOutdated', 'routineMatchReason',
+    'routineMatchMethod', 'routineCohort', 'routineScheduledAt']),
+    routineOrigin: fields(lead.routineOrigin, ['account_id', 'campaign_id', 'campaign_name', 'adset_id', 'adset_name', 'ad_name']),
     phone: maskRoutinePhone(lead.phone) };
 }
 
@@ -144,16 +146,17 @@ export function registerGestorIaRoutineTools(mcp: McpServer, db: SupabaseClient,
 
   mcp.registerTool('gestor_ia_ver_leads', {
     title: 'Ver leads seguros da semana',
-    description: 'Leads cuja primeira entrada ocorreu na semana de Brasília, com telefone mascarado. conjunto_ids usa somente IDs exatos dos conjuntos da própria revisão; omitir ou [] considera todos os atribuídos. Sem correspondência Meta/Google/manuais aparecem separados em unmatchedLeads. somente_agendados filtra a lista atribuída; sinais CRM e conversa permanecem distintos. Exige Tráfego e Rastreamento. Não retorna mensagens nem dados brutos de rastreamento.',
+    description: 'Leads com telefone mascarado. modo entrada (padrão): primeira entrada na semana de Brasília; modo agendados_na_semana: marcações comprovadas no histórico daquela semana, com novos e antigos separados. conjunto_ids filtra IDs dos conjuntos da revisão; omitir ou [] inclui origens históricas no segundo modo. Vínculo por nome é identificado e ambiguidades ficam em unmatchedLeads, junto de Google/manuais. summary separa novos/antigos; CPA usa apenas novos agendados e gasto Meta representado. Não consulta Meta/Google nem retorna mensagens brutas. Exige Tráfego e Rastreamento.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     inputSchema: z.object({ ...scope, conjunto_ids: z.array(z.string().trim().min(1).max(256)).max(1000).optional(),
-      somente_agendados: z.boolean().optional() }).strict(),
-  }, async ({ cliente_id, semana, conjunto_ids, somente_agendados }) => {
+      somente_agendados: z.boolean().optional(), modo: z.enum(['entrada', 'agendados_na_semana']).default('entrada') }).strict(),
+  }, async ({ cliente_id, semana, conjunto_ids, somente_agendados, modo }) => {
     try {
       const userId = await access(true);
       const saved = await rpc(userId, 'read', semana, cliente_id);
       const metrics = record(saved.review).campaign_metrics;
-      let rows = Array.isArray(metrics) ? metrics : [];
+      const allRows = Array.isArray(metrics) ? metrics : [];
+      let rows = allRows;
       if (conjunto_ids?.length) {
         const wanted = new Set(conjunto_ids);
         rows = rows.filter(row => wanted.has(String(record(row).adset_id ?? '')));
@@ -161,12 +164,17 @@ export function registerGestorIaRoutineTools(mcp: McpServer, db: SupabaseClient,
           throw new RoutineError('Conjunto não encontrado na revisão deste cliente e desta semana. Leia gestor_ia_ler_semana e use os IDs registrados.');
         }
       }
-      const result = await rpc(userId, 'leads', semana, cliente_id);
+      const result = await rpc(userId, 'leads', semana, cliente_id, { modo });
       const selected = selectRoutineLeads(records(result.contacts), {
-        clientId: cliente_id, weekStart: semana, rows, config: result.config, niche: typeof result.niche === 'string' ? result.niche : '',
+        clientId: cliente_id, weekStart: semana, rows, allRows, mode: modo,
+        originCatalog: result.origin_catalog == null ? [] : records(result.origin_catalog),
+        appointmentEvents: modo === 'agendados_na_semana' ? records(result.appointment_events) : [], config: result.config, niche: typeof result.niche === 'string' ? result.niche : '',
         appointmentsOnly: somente_agendados ?? false, messages: records(result.messages),
       });
-      return jsonText({ cliente_id, semana, leads: selected.leads.map(safeLead),
+      return jsonText({ cliente_id, semana, modo, leads: selected.leads.map(safeLead),
+        summary: routineLeadSummary(selected, rows), originRows: selected.originRows.map(row => fields(row,
+          ['account_id', 'campaign_id', 'campaign_name', 'adset_id', 'adset_name', 'spend', 'readOnly', 'status',
+            'novos', 'antigos', 'agendamentos', 'agendamentosNovos', 'agendamentosAntigos', 'cpa'])),
         unmatchedLeads: selected.unmatchedLeads.map(safeLead), unattributed: selected.unattributed,
         unresolvedRows: selected.unresolvedRows, total: selected.leads.length, totalSemCorrespondencia: selected.unmatchedLeads.length });
     } catch (error) { return failure(error); }

@@ -1,5 +1,6 @@
 /** Links rastreáveis Planeje → WhatsApp (Google / Meta-site / site). Sem pixel nem CAPI. */
 import { encodeHiddenMatchCode, extractMatchCode as extractTrackableMatchCode } from '../../supabase/functions/_shared/rastreamentoHiddenMatchCode.js';
+import { linkAttributionSnapshot } from '../../supabase/functions/_shared/rastreamentoMessageAttribution.js';
 export { TRACKABLE_MATCH_CODE_RE } from '../../supabase/functions/_shared/rastreamentoHiddenMatchCode.js';
 
 const META_UTM = ['facebook', 'meta', 'fb', 'meta_ads', 'meta ads', 'facebook_ads', 'fb_ads', 'ig', 'instagram'];
@@ -266,6 +267,7 @@ export function trackingFromMatchedClick(click, { keepExisting = null } = {}) {
   if (click?.id) next.planeje_click_id = click.id;
   if (click?.link_id) next.planeje_link_id = click.link_id;
   next.planeje_link_origin = click?.origin_resolved || 'site';
+  if (click?.link_attribution != null) next.planeje_link_attribution = linkAttributionSnapshot(click.link_attribution);
   return next;
 }
 
@@ -294,8 +296,11 @@ export function recordedOriginSource(row, lead = false) {
   const tracking = row?.tracking_data || {};
   const fromLink = Boolean(tracking.planeje_link_id || tracking.planeje_match_code);
   const source = siteOriginLabel(row?.utm_source, tracking.utm_source).toLowerCase();
-  // Links antigos do Linktree foram configurados como Meta; a UTM não é um anúncio CTWA.
-  if (fromLink && source === 'linktree' && origin !== 'google_ads' && !tracking.gclid && !hasCtwaTrackingSignal(tracking)) return 'site';
+  // O snapshot do link preserva sua origem; a UTM Linktree sozinha não comprova site.
+  if (fromLink && source === 'linktree' && origin !== 'google_ads') {
+    if (tracking.gclid != null && String(tracking.gclid).trim()) return 'google_ads';
+    if (!hasCtwaTrackingSignal(tracking) && ['meta_ads', 'site'].includes(tracking.planeje_link_origin)) return tracking.planeje_link_origin;
+  }
   if (origins.includes(origin)) return origin;
   return '';
 }

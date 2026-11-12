@@ -86,3 +86,17 @@
 .gestor-ia .gia-routine-state.is-ai { background: #f2ecfc; color: #7952ad; }
 .gestor-ia .gia-routine-crm-alert { display: grid; gap: 3px; max-width: 260px; color: #9a621c; font-size: 12px; }
 .gestor-ia .gia-routine-crm-alert small { color: #8c754f; font-size: 11px; line-height: 1.45; }
+.gia-routine-lead-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #eeecf2; border-radius: 12px; }
+.gia-routine-lead-summary > span { padding: 12px; color: #817a8c; font-size: 11px; }
+.gia-routine-lead-summary strong { display: block; margin-top: 4px; color: #49444f; font-size: 17px; font-variant-numeric: tabular-nums; }
+.gia-routine-match { display: inline-block; padding: 1px 6px; border-radius: 6px; background: #f2ecfc; color: #7952ad; }
+.gia-routine-historical { padding: 14px; border: 1px solid #eeecf2; border-radius: 12px; font-size: 12px; }
+.gia-routine-historical h3 { margin: 0 0 10px; font-weight: 500; }
+.gia-routine-historical > div + div { margin-top: 12px; }
+.gia-routine-historical strong, .gia-routine-historical span { display: block; overflow-wrap: anywhere; }
+.gia-routine-historical span { margin-top: 4px; color: #817a8c; }
+@media (max-width: 420px) {
+  .gia-routine-lead-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gia-routine-lead { flex-wrap: wrap; }
+  .gia-routine-lead > span:last-child { margin-left: 42px; text-align: left; max-width: none; }
+}

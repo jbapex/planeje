@@ -25,12 +25,12 @@ test('coorte é a primeira entrada na semana de Brasília, com agendamento poste
   assert.equal(selectRoutineLeads(contacts, options).leads.length, 4);
 });
 
-test('exige IDs exatos, preserva primeira origem, une seleção sem duplicar contatos', () => {
+test('prioriza IDs e aceita nomes únicos, preserva primeira origem sem duplicar contatos', () => {
   const rows = [row, { ...row, id: 'row-2' }, { ...row, id: 'manual', campaign_id: '', adset_id: '' }];
   const result = selectRoutineLeads([lead('one'), lead('one'), lead('wrong-set', { tracking_data: { campaign_id: '10001', adset_id: '20002', account_id: '700' } }),
     lead('wrong-account', { tracking_data: { campaign_id: '10001', adset_id: '20001', account_id: '701' } }),
     lead('first-site', { origin_source: 'site' }), lead('missing', { tracking_data: { campaign_name: 'Campanha', adset_name: 'Conjunto' } })], { ...options, rows });
-  assert.deepEqual(result.leads.map(l => l.id), ['one']);
+  assert.deepEqual(result.leads.map(l => l.id), ['one', 'missing']);
   assert.equal(result.unresolvedRows, 1);
   assert.equal(result.unattributed, 1);
   assert.equal(selectRoutineLeads([lead('one')], { ...options, rows: [{ ...row, adset_id: '' }] }).leads.length, 0);

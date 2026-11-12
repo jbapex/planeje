@@ -5,6 +5,7 @@ import {
   handleClienteMetaManual,
 } from "./clienteMetaManual.ts";
 import { persistAdThumbnail } from "../_shared/persistAdThumbnail.ts";
+import { META_AD_IDENTITY_FIELDS, metaAdIdentity } from "../_shared/metaAdEnrichment.js";
 import {
   LARGE_MEDIA_ACTIONS,
   handleIgRuploadPut,
@@ -848,7 +849,7 @@ serve(async (req) => {
       }
       const id = String(adId).trim();
       try {
-        const fields = "name,campaign{name,account_id},adset{name},creative{id,thumbnail_url,image_url,object_type,video_id}";
+        const fields = `${META_AD_IDENTITY_FIELDS},creative{id,thumbnail_url,image_url,object_type,video_id}`;
         const params = new URLSearchParams({
           fields,
           access_token: metaToken,
@@ -902,10 +903,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             ad: {
-              id: data.id,
-              name: data.name || null,
-              campaign: { name: campaign.name || null },
-              adset: (data.adset && { name: data.adset.name || null }) || null,
+              ...metaAdIdentity(data),
               thumbnail_url: storedThumb || thumbnailUrl || null,
               thumbnail_stored_url: storedThumb || null,
               thumbnail_source_url: thumbnailUrl ?? null,

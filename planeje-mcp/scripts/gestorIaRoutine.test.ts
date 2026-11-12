@@ -278,3 +278,50 @@ test('routine panel masks free company names and preserves client/review IDs', a
     assert.equal(result.clientes[0].revision, 2);
   } finally { await f.close(); }
 });
+
+
+test('appointment-week mode forwards events and origin catalog, masks names and splits new/old', async () => {
+  const contacts = [0,1].map(index => ({ id: `appointment-${index}`, cliente_id: CLIENT, phone: PHONE,
+    sender_name: `Lead ${index}`, first_seen_at: index ? '2026-11-02T12:00:00Z' : `${WEEK}T12:00:00Z`,
+    origin_source: 'meta_ads', tracking_data: { meta_ad_details: { ad: { name: `Anúncio ${PHONE}`,
+      campaign: { name: 'Campanha' }, adset: { name: 'Conjunto' } } } } }));
+  const f = await fixture({ rpc: body => body.p_action === 'read' ? { cliente_id: CLIENT, semana: WEEK, review: { campaign_metrics: [line] } }
+    : { contacts, config: null, niche: '', messages: [], origin_catalog: [],
+      appointment_events: contacts.map(contact => ({ contact_id: contact.id, at: '2026-11-10T12:00:00Z', source: 'automatico' })) } });
+  try {
+    const result = payload(await f.client.callTool({ name: names[4]!, arguments: { ...args(names[4]!), modo: 'agendados_na_semana' } }));
+    assert.equal(f.calls.find(call => call.p_action === 'leads')?.p_payload.modo, 'agendados_na_semana');
+    assert.equal(result.modo, 'agendados_na_semana');
+    assert.equal(result.leads.length, 2);
+    assert.deepEqual(result.leads.map((lead: Json) => lead.routineCohort), ['novo','antigo']);
+    assert.ok(result.leads.every((lead: Json) => lead.routineMatchMethod === 'name'));
+    assert.equal(result.leads[0].routineOrigin.campaign_name, 'Campanha');
+    assert.equal(result.leads[0].routineOrigin.adset_name, 'Conjunto');
+    assert.ok(!JSON.stringify(result).includes(PHONE));
+    assert.equal(result.summary.novos, 1); assert.equal(result.summary.antigos, 1);
+    assert.equal(result.summary.atribuidos.cpa, 120);
+    assert.deepEqual(result.originRows, []);
+  } finally { await f.close(); }
+});
+
+test('subset selection cannot turn an ambiguous name into a confirmed attribution', async () => {
+  const f = await fixture({ rpc: body => body.p_action === 'read' ? { cliente_id: CLIENT, semana: WEEK,
+    review: { campaign_metrics: [line, { ...line, account_id: 'act_11', campaign_id: '21', adset_id: '31' }] } }
+    : { contacts: [{ id: 'ambiguous', cliente_id: CLIENT, first_seen_at: `${WEEK}T12:00:00Z`, origin_source: 'meta_ads',
+      tracking_data: { meta_ad_details: { ad: { campaign: { name: 'Campanha' }, adset: { name: 'Conjunto' } } } } }], messages: [], config: null } });
+  try {
+    const result = payload(await f.client.callTool({ name: names[4]!, arguments: { ...args(names[4]!), conjunto_ids: ['30'] } }));
+    assert.equal(result.leads.length, 0); assert.equal(result.unmatchedLeads.length, 1);
+    assert.match(result.unmatchedLeads[0].routineMatchReason, /ambígua/);
+  } finally { await f.close(); }
+});
+
+test('invalid appointment modes and missing event evidence fail closed', async () => {
+  const f = await fixture();
+  try {
+    assert.equal((await f.client.callTool({ name: names[4]!, arguments: { ...args(names[4]!), modo: 'todas' } })).isError, true);
+    assert.equal(f.calls.length, 0);
+    const result = await f.client.callTool({ name: names[4]!, arguments: { ...args(names[4]!), modo: 'agendados_na_semana' } });
+    assert.equal(result.isError, true);
+  } finally { await f.close(); }
+});

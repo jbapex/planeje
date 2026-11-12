@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import '@/components/pages/RastreamentoHub.css';
-import { fetchMetaAdCreative } from '@/lib/funilMetaCreative';
+import { fetchMetaAdCreative, persistContactMetaAdIdentity } from '@/lib/funilMetaCreative';
 import {
   buildLeadFicha,
   ctwaClidFromLeadSources,
@@ -301,11 +301,14 @@ function LeadFichaContent({
       if (cancelled) return;
       const next = creative?.thumbnailUrl;
       if (next) setThumbnailUrl(next);
+      if (contact?.id && clienteId && creative?.ad) {
+        void persistContactMetaAdIdentity({ clienteId, contactId: contact.id, ad: creative.ad, accountName: creative.accountName });
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [open, ficha.showCreative, ficha.creative.thumbnailUrl, ficha.creative.adId]);
+  }, [open, ficha.showCreative, ficha.creative.thumbnailUrl, ficha.creative.adId, clienteId, contact?.id]);
 
   useEffect(() => {
     if (!open || !clienteId) {

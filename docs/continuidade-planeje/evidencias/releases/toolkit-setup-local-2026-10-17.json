@@ -1,0 +1,169 @@
+{
+  "date": "2026-10-17",
+  "status": "complete-local",
+  "scope": "local project setup; no deployment, production access, migration or external messages",
+  "toolkit_revision": "de66fe371a49f5a4d3b521759e5c401f390b6424",
+  "approved_design": "../../referencias/toolkit-desenho-aprovado-2026-10-17.md",
+  "baseline": {
+    "application_tests": 56,
+    "traffic_scripts": 2,
+    "types_diagnostics": 18,
+    "lint_configured": false,
+    "build": "passed, isolated Vite output",
+    "audit_root": 41,
+    "audit_mcp": 11,
+    "agents_bytes": 145497
+  },
+  "changes": {
+    "agents_bytes": 6554,
+    "history_preserved": true,
+    "project_skills": [
+      "vercel-react-best-practices",
+      "vercel-composition-patterns",
+      "web-design-guidelines",
+      "writing-guidelines",
+      "find-skills",
+      "differential-review"
+    ],
+    "client_integrations_reused": [
+      "RTK 1.0.1",
+      "Ponytail 5.3.2",
+      "Caveman",
+      "Superpowers 7.0.0",
+      "Context7",
+      "Graphify skill 0.9.92"
+    ],
+    "graphify_cli": "0.9.92 local venv, existing Python3.12.14",
+    "mcp_sdk": "1.32.1",
+    "stack_preserved": true,
+    "mcp_hono_adapter": {
+      "before": "1.19.14",
+      "after": "1.19.17",
+      "selection": "scoped override within SDK accepted range ^1.19.9 || ^2.0.5",
+      "reason": "preserve previous compatible branch; no Node engine elevation"
+    }
+  },
+  "observed": {
+    "types_diagnostics": 0,
+    "mcp_regression_tests": 18,
+    "mcp_new_types_tests": 18,
+    "sdk_transport_tests": 1,
+    "harness_script_tests": 4,
+    "quality_rule_groups": 3,
+    "lint_warnings": 358,
+    "typed_lint_warnings": 12,
+    "audit_root": {
+      "total": 15,
+      "critical": 1,
+      "high": 7,
+      "moderate": 7
+    },
+    "audit_mcp": 0,
+    "context7": "native resolve/query ESLint8.57.1 plus SDK React18 lookup; no private query content",
+    "browser": {
+      "fixture": "atlas-events-preview",
+      "layouts": [
+        {
+          "width": 1280,
+          "scroll": 1280
+        },
+        {
+          "width": 390,
+          "scroll": 390
+        }
+      ],
+      "runtimeErrors": [],
+      "externalRequestsBlocked": [],
+      "privateSession": false,
+      "checks": [
+        "load synthetic client",
+        "responsive layouts",
+        "expand request and source dialog",
+        "failure state"
+      ]
+    },
+    "behavioral_fixture": {
+      "baseline_pass": 5,
+      "baseline_fail": 2,
+      "final_pass": 7,
+      "fresh_context": "subagent, not restarted client",
+      "coordinator_rerun": {
+        "passed": 7,
+        "failed": 0,
+        "instructions_and_evaluator_unchanged": true
+      }
+    },
+    "mcp_independent_review": "no material findings; local tests/tsc checked; baseline Git unavailable for untracked MCP files",
+    "rtk": "version/hook checked; dry-run plus actual normal tail rewritten to rtk read observed in child process, no duplicate execution",
+    "graphify": {
+      "nodes": 9718,
+      "edges": 36615,
+      "source_files_with_nodes": 1266,
+      "sha256": "9ba0ae14efa3d1b6349626b82d868bab05ab482a09cb2e8e6648c6f56e0f377f",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "network_denied": true,
+      "query": "fresh MCP types test with imports; source hash unchanged during extraction",
+      "limitation": "unsupported symbols/formats and excluded paths; future code changes invalidate freshness"
+    },
+    "integration_independent_review": "no material findings; instructions/history, commands, configuration, locks, SDK schemas and Hono override inspected; real transport construction/close checked without network",
+    "runtime": "Node20.20.2; complete Node18 tree not tested"
+  },
+  "not_validated": [
+    "complete DB/API suite",
+    "production OAuth/HTTP/RLS",
+    "product user acceptance",
+    "all skills auto-discovery after client restart",
+    "other operating systems",
+    "full product security review"
+  ],
+  "residual_decisions": [
+    "15 root dependency audit entries; some require incompatible majors or no compatible fix is indicated",
+    "legacy lint warnings; prioritize no-undef and hook reproductions before promoting to error"
+  ],
+  "final_checks": {
+    "command": "npm run check",
+    "exit_code": 0,
+    "steps": [
+      "verify:context",
+      "test:harness",
+      "lint",
+      "lint:typed",
+      "typecheck",
+      "test:rules",
+      "test:local",
+      "build:check"
+    ],
+    "local_tests": 93,
+    "harness_tests": 4,
+    "quality_rule_groups": 3,
+    "traffic_scripts": 2,
+    "type_diagnostics": 0,
+    "lint": {
+      "errors": 0,
+      "warnings": 358
+    },
+    "typed_lint": {
+      "errors": 0,
+      "warnings": 12,
+      "overlapping_max_lines_warnings": 11
+    },
+    "build": "passed, 4080 modules, 17.47 seconds; own temporary output removed",
+    "browser_after_dependency_updates": "passed, synthetic 1280/390, zero runtime errors/external requests",
+    "introduced_failure_resolved": "tsx4.23.15 test loader switched from CommonJS resolution to declared ESM export; 18 regression cases preserved",
+    "repeatability": {
+      "verifier_runs": 2,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files_checked": 121,
+      "all_hashes_unchanged": true,
+      "no_project_mcp_duplicate": true,
+      "temporary_build_removed": true
+    },
+    "scoped_diff_whitespace": "passed",
+    "new_owned_files_personal_path_and_token_pattern_scan": "no matches; heuristic only"
+  },
+  "completed_at": "2026-10-17T23:51:46.030Z"
+}

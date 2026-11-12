@@ -20,7 +20,7 @@ const profile = { id: 'person', role: 'colaborador', status: 'active' };
 const modules = { paid_traffic: true, rastreamento: true };
 const row = { id: 'row', platform: 'meta', account_id: 'act_700', campaign_id: '10001', adset_id: '20001' };
 const query = { profile, modules, clientId: 'client-a', weekStart: '2026-11-02', rows: [row], niche: 'Loja de noivas' };
-function fixture({ deny = false, revoke = false, failContacts = false, failConfig = false, count = 1001 } = {}) {
+function fixture({ deny = false, revoke = false, failContacts = false, failConfig = false, count = 1001, mode, contacts: suppliedContacts, events = [], catalog = [] } = {}) {
   const calls = [];
   let checks = 0;
   const db = createClient('https://fixture.invalid', 'fixture-key', { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, global: { fetch: async (input, init = {}) => {
@@ -32,10 +32,10 @@ function fixture({ deny = false, revoke = false, failContacts = false, failConfi
     if (url.pathname.endsWith('/rpc/traffic_routine_client_history')) return Response.json([]);
     if (url.pathname.endsWith('/traffic_weekly_reviews')) return Response.json([]);
     assert.ok(url.pathname.endsWith('/rpc/gestor_ia_routine_leads_data'), url.pathname);
-    assert.deepEqual(body, { p_client: 'client-a', p_week: '2026-11-02' });
+    assert.deepEqual(body, { p_client: 'client-a', p_week: '2026-11-02', p_actor: null, p_mode: mode || 'entrada' });
     if (failContacts || failConfig) return Response.json({ message: 'Falha interna' }, { status: 500 });
     const contacts = Array.from({ length: count }, (_, index) => ({ id: 'lead-' + index, cliente_id: 'client-a', first_seen_at: '2026-11-03T12:00:00Z', origin_source: 'meta_ads', mini_crm: { data_agendamento: '2026-11-20' }, tracking_data: { account_id: '700', campaign_id: '10001', adset_id: '20001' } }));
-    return Response.json({ contacts, messages: [], config: null });
+    return Response.json({ contacts: suppliedContacts || contacts, messages: [], config: null, appointment_events: events, origin_catalog: catalog });
   } } });
   return { db, calls };
 }
@@ -72,4 +72,26 @@ test('entrada conserva apenas clientes autorizados, abrir semana não cria regis
   assert.equal(other.review.can_edit, false);
   await assert.rejects(api.loadRoutineWeek(db, { ...query, clientId: 'client-b', board }));
   assert.ok(calls.every(({ url }) => !url.pathname.includes('start_traffic') && !url.pathname.includes('save_traffic')));
+});
+
+
+test('modo de marcação envia modo explícito e inclui antigos apenas pelo evento da semana', async () => {
+  const contacts = ['2026-11-03T12:00:00Z', '2026-10-30T12:00:00Z'].map((first_seen_at, index) => ({
+    id: `event-${index}`, cliente_id: 'client-a', first_seen_at, origin_source: 'meta_ads',
+    tracking_data: { account_id: '700', campaign_id: '10001', adset_id: '20001' },
+  }));
+  const { db } = fixture({ mode: 'agendados_na_semana', contacts, events: contacts.map(contact => ({ contact_id: contact.id, at: '2026-11-05T12:00:00Z', source: 'manual' })) });
+  const result = await api.loadRoutineLeads(db, { ...query, mode: 'agendados_na_semana' });
+  assert.deepEqual(result.leads.map(lead => lead.routineCohort), ['novo', 'antigo']);
+  assert.ok(result.leads.every(lead => lead.routineScheduleSource === 'manual'));
+});
+test('recorte mantém universo completo para detectar nomes ambíguos e valida modo antes da rede', async () => {
+  const names = { campaign_name: 'Campanha', adset_name: 'Conjunto' };
+  const contacts = [{ id: 'ambiguous', cliente_id: 'client-a', first_seen_at: '2026-11-03T12:00:00Z', origin_source: 'meta_ads', tracking_data: names }];
+  const { db, calls } = fixture({ contacts });
+  const result = await api.loadRoutineLeads(db, { ...query, rows: [{ ...row, ...names }], allRows: [{ ...row, ...names }, { ...row, ...names, account_id: '701', campaign_id: '10002', adset_id: '20002' }] });
+  assert.equal(result.leads.length, 0); assert.equal(result.unmatchedLeads.length, 1);
+  const before = calls.length;
+  await assert.rejects(api.loadRoutineLeads(db, { ...query, mode: 'invalido' }));
+  assert.equal(calls.length, before);
 });

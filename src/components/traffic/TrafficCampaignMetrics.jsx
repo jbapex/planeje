@@ -370,6 +370,6 @@ export default function TrafficCampaignMetrics({
         })}<td>{!readonly && filled.includes(r) && <button type="button" className="tw-remove-row" aria-label={`Remover linha ${i + 1}`} onClick={() => onChange(padSheetRows(rows.filter((_,n) => n !== i),defaultAccount))}>×</button>}</td></tr>;
       })}
     </tbody>{!contextOnly && <tfoot><tr><th colSpan={1 + (columns[1] ? 2 : 1)}>Total</th>{columns.slice(2).map((column) => <td key={column.key} className={column.role === 'calc' ? 'tw-calculated' : undefined}>{totalFor(column)}</td>)}<td></td></tr></tfoot>}</table></div>
-    {onInspectLeads && <div className="tw-sheet-leads"><span role="status">{selectedRows.length ? `${selectedRows.length} linha(s) selecionada(s)` : 'Selecione as linhas para consultar os leads'}</span><button type="button" disabled={!selectedRows.length} onClick={() => onInspectLeads(selectedRows, false)}>Ver leads</button><button type="button" disabled={!selectedRows.length} onClick={() => onInspectLeads(selectedRows, true)}>Ver agendamentos</button></div>}
+    {onInspectLeads && <div className="tw-sheet-leads"><span role="status">{selectedRows.length ? `${selectedRows.length} linha(s) selecionada(s)` : 'Selecione as linhas para consultar os leads'}</span><button type="button" disabled={!selectedRows.length} onClick={() => onInspectLeads(selectedRows, false, filled)}>Ver leads</button><button type="button" disabled={!selectedRows.length} onClick={() => onInspectLeads(selectedRows, true, filled)}>Ver agendamentos</button></div>}
   </div>;
 }

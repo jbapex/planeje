@@ -1,0 +1,157 @@
+{
+  "recorded_at": "2026-10-17T21:13:10-03:00",
+  "status": "revalidated-local",
+  "toolkit_revision": "de66fe371a49f5a4d3b521759e5c401f390b6424",
+  "toolkit_source": "https://github.com/soumatheusgomes/vibe-coding-toolkit/tree/de66fe371a49f5a4d3b521759e5c401f390b6424",
+  "previous_delivery": "toolkit-setup-local-2026-10-17.json",
+  "scope": "Repeat existing-project setup; reuse approved implementation; refresh evidence and documentation only.",
+  "runtime": {
+    "node": "24.22.0",
+    "npm": "12.2.0",
+    "codex_cli": "0.163.0",
+    "project_runtime_contract_changed": false
+  },
+  "check": {
+    "command": "npm run check",
+    "exit_code": 0,
+    "node": "v24.22.0",
+    "npm": "12.2.0",
+    "finished_at": "2026-10-17T21:08:10.182898-03:00",
+    "local_tests": 93,
+    "harness_tests": 4,
+    "rule_groups": 3,
+    "traffic_scripts": 2,
+    "type_diagnostics": 0,
+    "lint_errors": 0,
+    "lint_warnings": 358,
+    "typed_lint_errors": 0,
+    "typed_lint_warnings": 12,
+    "build": "passed; own temporary output removed"
+  },
+  "skills": {
+    "discovered_in_current_turn": [
+      "vercel-react-best-practices",
+      "vercel-composition-patterns",
+      "web-design-guidelines",
+      "writing-guidelines",
+      "find-skills",
+      "differential-review"
+    ],
+    "all_six_executed": false,
+    "client_restart_observed": false,
+    "upstream_heads_confirmed_by_git_ls_remote": {
+      "vercel-labs/agent-skills": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "vercel-labs/skills": "13e4063a1cf913f5606d57d42ab83a86f5001e04",
+      "trailofbits/skills": "5c99c03fb8a9ea568432ecbcba5d86e9f4ac2bf0"
+    },
+    "content_integrity": "passed npm run verify:context"
+  },
+  "context7": {
+    "library_id": "/eslint/eslint/v8.57.1",
+    "concept": "CLI warning severity and exit codes",
+    "resolve": "passed",
+    "query": "passed",
+    "source": "https://github.com/eslint/eslint/blob/v8.57.1/docs/src/use/command-line-interface.md",
+    "private_query_content": false
+  },
+  "graph": {
+    "nodes": 9718,
+    "edges": 36615,
+    "source_files_with_nodes": 1266,
+    "manifest_files": 1273,
+    "content_mismatches": [],
+    "graph_sha256": "9ba0ae14efa3d1b6349626b82d868bab05ab482a09cb2e8e6648c6f56e0f377f",
+    "query_command": "GRAPHIFY_NO_AUTO_REFRESH=1 .local/tooling/graphify/venv/bin/graphify explain check.mjs",
+    "observed_source": "scripts/toolkit/check.mjs:L1",
+    "observed_relations": [
+      "imports_from node:url",
+      "imports_from node:child_process",
+      "contains root",
+      "contains checks"
+    ],
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "extraction_rerun": false,
+    "limits": "AST code coverage only; documentation, SQL, assets and excluded paths are outside this graph."
+  },
+  "browser": {
+    "fixture": "atlas-events-preview",
+    "layouts": [
+      {
+        "width": 1280,
+        "scroll": 1280
+      },
+      {
+        "width": 390,
+        "scroll": 390
+      }
+    ],
+    "runtimeErrors": [],
+    "externalRequestsBlocked": [],
+    "privateSession": false,
+    "checks": [
+      "load synthetic client",
+      "responsive layouts",
+      "expand request and source dialog",
+      "failure state"
+    ],
+    "own_server_stopped": true,
+    "initial_readiness_failure": "urllib request without Accept returned 404; explicit Accept text/html returned 200; no product changes"
+  },
+  "audits": {
+    "root": {
+      "info": 0,
+      "low": 0,
+      "moderate": 7,
+      "high": 7,
+      "critical": 1,
+      "total": 15
+    },
+    "mcp": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "independent_review": {
+    "agent": "catalogo_toolkit",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "scope": "read-only comparison of current toolkit catalog and existing setup documentation",
+    "toolkit_revision": "de66fe371a49f5a4d3b521759e5c401f390b6424",
+    "material_coverage_gaps": [],
+    "files_changed": [],
+    "limitations": [
+      "documentary review; no integration execution, production access or full security audit"
+    ]
+  },
+  "preservation": {
+    "setup_input_files_before_doc_edit": 127,
+    "all_input_hashes_unchanged_before_doc_edit": true,
+    "dependency_files_changed": false,
+    "code_changed": false,
+    "installations_performed": false,
+    "global_configuration_changed": false
+  },
+  "changed_files": [
+    "docs/setup.md",
+    "docs/continuidade-planeje/07-PENDENCIAS-E-PROXIMOS-PASSOS.md",
+    "docs/continuidade-planeje/evidencias/releases/toolkit-revalidation-local-2026-10-17.json"
+  ],
+  "private_logs": ".local/toolkit-setup/2026-10-17/revalidation/",
+  "not_validated": [
+    "full client restart",
+    "all six skills executing live workflows",
+    "complete DB/API suite and production OAuth/HTTP/RLS",
+    "complete product security audit",
+    "other operating systems",
+    "product user acceptance"
+  ],
+  "remaining_actions": [
+    "reproduce and fix legacy no-undef/hooks and typed callback warnings in bounded tasks",
+    "review root dependency vulnerabilities and propose incompatible migrations separately"
+  ]
+}
