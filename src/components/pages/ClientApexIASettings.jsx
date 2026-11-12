@@ -606,7 +606,7 @@ const ClientApexIASettings = () => {
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
+        <div className="super-admin-embedded-hide">
           <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
             <Bot className="h-6 w-6" />
             Config. ApexIA Clientes

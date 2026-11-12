@@ -2,12 +2,25 @@
 <html lang="pt-BR">
 	<head>
 		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/vite.svg" />
-		<meta name="generator" content="JB APEX" />
+		<link rel="icon" type="image/png" href="/brand/icon-256.png" />
+		<link rel="apple-touch-icon" href="/brand/icon-512.png" />
+		<meta name="generator" content="Planeje" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 		<link rel="manifest" href="/manifest.json">
-		<meta name="theme-color" content="#8B5CF6">
-		<title>JB APEX - Sistema de Gestão Inteligente</title>
+		<meta name="theme-color" content="#9333ea">
+		<title>Planeje — Gestão inteligente</title>
+		<script>
+			(function () {
+				if (!('serviceWorker' in navigator)) return;
+				navigator.serviceWorker.getRegistrations().then(function (regs) {
+					regs.forEach(function (reg) { reg.unregister(); });
+				});
+				if (typeof caches === 'undefined') return;
+				caches.keys().then(function (keys) {
+					keys.forEach(function (key) { caches.delete(key); });
+				});
+			})();
+		</script>
 	</head>
 	<body>
 		<div id="root"></div>

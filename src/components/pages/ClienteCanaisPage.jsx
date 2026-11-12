@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
@@ -8,16 +8,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio, UserPlus, Send, XCircle } from 'lucide-react';
+import { MessageCircle, Loader2, QrCode, Phone, User, Link2, Copy, Activity, CheckCircle2, Clock, Radio, UserPlus, Send, XCircle, Headphones, ChevronRight, Settings2, Plug, Pencil, ArrowLeft } from 'lucide-react';
+import MetaConversionsChannelSettings from '@/components/crm/MetaConversionsChannelSettings';
+import ClienteMetaCtwaSettings from '@/components/crm/ClienteMetaCtwaSettings';
+import ClienteGoogleDriveSettings from '@/components/crm/ClienteGoogleDriveSettings';
+import ClienteIngressWebhookSettings from '@/components/crm/ClienteIngressWebhookSettings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase, supabaseUrl } from '@/lib/customSupabaseClient';
 import { extractPhoneAndNameFromRawPayload, getFromJidFromRawPayload, buildContactTrackingFromRawPayload, getProfilePicFromRawPayload } from '@/lib/contactFromWebhookPayload';
+import { buildConversasUrl } from '@/lib/conversasRoutes';
+import { configureUazapiWebhook } from '@/lib/uazapiWebhookConfig';
+import { ATENDIMENTO_STATUS } from '@/hooks/useAtendimentoConversations';
 
 const QR_REFRESH_SECONDS = 45;
+
+const uazapiFetch = (url, options = {}) =>
+  fetch(url, { cache: 'no-store', ...options, headers: { ...(options.headers || {}) } });
 
 function formatLastEventAgo(dateStr) {
   if (!dateStr) return '';
@@ -27,22 +38,91 @@ function formatLastEventAgo(dateStr) {
   return `há ${Math.floor(sec / 3600)} h`;
 }
 
+function normalizeBrazilWhatsAppDigits(digits) {
+  if (!digits) return null;
+  const d = String(digits).replace(/\D/g, '');
+  if (!d.startsWith('55')) return d.length >= 10 && d.length <= 15 ? d : null;
+
+  if (d.length === 12 && /^55\d{2}\d{8}$/.test(d)) return d;
+  if (d.length === 13 && /^55\d{2}9\d{8}$/.test(d)) return d;
+
+  // uazapi/WhatsApp às vezes concatena sufixo extra (ex.: 55419525255962 → 554195252559)
+  if (d.length > 13) {
+    const try13 = d.slice(0, 13);
+    if (/^55\d{2}9\d{8}$/.test(try13)) return try13;
+    const try12 = d.slice(0, 12);
+    if (/^55\d{2}\d{8}$/.test(try12)) return try12;
+  }
+
+  return d.length >= 10 && d.length <= 15 ? d : null;
+}
+
+function extractPhoneFromJidValue(jid) {
+  if (jid == null) return null;
+  if (typeof jid === 'string') {
+    const s = jid.trim();
+    if (!s || s === '[object Object]') return null;
+    const userPart = s.split('@')[0].split(':')[0];
+    const digits = userPart.replace(/\D/g, '');
+    return normalizeBrazilWhatsAppDigits(digits) || (digits.length >= 10 ? digits : null);
+  }
+  if (typeof jid === 'object') {
+    const user = jid.user ?? jid.phone ?? jid.number;
+    if (user != null) {
+      const digits = String(user).replace(/\D/g, '');
+      return normalizeBrazilWhatsAppDigits(digits) || (digits.length >= 10 ? digits : null);
+    }
+  }
+  return null;
+}
+
+function configFingerprint(cfg) {
+  if (!cfg?.id) return '';
+  return `${cfg.id}|${(cfg.subdomain || '').trim()}|${(cfg.token || '').trim()}|${cfg.updated_at || ''}`;
+}
+
+function withChannelMeta(cfg, channel) {
+  if (!channel) return null;
+  return { ...channel, fetchedAt: Date.now(), fingerprint: configFingerprint(cfg) };
+}
+
 function parseChannelData(data) {
   if (!data) return null;
-  const connected = data.connected === true || data.status?.loggedIn === true || data.instance?.status === 'connected';
+  const connected =
+    data.connected === true ||
+    data.status?.loggedIn === true ||
+    data.status?.connected === true ||
+    data.instance?.status === 'connected';
   if (!connected) return null;
-  const jid = data.jid ?? data.instance?.jid ?? data.status?.jid;
-  const number = jid ? String(jid).replace(/@.*$/, '').trim() || null : null;
+
+  const jidRaw = data.status?.jid ?? data.instance?.jid ?? data.jid;
+  let number =
+    extractPhoneFromJidValue(jidRaw) ||
+    normalizeBrazilWhatsAppDigits(String(data.instance?.phone || '').replace(/\D/g, ''));
+
   const profileName = data.instance?.profileName ?? data.profileName ?? data.profile?.name ?? '';
   const profilePicUrl = data.instance?.profilePicUrl ?? data.profilePicUrl ?? data.profile?.pic ?? '';
   const instanceName = data.instance?.name ?? data.instanceName ?? '';
-  return { number, profileName: profileName || null, profilePicUrl: profilePicUrl || null, instanceName: instanceName || null };
+  const instanceId = data.instance?.id ?? null;
+
+  return {
+    number,
+    profileName: profileName || null,
+    profilePicUrl: profilePicUrl || null,
+    instanceName: instanceName || null,
+    instanceId: instanceId || null,
+  };
 }
 
 function formatPhoneDisplay(num) {
   if (!num) return '';
   const s = String(num).replace(/\D/g, '');
-  if (s.length === 13 && s.startsWith('55')) return `+55 (${s.slice(2, 4)}) ${s.slice(4, 9)}-${s.slice(9)}`;
+  if (s.length === 13 && s.startsWith('55') && /^55\d{2}9\d{8}$/.test(s)) {
+    return `+55 (${s.slice(2, 4)}) ${s.slice(4, 5)} ${s.slice(5, 9)}-${s.slice(9)}`;
+  }
+  if (s.length === 12 && s.startsWith('55') && /^55\d{2}\d{8}$/.test(s)) {
+    return `+55 (${s.slice(2, 4)}) ${s.slice(4, 8)}-${s.slice(8)}`;
+  }
   if (s.length >= 10) return `+${s}`;
   return num;
 }
@@ -52,9 +132,10 @@ const getRoutePrefix = (profile) => {
   return '/client-area';
 };
 
-const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
+const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm, embeddedInConversas, embeddedInMiniCrm, lockedClienteId, canConfigureCsGroups = false }) => {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const { search } = useLocation();
   const prefix = getRoutePrefix(profile);
   const {
     effectiveClienteId,
@@ -62,6 +143,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     configs,
     loading,
     isAdminWithoutCliente,
+    conversasAccessMissing,
     selectedClienteId,
     setSelectedClienteId,
     clientesForAdmin,
@@ -70,15 +152,31 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     setUseSse,
     addConfig,
     deleteConfig,
-  } = useClienteWhatsAppConfig();
+    fetchConfig,
+    saveConfig,
+  } = useClienteWhatsAppConfig({ forConversas: !!embeddedInConversas, lockedClienteId: lockedClienteId || null });
+
+  const duplicateTokenConfigIds = useMemo(() => {
+    const byToken = new Map();
+    (configs || []).forEach((c) => {
+      const t = c.token?.trim();
+      if (!t) return;
+      if (!byToken.has(t)) byToken.set(t, []);
+      byToken.get(t).push(c.id);
+    });
+    const dup = new Set();
+    byToken.forEach((ids) => { if (ids.length > 1) ids.forEach((id) => dup.add(id)); });
+    return dup;
+  }, [configs]);
 
   const [channelDataByConfigId, setChannelDataByConfigId] = useState({});
   const [connectResponseByConfigId, setConnectResponseByConfigId] = useState({});
   const [qrImageSrcByConfigId, setQrImageSrcByConfigId] = useState({});
   const [connectingConfigId, setConnectingConfigId] = useState(null);
   const [pullingConfigId, setPullingConfigId] = useState(null);
+  const [disconnectingConfigId, setDisconnectingConfigId] = useState(null);
   const [webhookTesting, setWebhookTesting] = useState(false);
-  const [webhookConfiguring, setWebhookConfiguring] = useState(false);
+  const [webhookConfiguringConfigId, setWebhookConfiguringConfigId] = useState(null);
   const [uazapiWebhookLogs, setUazapiWebhookLogs] = useState([]);
   const [apicebotWebhookLogs, setApicebotWebhookLogs] = useState([]);
   const [uazapiLogsLoadingMore, setUazapiLogsLoadingMore] = useState(false);
@@ -95,6 +193,12 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
   const [addChannelSubdomain, setAddChannelSubdomain] = useState('');
   const [addChannelToken, setAddChannelToken] = useState('');
   const [addChannelSaving, setAddChannelSaving] = useState(false);
+  const [editChannelOpen, setEditChannelOpen] = useState(false);
+  const [editChannelCfg, setEditChannelCfg] = useState(null);
+  const [editChannelName, setEditChannelName] = useState('');
+  const [editChannelSubdomain, setEditChannelSubdomain] = useState('');
+  const [editChannelToken, setEditChannelToken] = useState('');
+  const [editChannelSaving, setEditChannelSaving] = useState(false);
   const [crmApiceForwardUrl, setCrmApiceForwardUrl] = useState('');
   const [crmApiceForwardEnabled, setCrmApiceForwardEnabled] = useState(false);
   const [crmApiceForwardLoading, setCrmApiceForwardLoading] = useState(false);
@@ -103,8 +207,12 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
   const [crmApiceStatusSecretSaving, setCrmApiceStatusSecretSaving] = useState(false);
   const [sendToCrmResultByLogId, setSendToCrmResultByLogId] = useState({});
   const [sendToCrmLoadingLogId, setSendToCrmLoadingLogId] = useState(null);
+  const [canaisTab, setCanaisTab] = useState(() =>
+    embeddedInConversas && new URLSearchParams(search).get('aba') === 'webhook' ? 'webhook' : 'conectar');
+  const configuringWebhookRef = useRef(false);
   const qrRefreshIntervalRef = useRef(null);
   const qrRefreshConfigIdRef = useRef(null);
+  const statusFetchGenRef = useRef({});
   const sseRef = useRef(null);
   const sseFirstEventToastRef = useRef(false);
 
@@ -155,7 +263,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
   }, [effectiveClienteId]);
 
   useEffect(() => {
-    if (!effectiveClienteId) return;
+    if (!effectiveClienteId || embeddedInMiniCrm) return;
     fetchWebhookLogs();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') fetchWebhookLogs();
@@ -181,10 +289,10 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       supabase.removeChannel(channel);
     };
-  }, [effectiveClienteId, fetchWebhookLogs]);
+  }, [effectiveClienteId, fetchWebhookLogs, embeddedInMiniCrm]);
 
   useEffect(() => {
-    if (!effectiveClienteId) {
+    if (!effectiveClienteId || embeddedInMiniCrm) {
       setCrmApiceForwardUrl('');
       setCrmApiceForwardEnabled(false);
       return;
@@ -207,7 +315,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
         }
       })
       .finally(() => setCrmApiceForwardLoading(false));
-  }, [effectiveClienteId]);
+  }, [effectiveClienteId, embeddedInMiniCrm]);
 
   const crmApiceStatusWebhookUrl = `${supabaseUrl}/functions/v1/crm-apice-contact-status-webhook`;
 
@@ -485,45 +593,98 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     };
   }, [config?.use_sse, config?.subdomain, config?.token, effectiveClienteId]);
 
-  useEffect(() => {
-    if (!configs?.length) return;
-    let cancelled = false;
-    configs.forEach((cfg) => {
-      if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return;
-      const baseUrl = `https://${cfg.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
-      (async () => {
-        try {
-          const res = await fetch(`${baseUrl}/instance/status`, {
-            method: 'GET',
-            headers: { token: cfg.token.trim() },
-          });
-          if (cancelled) return;
-          const data = await res.json().catch(() => ({}));
-          const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
-          if (channel?.number || channel?.profileName) {
-            setChannelDataByConfigId((prev) => ({ ...prev, [cfg.id]: channel }));
-          }
-        } catch {
-          // ignore
-        }
-      })();
-    });
-    return () => { cancelled = true; };
-  }, [configs]);
+  const configCredentialsKey = useMemo(
+    () => (configs || []).map((c) => configFingerprint(c)).join(';;'),
+    [configs]
+  );
 
-  const getBaseUrlForConfig = (cfg) => {
+  const getBaseUrlForConfig = useCallback((cfg) => {
     if (!cfg?.subdomain?.trim()) return '';
     return `https://${cfg.subdomain.trim().replace(/^https?:\/\//, '').split('/')[0].replace(/\.uazapi\.com$/i, '')}.uazapi.com`;
+  }, []);
+
+  const refreshChannelStatus = useCallback(async (cfg, { silent = false } = {}) => {
+    const cid = cfg?.id;
+    if (!cid) return null;
+    const fp = configFingerprint(cfg);
+    const nextGen = (statusFetchGenRef.current[cid] || 0) + 1;
+    statusFetchGenRef.current[cid] = nextGen;
+
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
+      setChannelDataByConfigId((prev) => {
+        if (!prev[cid]) return prev;
+        const next = { ...prev };
+        delete next[cid];
+        return next;
+      });
+      return null;
+    }
+
+    const baseUrl = getBaseUrlForConfig(cfg);
+    try {
+      const res = await uazapiFetch(`${baseUrl}/instance/status?_=${Date.now()}`, {
+        method: 'GET',
+        headers: { token: cfg.token.trim() },
+      });
+      if (statusFetchGenRef.current[cid] !== nextGen) return null;
+
+      const data = await res.json().catch(() => ({}));
+      const channel = parseChannelData(data);
+
+      setChannelDataByConfigId((prev) => {
+        const next = { ...prev };
+        if (channel?.number || channel?.profileName || channel?.instanceName) {
+          next[cid] = { ...channel, fetchedAt: Date.now(), fingerprint: fp };
+        } else {
+          delete next[cid];
+        }
+        return next;
+      });
+
+      if (!silent) return { channel, data, res };
+      return channel;
+    } catch {
+      if (statusFetchGenRef.current[cid] !== nextGen) return null;
+      return null;
+    }
+  }, [getBaseUrlForConfig]);
+
+  useEffect(() => {
+    if (!configs?.length) {
+      setChannelDataByConfigId({});
+      return;
+    }
+    const validIds = new Set(configs.map((c) => c.id));
+    setChannelDataByConfigId((prev) => {
+      const next = {};
+      for (const [id, data] of Object.entries(prev)) {
+        if (!validIds.has(id)) continue;
+        const cfg = configs.find((c) => c.id === id);
+        if (cfg && data?.fingerprint === configFingerprint(cfg)) next[id] = data;
+      }
+      return next;
+    });
+    configs.forEach((cfg) => {
+      refreshChannelStatus(cfg, { silent: true });
+    });
+  }, [configCredentialsKey, configs, refreshChannelStatus]);
+
+  const openEditChannel = (cfg) => {
+    setEditChannelCfg(cfg);
+    setEditChannelName(cfg.name?.trim() || '');
+    setEditChannelSubdomain(cfg.subdomain?.trim() || '');
+    setEditChannelToken(cfg.token?.trim() || '');
+    setEditChannelOpen(true);
   };
 
-  const getWebhookUrlForConfig = (cfg) => {
+  const getWebhookUrlForConfig = useCallback((cfg) => {
     if (!effectiveClienteId || !cfg?.webhook_secret) return '';
     const q = new URLSearchParams({
       cliente_id: effectiveClienteId,
       secret: cfg.webhook_secret,
     });
     return `${supabaseUrl}/functions/v1/uazapi-inbox-webhook?${q.toString()}`;
-  };
+  }, [effectiveClienteId]);
 
   const fetchConnect = useCallback(async (cfg, isInitial = true) => {
     if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return null;
@@ -538,7 +699,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     }
     try {
       if (isInitial) updateInstanceStatus('connecting', cid);
-      const res = await fetch(url, {
+      const res = await uazapiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', token: cfg.token.trim() },
         body: '{}',
@@ -548,7 +709,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
       setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: payload }));
       const channel = parseChannelData(payload);
       if (channel) {
-        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
+        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: withChannelMeta(cfg, channel) }));
         setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
       } else {
         parseAndSetQr(data, (qr) => setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: qr })));
@@ -571,63 +732,83 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
 
   const fetchStatusOnly = useCallback(async (cfg) => {
     if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return;
-    const baseUrl = getBaseUrlForConfig(cfg);
     const cid = cfg.id;
     setPullingConfigId(cid);
     try {
-      const res = await fetch(`${baseUrl}/instance/status`, {
-        method: 'GET',
-        headers: { token: cfg.token.trim() },
-      });
-      const data = await res.json().catch(() => ({}));
-      const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
-      if (channel?.number || channel?.profileName) {
-        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
+      const result = await refreshChannelStatus(cfg, { silent: false });
+      if (result?.channel?.number || result?.channel?.profileName) {
         setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
-        setConnectResponseByConfigId((prev) => (prev[cid] ? { ...prev, [cid]: { ...prev[cid], ...data } } : { ...prev, [cid]: { status: res.status, ok: res.ok, ...data } }));
-        toast({ title: 'Canal atualizado', description: 'Dados da instância foram atualizados.' });
+        setConnectResponseByConfigId((prev) => (
+          prev[cid]
+            ? { ...prev, [cid]: { ...prev[cid], ...result.data } }
+            : { ...prev, [cid]: { status: result.res.status, ok: result.res.ok, ...result.data } }
+        ));
+        toast({
+          title: 'Canal atualizado',
+          description: result.channel.number
+            ? formatPhoneDisplay(result.channel.number)
+            : 'Dados da instância atualizados.',
+        });
       } else {
-        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: null }));
-        toast({ title: 'Canal não conectado', description: 'Conecte o WhatsApp para ver os dados da instância.', variant: 'destructive' });
+        toast({
+          title: 'Canal não conectado',
+          description: 'Este token não tem WhatsApp conectado na uazapi. Gere QR ou confira o token.',
+          variant: 'destructive',
+        });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Erro ao puxar canal', description: 'Não foi possível obter o status da instância.' });
     } finally {
       setPullingConfigId(null);
     }
-  }, [toast]);
+  }, [refreshChannelStatus, toast]);
 
-  const handleConnectWhatsAppWithStatusFirst = useCallback(async (cfg) => {
-    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
-      toast({ variant: 'destructive', title: 'Configure a API', description: 'Subdomínio e token são obrigatórios.' });
-      return;
-    }
-    const baseUrl = getBaseUrlForConfig(cfg);
+  const handleDisconnectWhatsApp = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) return;
+    const canalLabel = cfg.name?.trim() || 'este canal';
+    if (!window.confirm(
+      `Desconectar o WhatsApp de "${canalLabel}"?\n\nA sessão na uazapi será encerrada. Depois escaneie o QR com o aparelho que você quer usar.`
+    )) return;
+
     const cid = cfg.id;
-    setConnectingConfigId(cid);
-    setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: null }));
-    setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+    const baseUrl = getBaseUrlForConfig(cfg);
+    setDisconnectingConfigId(cid);
+    statusFetchGenRef.current[cid] = (statusFetchGenRef.current[cid] || 0) + 1;
+
     try {
-      const res = await fetch(`${baseUrl}/instance/status`, {
-        method: 'GET',
-        headers: { token: cfg.token.trim() },
+      const res = await uazapiFetch(`${baseUrl}/instance/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', token: cfg.token.trim() },
+        body: '{}',
       });
       const data = await res.json().catch(() => ({}));
-      const channel = parseChannelData({ ...data, connected: data?.instance?.status === 'connected' || data?.loggedIn });
-      if (channel?.number || channel?.profileName) {
-        setChannelDataByConfigId((prev) => ({ ...prev, [cid]: channel }));
-        setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: { status: res.status, ok: res.ok, ...data } }));
-        updateInstanceStatus('connected', cid);
-        toast({ title: 'Canal já conectado', description: 'A instância está vinculada. Dados exibidos acima.' });
-        setConnectingConfigId(null);
-        return;
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
       }
-    } catch {
-      // fall through to connect
+
+      setChannelDataByConfigId((prev) => {
+        const next = { ...prev };
+        delete next[cid];
+        return next;
+      });
+      setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+      setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: null }));
+      await updateInstanceStatus('disconnected', cid);
+
+      toast({
+        title: 'WhatsApp desconectado',
+        description: 'Clique em "Gerar QR Code" e escaneie com o número desejado.',
+      });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao desconectar',
+        description: err.message || 'Não foi possível desconectar na uazapi.',
+      });
+    } finally {
+      setDisconnectingConfigId(null);
     }
-    await handleConnectWhatsApp(cfg);
-    setConnectingConfigId(null);
-  }, [toast, updateInstanceStatus]);
+  }, [getBaseUrlForConfig, toast, updateInstanceStatus]);
 
   const handleConnectWhatsApp = useCallback(async (cfg) => {
     if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
@@ -659,7 +840,7 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
           }
           const channel = parseChannelData(nextData);
           if (channel) {
-            setChannelDataByConfigId((prev) => ({ ...prev, [currentCfg.id]: channel }));
+            setChannelDataByConfigId((prev) => ({ ...prev, [currentCfg.id]: withChannelMeta(currentCfg, channel) }));
             setQrImageSrcByConfigId((prev) => ({ ...prev, [currentCfg.id]: null }));
             setConnectResponseByConfigId((prev) => (prev[currentCfg.id] ? { ...prev, [currentCfg.id]: { ...prev[currentCfg.id], ...nextData } } : prev));
           }
@@ -671,43 +852,74 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     }
   }, [configs, fetchConnect, toast]);
 
-  const setWebhookInUazapi = useCallback(async (cfg) => {
-    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim() || !cfg?.webhook_secret || !effectiveClienteId) return;
-    const baseUrl = getBaseUrlForConfig(cfg);
-    const webhookUrl = getWebhookUrlForConfig(cfg);
-    setWebhookConfiguring(true);
-    const endpoints = [
-      { method: 'POST', path: '/webhook', body: { url: webhookUrl, events: ['messages'], excludeMessages: ['wasSentByApi'] } },
-      { method: 'POST', path: '/webhook', body: { webhookUrl, events: ['messages'] } },
-      { method: 'PUT', path: '/webhook', body: { url: webhookUrl, enabled: true } },
-      { method: 'POST', path: '/instance/webhook', body: { url: webhookUrl } },
-    ];
-    let lastError = null;
-    for (const ep of endpoints) {
-      try {
-        const res = await fetch(`${baseUrl}${ep.path}`, {
-          method: ep.method,
-          headers: { 'Content-Type': 'application/json', token: cfg.token.trim() },
-          body: JSON.stringify(ep.body),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          toast({ title: 'Webhook configurado na uazapi', description: 'A instância deve passar a enviar eventos. Envie uma mensagem de teste.' });
-          setWebhookConfiguring(false);
-          return;
-        }
-        lastError = data?.message || data?.error || `HTTP ${res.status}`;
-      } catch (e) {
-        lastError = e.message;
-      }
+  const handleConnectWhatsAppWithStatusFirst = useCallback(async (cfg) => {
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
+      toast({ variant: 'destructive', title: 'Configure a API', description: 'Subdomínio e token são obrigatórios.' });
+      return;
     }
-    toast({
-      variant: 'destructive',
-      title: 'Não foi possível configurar pela API',
-      description: 'Copie a URL acima e configure manualmente no painel uazapi (Webhooks e SSE). Último erro: ' + (lastError || 'desconhecido'),
-    });
-    setWebhookConfiguring(false);
-  }, [effectiveClienteId, toast]);
+    const cid = cfg.id;
+    setConnectingConfigId(cid);
+    setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: null }));
+    setQrImageSrcByConfigId((prev) => ({ ...prev, [cid]: null }));
+    try {
+      const channel = await refreshChannelStatus(cfg, { silent: true });
+      if (channel?.number || channel?.profileName) {
+        const baseUrl = getBaseUrlForConfig(cfg);
+        setConnectResponseByConfigId((prev) => ({ ...prev, [cid]: { ok: true, url: `${baseUrl}/instance/status` } }));
+        updateInstanceStatus('connected', cid);
+        toast({ title: 'Canal já conectado', description: channel.number ? formatPhoneDisplay(channel.number) : 'Instância vinculada.' });
+        setConnectingConfigId(null);
+        return;
+      }
+    } catch {
+      // fall through to connect
+    }
+    await handleConnectWhatsApp(cfg);
+    setConnectingConfigId(null);
+  }, [toast, updateInstanceStatus, getBaseUrlForConfig, refreshChannelStatus, handleConnectWhatsApp]);
+
+  const handleSetupWebhook = useCallback(async (cfg, groups = false) => {
+    if (configuringWebhookRef.current || (groups && !canConfigureCsGroups)) return;
+    if (!cfg?.subdomain?.trim() || !cfg?.token?.trim()) {
+      toast({ variant: 'destructive', title: 'Canal incompleto', description: 'Configure subdomínio e token antes.' });
+      return;
+    }
+    if (!effectiveClienteId || cfg.cliente_id !== effectiveClienteId || cfg.archived_at || duplicateTokenConfigIds.has(cfg.id)) {
+      toast({ variant: 'destructive', title: 'Canal indisponível', description: 'Confira a operação e se o token pertence a um único canal.' });
+      return;
+    }
+    if (groups && (cfg.provider !== 'uazapi' || !cfg.webhook_secret)) return;
+    configuringWebhookRef.current = true;
+    setWebhookConfiguringConfigId(cfg.id);
+    try {
+      let workingCfg = cfg;
+      if (!workingCfg.webhook_secret) {
+        const secret = await generateWebhookSecret(cfg.id);
+        if (!secret) return;
+        workingCfg = { ...workingCfg, webhook_secret: secret };
+      }
+      await configureUazapiWebhook(uazapiFetch, { baseUrl: getBaseUrlForConfig(workingCfg), token: workingCfg.token.trim(),
+        webhookUrl: getWebhookUrlForConfig(workingCfg), groups });
+      toast(groups
+        ? { title: 'Eventos de grupo ativos', description: 'O CS pode registrar novas saídas nos grupos vinculados a este canal.' }
+        : { title: 'Recebimento ligado', description: 'O webhook foi confirmado na Uazapi. Mensagens novas devem aparecer em Conversas.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Não foi possível configurar na Uazapi', description: error.message });
+    } finally {
+      configuringWebhookRef.current = false;
+      setWebhookConfiguringConfigId(null);
+    }
+  }, [canConfigureCsGroups, duplicateTokenConfigIds, effectiveClienteId, generateWebhookSecret, getBaseUrlForConfig, getWebhookUrlForConfig, toast]);
+
+  if (conversasAccessMissing) {
+    return (
+      <div className="p-4 md:p-6 max-w-6xl mx-auto">
+        <p className="text-sm text-muted-foreground">
+          Seu usuário ainda não tem acesso ao atendimento. Peça ao superadmin para vincular você nas filas e canais da operação.
+        </p>
+      </div>
+    );
+  }
 
   if (!effectiveClienteId && !isAdminWithoutCliente) {
     return (
@@ -725,27 +937,98 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
     );
   }
 
+  const conversasInboxPath = buildConversasUrl({ statusTab: ATENDIMENTO_STATUS.EM_ATENDIMENTO });
+
   return (
     <>
-      {!embeddedInCrm && <Helmet title="Canais - WhatsApp" />}
-      <div className={`space-y-6 ${!embeddedInCrm ? 'p-4 md:p-6 max-w-2xl mx-auto' : ''}`}>
-        {!embeddedInCrm && (
+      {!embeddedInCrm && !embeddedInConversas && !embeddedInMiniCrm && <Helmet title="Canais - WhatsApp" />}
+      <div className={`space-y-5 w-full ${embeddedInMiniCrm ? '' : embeddedInCrm || embeddedInConversas ? 'px-4 md:px-6 pt-4 pb-6 max-w-6xl mx-auto' : 'p-4 md:p-6 max-w-6xl mx-auto'}`}>
+        {embeddedInConversas && (
+          <Button variant="ghost" size="sm" className="mb-1 -ml-2 h-8" asChild>
+            <Link to={conversasInboxPath}>
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Voltar para Conversas
+            </Link>
+          </Button>
+        )}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Canais</h1>
-            <p className="text-sm text-muted-foreground">
-              Conecte mais de uma API (uazapi) para rodar vários canais WhatsApp. Adicione um canal e configure subdomínio e token.
+            <h1 className="text-xl font-semibold flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl jb-gradient-bg text-white shadow-sm">
+                <MessageCircle className="h-4 w-4" />
+              </span>
+              {embeddedInConversas ? 'Conectar números WhatsApp' : 'Canais WhatsApp'}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+              {embeddedInMiniCrm
+                ? 'Conecte o WhatsApp da loja com o QR Code. As conversas passam a entrar no Mini CRM.'
+                : embeddedInConversas
+                ? 'Adicione canais uazapi e escaneie o QR Code com o celular de cada número. As mensagens passam a aparecer em Conversas.'
+                : (
+                  <>
+                    Conecte suas instâncias uazapi. Depois configure o webhook para as mensagens chegarem no{' '}
+                    <strong>Atendimento</strong>.
+                  </>
+                )}
             </p>
           </div>
-        )}
-        {embeddedInCrm && (
-          <p className="text-sm text-muted-foreground">Conecte mais de uma API para rodar vários canais. Adicione um canal abaixo.</p>
+          {embeddedInCrm && !embeddedInMiniCrm && (
+            <Button variant="outline" size="sm" className="shrink-0" asChild>
+              <Link to="/crm/atendimento">
+                <Headphones className="h-4 w-4 mr-2" />
+                Ir para Atendimento
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Link>
+            </Button>
+          )}
+          {embeddedInConversas && (
+            <Button variant="outline" size="sm" className="shrink-0 sm:hidden" asChild>
+              <Link to={conversasInboxPath}>Ir para Conversas</Link>
+            </Button>
+          )}
+        </div>
+
+        {!embeddedInMiniCrm && (
+          <ol className="grid list-none gap-3 sm:grid-cols-3">
+            <li className="flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-sm">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl jb-gradient-bg text-white shadow-sm">
+                <QrCode className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">1. Conectar</span>
+                <span className="block text-xs text-muted-foreground leading-snug">Escaneie o QR Code no celular.</span>
+              </span>
+            </li>
+            <li className="flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-sm">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl jb-gradient-bg text-white shadow-sm">
+                <Link2 className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">2. Receber</span>
+                <span className="block text-xs text-muted-foreground leading-snug">Ligue o recebimento no número conectado.</span>
+              </span>
+            </li>
+            <li className="flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-sm">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl jb-gradient-bg text-white shadow-sm">
+                <Headphones className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">3. Atender</span>
+                <span className="block text-xs text-muted-foreground leading-snug">
+                  Responda em <Link to={embeddedInConversas ? conversasInboxPath : '/crm/atendimento'} className="text-primary underline-offset-2 hover:underline">Conversas</Link>.
+                </span>
+              </span>
+            </li>
+          </ol>
         )}
 
-        {isAdminWithoutCliente && (
+        {isAdminWithoutCliente && !embeddedInMiniCrm && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Cliente</CardTitle>
-              <CardDescription>Selecione o cliente</CardDescription>
+              <CardTitle className="text-base">{embeddedInConversas ? 'Operação' : 'Cliente'}</CardTitle>
+              <CardDescription>
+                {embeddedInConversas ? 'Operação com atendimento WhatsApp configurado' : 'Selecione o cliente CRM'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Select value={selectedClienteId || ''} onValueChange={(v) => setSelectedClienteId(v || null)}>
@@ -764,408 +1047,514 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
           </Card>
         )}
 
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-muted/30">
-            <h2 className="text-base font-semibold flex items-center gap-2">
-              <MessageCircle className="h-4 w-4" />
-              Canais
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Conecte e gerencie suas APIs WhatsApp (uazapi). Cada canal pode ter sua própria instância.</p>
-          </div>
-          <div className="p-4 space-y-6">
-        {loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground py-4">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Carregando…
-          </div>
-        ) : configs.length === 0 ? (
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground mb-4">Nenhum canal ainda. Adicione uma API (uazapi) com subdomínio e token para conectar um canal WhatsApp.</p>
-            <Button onClick={() => setAddChannelOpen(true)}>
-              Adicionar canal
-            </Button>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {configs.map((cfg, idx) => {
-              const channelDataC = channelDataByConfigId[cfg.id];
-              const connectResponseC = connectResponseByConfigId[cfg.id];
-              const qrImageSrcC = qrImageSrcByConfigId[cfg.id];
-              const connecting = connectingConfigId === cfg.id;
-              const pulling = pullingConfigId === cfg.id;
-              const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
-              const isConnected = channelDataC && (channelDataC.number || channelDataC.profileName || channelDataC.instanceName);
-              return (
-                <Card key={cfg.id} className="flex flex-col">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-2 text-base truncate">
-                        <MessageCircle className="h-5 w-5 shrink-0" />
-                        <span className="truncate">{canalLabel}</span>
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        API uazapi
-                      </CardDescription>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive shrink-0"
-                      onClick={async () => {
-                        if (window.confirm(`Remover o canal "${canalLabel}"? Esta ação não pode ser desfeita.`)) await deleteConfig(cfg.id);
-                      }}
-                    >
-                      Remover
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-3 flex-1 flex flex-col min-h-0">
-                    {!isConnected && (
-                      <>
-                        <Alert className="bg-muted/50 border-muted-foreground/20 py-2">
-                          <AlertDescription className="text-xs">
-                            Se aparecer &quot;impossível conectar&quot; no celular, é limitação do WhatsApp. Tente em algumas horas ou desvincile um dispositivo.
-                          </AlertDescription>
-                        </Alert>
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm" onClick={() => handleConnectWhatsAppWithStatusFirst(cfg)} disabled={connecting}>
-                            {connecting ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Conectando…</> : 'Conectar WhatsApp'}
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || connecting}>
-                            {pulling ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> …</> : 'Puxar canal'}
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                    {isConnected && (
-                      <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-2">
-                        <Avatar className="h-10 w-10 shrink-0">
-                          <AvatarImage src={channelDataC.profilePicUrl || undefined} alt={channelDataC.profileName || ''} />
-                          <AvatarFallback className="text-xs">
-                            {channelDataC.profileName ? channelDataC.profileName.charAt(0).toUpperCase() : channelDataC.number ? channelDataC.number.slice(-2) : '?'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                          {channelDataC.number && (
-                            <div className="flex items-center gap-1.5 text-sm">
-                              <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <span className="font-medium truncate">{formatPhoneDisplay(channelDataC.number)}</span>
+        <Tabs value={embeddedInMiniCrm ? 'conectar' : canaisTab} onValueChange={embeddedInMiniCrm ? undefined : setCanaisTab} className="w-full">
+          {!embeddedInMiniCrm && (
+            <TabsList className="grid w-full grid-cols-3 h-auto">
+              <TabsTrigger value="conectar" className="text-xs sm:text-sm py-2.5 gap-1.5">
+                <Plug className="h-4 w-4 shrink-0" />
+                Conectar
+              </TabsTrigger>
+              <TabsTrigger value="webhook" className="text-xs sm:text-sm py-2.5 gap-1.5">
+                <Link2 className="h-4 w-4 shrink-0" />
+                Receber msgs
+              </TabsTrigger>
+              <TabsTrigger value="integracoes" className="text-xs sm:text-sm py-2.5 gap-1.5">
+                <Settings2 className="h-4 w-4 shrink-0" />
+                Integrações
+              </TabsTrigger>
+            </TabsList>
+          )}
+
+          <TabsContent value="conectar" className={`${embeddedInMiniCrm ? 'mt-0' : 'mt-4'} space-y-4`}>
+            {loading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando canais…
+              </div>
+            ) : configs.length === 0 ? (
+              <Card>
+                <CardContent className="pt-6 text-center space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {embeddedInMiniCrm
+                      ? 'Nenhum WhatsApp ainda. Informe a URL da instância para conectar.'
+                      : 'Nenhum canal ainda. Adicione subdomínio e token da uazapi.'}
+                  </p>
+                  <Button onClick={() => setAddChannelOpen(true)}>
+                    {embeddedInMiniCrm ? 'Conectar WhatsApp' : 'Adicionar canal'}
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="grid gap-4 grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))]">
+                  {(embeddedInMiniCrm ? configs.slice(0, 1) : configs).map((cfg, idx) => {
+                    const rawChannel = channelDataByConfigId[cfg.id];
+                    const fp = configFingerprint(cfg);
+                    const channelDataC = rawChannel?.fingerprint === fp ? rawChannel : null;
+                    const connectResponseC = connectResponseByConfigId[cfg.id];
+                    const qrImageSrcC = qrImageSrcByConfigId[cfg.id];
+                    const connecting = connectingConfigId === cfg.id;
+                    const pulling = pullingConfigId === cfg.id;
+                    const disconnecting = disconnectingConfigId === cfg.id;
+                    const configuringWebhook = webhookConfiguringConfigId === cfg.id;
+                    const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
+                    const isDuplicateToken = !embeddedInMiniCrm && duplicateTokenConfigIds.has(cfg.id);
+                    const isConnected = channelDataC && (channelDataC.number || channelDataC.profileName || channelDataC.instanceName);
+                    const webhookOk = !!cfg.webhook_secret;
+                    const instanceStatus = String(cfg.instance_status || '').toLowerCase();
+                    const isInstanceDown = !isConnected && instanceStatus === 'disconnected';
+                    const needsInstance = !cfg.subdomain?.trim() || !cfg.token?.trim();
+                    return (
+                      <Card key={cfg.id} className="flex flex-col overflow-hidden">
+                        <div className={`h-1.5 ${isConnected ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <CardTitle className="text-base truncate">{canalLabel}</CardTitle>
+                              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                {isConnected ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Conectado
+                                  </span>
+                                ) : isInstanceDown ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                    <Clock className="h-3.5 w-3.5" /> Desconectado
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                    <Clock className="h-3.5 w-3.5" /> Aguardando QR
+                                  </span>
+                                )}
+                                {isConnected && webhookOk ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                                    <Link2 className="h-3 w-3" /> Recebendo msgs
+                                  </span>
+                                ) : isConnected ? (
+                                  <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Falta ligar o recebimento</span>
+                                ) : null}
+                              </div>
                             </div>
-                          )}
-                          {(channelDataC.profileName || channelDataC.instanceName) && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground truncate">
-                              <User className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{[channelDataC.profileName, channelDataC.instanceName].filter(Boolean).join(' · ')}</span>
-                            </div>
-                          )}
-                        </div>
-                        <Button variant="outline" size="sm" className="shrink-0 h-8" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || connecting}>
-                          {pulling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Atualizar'}
-                        </Button>
-                      </div>
-                    )}
-                    {connectResponseC && !isConnected && (
-                      <div className="space-y-2 pt-2 border-t">
-                        {qrImageSrcC ? (
-                          <div className="flex flex-col items-center gap-1">
-                            <img src={qrImageSrcC} alt="QR Code" className="max-w-[160px] h-auto border rounded" />
-                            <p className="text-xs text-muted-foreground">Escaneie no WhatsApp</p>
+                            {!embeddedInMiniCrm && (
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Alterar token" onClick={() => openEditChannel(cfg)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Remover canal"
+                                  onClick={async () => {
+                                    if (!window.confirm(`Remover o canal "${canalLabel}"?`)) return;
+                                    await deleteConfig(cfg.id);
+                                    setChannelDataByConfigId((prev) => {
+                                      const next = { ...prev };
+                                      delete next[cfg.id];
+                                      return next;
+                                    });
+                                    delete statusFetchGenRef.current[cfg.id];
+                                  }}
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        ) : connectResponseC.error ? (
-                          <p className="text-xs text-destructive">{connectResponseC.error}</p>
-                        ) : null}
-                        <details className="w-full">
-                          <summary className="text-xs text-muted-foreground cursor-pointer hover:underline">Ver log</summary>
-                          <pre className="text-[10px] bg-muted p-2 rounded overflow-auto max-h-24 mt-1">{JSON.stringify(connectResponseC, null, 2)}</pre>
-                        </details>
+                          {isDuplicateToken && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
+                              Mesmo token de outro canal — ambos mostram o mesmo WhatsApp.
+                            </p>
+                          )}
+                        </CardHeader>
+                        <CardContent className="flex flex-1 flex-col gap-3 pt-0">
+                          {embeddedInMiniCrm && needsInstance && (
+                            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                              <p className="text-xs text-muted-foreground">Informe a instância para ligar o WhatsApp.</p>
+                              <div className="space-y-2">
+                                <Label htmlFor={`mini-sub-${cfg.id}`}>URL / subdomínio</Label>
+                                <Input
+                                  id={`mini-sub-${cfg.id}`}
+                                  placeholder="ex.: sua-loja (de https://sua-loja.uazapi.com)"
+                                  defaultValue={cfg.subdomain?.trim() || ''}
+                                  onBlur={async (e) => {
+                                    const sub = e.target.value.trim();
+                                    if (!sub || sub === (cfg.subdomain || '').trim()) return;
+                                    if (!cfg.token?.trim()) return;
+                                    await saveConfig(sub, cfg.token.trim(), { configId: cfg.id, name: cfg.name });
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`mini-name-${cfg.id}`}>Nome da instância</Label>
+                                <Input
+                                  id={`mini-name-${cfg.id}`}
+                                  placeholder="Ex.: JR CAR"
+                                  defaultValue={cfg.name?.trim() || ''}
+                                  onBlur={async (e) => {
+                                    const name = e.target.value.trim();
+                                    if (name === (cfg.name || '').trim()) return;
+                                    if (!cfg.subdomain?.trim() || !cfg.token?.trim()) return;
+                                    await saveConfig(cfg.subdomain.trim(), cfg.token.trim(), { configId: cfg.id, name });
+                                  }}
+                                />
+                              </div>
+                              {!cfg.token?.trim() && (
+                                <div className="space-y-2">
+                                  <Label htmlFor={`mini-tok-${cfg.id}`}>Chave da instância</Label>
+                                  <Input
+                                    id={`mini-tok-${cfg.id}`}
+                                    type="password"
+                                    autoComplete="new-password"
+                                    placeholder="Colada pelo gestor, se necessário"
+                                    onBlur={async (e) => {
+                                      const tok = e.target.value.trim();
+                                      if (!tok || !cfg.subdomain?.trim()) return;
+                                      await saveConfig(cfg.subdomain.trim(), tok, { configId: cfg.id, name: cfg.name });
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {!isConnected && !needsInstance && (
+                            <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-amber-200 bg-amber-50/70 px-4 py-6 text-center dark:border-amber-900/50 dark:bg-amber-950/20">
+                              {qrImageSrcC ? (
+                                <img src={qrImageSrcC} alt="QR Code WhatsApp" className="w-[200px] rounded-xl border bg-white p-2 shadow-sm" />
+                              ) : (
+                                <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-amber-600 shadow-sm dark:bg-amber-950">
+                                  <QrCode className="h-8 w-8" />
+                                </span>
+                              )}
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium">Escaneie o QR no celular</p>
+                                <p className="text-xs text-muted-foreground leading-snug">
+                                  WhatsApp, Aparelhos conectados, e aponte a câmera.
+                                </p>
+                                {webhookOk ? (
+                                  <p className="text-xs text-muted-foreground leading-snug">
+                                    O recebimento já está configurado.
+                                  </p>
+                                ) : null}
+                              </div>
+                              {connectResponseC?.error && !qrImageSrcC ? (
+                                <p className="text-xs text-destructive">{connectResponseC.error}</p>
+                              ) : null}
+                              <div className="flex flex-wrap justify-center gap-2">
+                                <Button size="sm" onClick={() => handleConnectWhatsAppWithStatusFirst(cfg)} disabled={connecting}>
+                                  {connecting ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Conectando…</> : 'Gerar QR Code'}
+                                </Button>
+                                <Button variant="outline" size="sm" className="bg-white" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || connecting}>
+                                  {pulling ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Atualizar'}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                          {isConnected && (
+                            <div className="flex flex-1 flex-col gap-3">
+                              <div className="flex flex-1 items-center gap-3 rounded-2xl border bg-gradient-to-br from-emerald-50 to-white p-3 dark:from-emerald-950/30 dark:to-transparent">
+                                <Avatar className="h-14 w-14 shrink-0 ring-2 ring-white shadow-sm">
+                                  <AvatarImage src={channelDataC.profilePicUrl || undefined} alt="" />
+                                  <AvatarFallback className="text-base">{(channelDataC.profileName || canalLabel).charAt(0).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  {channelDataC.profileName && (
+                                    <p className="text-sm font-semibold truncate">{channelDataC.profileName}</p>
+                                  )}
+                                  {channelDataC.number && (
+                                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Phone className="h-3 w-3 shrink-0" />
+                                      {formatPhoneDisplay(channelDataC.number)}
+                                    </p>
+                                  )}
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 bg-white/80" title="Atualizar" onClick={() => fetchStatusOnly(cfg)} disabled={pulling || disconnecting}>
+                                  {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
+                                </Button>
+                              </div>
+                              {!webhookOk ? (
+                                <Button
+                                  size="sm"
+                                  className="w-full"
+                                  disabled={configuringWebhook || disconnecting}
+                                  onClick={() => handleSetupWebhook(cfg)}
+                                >
+                                  {configuringWebhook ? (
+                                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Configurando…</>
+                                  ) : (
+                                    <><Link2 className="h-3 w-3 mr-1" /> Ativar recebimento de mensagens</>
+                                  )}
+                                </Button>
+                              ) : null}
+                              {!embeddedInMiniCrm && (
+                                <div className="mt-auto flex flex-wrap items-center gap-x-1 gap-y-1 border-t pt-2">
+                                  {webhookOk ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 px-2 text-xs text-muted-foreground"
+                                      disabled={configuringWebhook}
+                                      onClick={() => handleSetupWebhook(cfg)}
+                                    >
+                                      {configuringWebhook ? 'Reconfigurando…' : 'Reconfigurar recebimento'}
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 text-xs text-muted-foreground"
+                                    disabled={disconnecting || connecting}
+                                    onClick={() => handleDisconnectWhatsApp(cfg)}
+                                  >
+                                    {disconnecting ? 'Desconectando…' : 'Trocar número'}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+                {!embeddedInMiniCrm && (
+                  <Button variant="outline" onClick={() => setAddChannelOpen(true)}>
+                    + Adicionar outro canal
+                  </Button>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {!embeddedInMiniCrm && (
+          <>
+          <TabsContent value="webhook" className="mt-4 space-y-4">
+            <Alert>
+              <AlertDescription className="text-sm">
+                Avançado: URL do webhook e SSE. Na aba <strong>Conectar</strong>, use <strong>Ativar recebimento</strong> no card — é mais rápido.
+                Mensagens aparecem em <Link to="/crm/atendimento" className="text-primary font-medium underline-offset-2 hover:underline">Atendimento</Link>.
+              </AlertDescription>
+            </Alert>
+            {configs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">Adicione um canal na aba Conectar primeiro.</p>
+            ) : (
+              configs.filter((c) => c.subdomain && c.token).map((cfg, idx) => {
+                const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
+                const configuringWebhook = webhookConfiguringConfigId === cfg.id;
+                return (
+                  <Card key={cfg.id}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">{canalLabel}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Radio className="h-3.5 w-3.5" />
+                          SSE (opcional — prefira webhook)
+                        </Label>
+                        <Switch checked={!!cfg.use_sse} onCheckedChange={(checked) => setUseSse(checked, cfg.id)} />
                       </div>
+                      {cfg.webhook_secret ? (
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input readOnly value={getWebhookUrlForConfig(cfg)} className="font-mono text-xs flex-1" />
+                          <div className="flex gap-2 shrink-0">
+                            <Button variant="outline" size="icon" title="Copiar" onClick={() => { navigator.clipboard.writeText(getWebhookUrlForConfig(cfg)); toast({ title: 'URL copiada' }); }}>
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button variant="default" size="sm" disabled={Boolean(webhookConfiguringConfigId)} onClick={() => handleSetupWebhook(cfg)}>
+                              {configuringWebhook ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                              Configurar na uazapi
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => generateWebhookSecret(cfg.id)}>
+                          Gerar URL do webhook
+                        </Button>
+                      )}
+                      {canConfigureCsGroups && cfg.provider === 'uazapi' && cfg.webhook_secret && !cfg.archived_at && !duplicateTokenConfigIds.has(cfg.id) && (
+                        <div className="space-y-1">
+                          <Button type="button" variant="outline" size="sm" disabled={Boolean(webhookConfiguringConfigId)} onClick={() => handleSetupWebhook(cfg, true)}>
+                            Ativar saídas no CS IA
+                          </Button>
+                          <p className="text-xs text-muted-foreground">Inclui eventos de grupo neste webhook. O CS registra a data da saída nos grupos vinculados.</p>
+                        </div>
+                      )}
+                      {uazapiWebhookLogs.length > 0 && (
+                        <p className="text-xs text-green-600 dark:text-green-400">
+                          Último evento: {formatLastEventAgo(uazapiWebhookLogs[0].created_at)} — webhook funcionando
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+            {configs.length > 0 && uazapiWebhookLogs.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Log detalhado de eventos na aba <button type="button" className="text-primary underline" onClick={() => setCanaisTab('integracoes')}>Integrações</button>.
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="integracoes" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Meta, Google Drive, CRMs externos e diagnóstico. Só configure se você usa essas integrações.
+            </p>
+            {effectiveClienteId && <ClienteMetaCtwaSettings clienteId={effectiveClienteId} />}
+            {effectiveClienteId && <ClienteGoogleDriveSettings clienteId={effectiveClienteId} />}
+            {effectiveClienteId && <ClienteIngressWebhookSettings clienteId={effectiveClienteId} configs={configs} />}
+
+            {configs.length > 0 && effectiveClienteId && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Conversões Meta por canal</CardTitle>
+                  <CardDescription>CAPI / dataset por instância WhatsApp</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {configs.map((cfg) => (
+                    <MetaConversionsChannelSettings key={cfg.id} config={cfg} clienteId={effectiveClienteId} onSaved={fetchConfig} />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {configs.length > 0 && effectiveClienteId && (
+              <>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Link2 className="h-4 w-4" />
+                      Encaminhar para CRM-Apice
+                    </CardTitle>
+                    <CardDescription>Opcional — espelha eventos no CRM-Apice</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {crmApiceForwardLoading ? (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Carregando…</p>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label className="text-xs">URL do Webhook Genérico (CRM-Apice)</Label>
+                          <Input
+                            type="url"
+                            placeholder="https://.../generic-webhook?..."
+                            value={crmApiceForwardUrl}
+                            onChange={(e) => setCrmApiceForwardUrl(e.target.value)}
+                            className="font-mono text-xs"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Switch id="crm-apice-forward-enabled" checked={crmApiceForwardEnabled} onCheckedChange={setCrmApiceForwardEnabled} />
+                            <Label htmlFor="crm-apice-forward-enabled" className="text-xs">Ativar encaminhamento</Label>
+                          </div>
+                          <Button size="sm" disabled={crmApiceForwardSaving} onClick={saveCrmApiceForward}>
+                            {crmApiceForwardSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            Salvar
+                          </Button>
+                        </div>
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Status do lead em Contatos (retorno CRM-Apice → Planeje)</summary>
+                          <div className="mt-3 space-y-2 pl-1 border-l-2 border-muted ml-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <code className="text-[10px] break-all bg-muted px-2 py-1 rounded flex-1 min-w-0">{crmApiceStatusWebhookUrl}</code>
+                              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => { void navigator.clipboard.writeText(crmApiceStatusWebhookUrl); toast({ title: 'URL copiada' }); }}>
+                                <Copy className="h-3 w-3 mr-1" /> Copiar
+                              </Button>
+                            </div>
+                            <Button type="button" size="sm" className="h-7 text-xs" disabled={crmApiceStatusSecretSaving} onClick={() => void generateCrmApiceStatusSecret()}>
+                              Gerar secret de retorno
+                            </Button>
+                          </div>
+                        </details>
+                      </>
                     )}
                   </CardContent>
                 </Card>
-              );
-            })}
-            </div>
-            <div className="pt-2">
-              <Button variant="outline" onClick={() => setAddChannelOpen(true)}>
-                Adicionar outro canal
-              </Button>
-            </div>
 
-            {configs.length > 0 && effectiveClienteId && (
-              <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden mt-6">
-                <div className="px-4 py-3 border-b bg-muted/30">
-                  <h2 className="text-base font-semibold flex items-center gap-2">
-                    <Link2 className="h-4 w-4" />
-                    Webhook uazapi (Caixa de entrada)
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Configure na uazapi a URL de cada canal para receber mensagens na Caixa de entrada. Evento: messages.</p>
-                </div>
-                <div className="p-4 space-y-4">
-                  {configs.filter((c) => c.subdomain && c.token).map((cfg, idx) => {
-                    const canalLabel = cfg.name?.trim() || `Canal ${idx + 1}`;
-                    return (
-                      <div key={cfg.id} className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="font-medium text-sm">{canalLabel}</span>
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs flex items-center gap-1.5 text-muted-foreground">
-                              <Radio className="h-3.5 w-3.5" />
-                              Usar SSE
-                            </Label>
-                            <Switch
-                              checked={!!cfg.use_sse}
-                              onCheckedChange={(checked) => setUseSse(checked, cfg.id)}
-                            />
-                          </div>
-                        </div>
-                        {cfg.webhook_secret ? (
-                          <div className="space-y-2">
-                            <div className="flex gap-2 flex-wrap items-center">
-                              <Input
-                                readOnly
-                                value={getWebhookUrlForConfig(cfg)}
-                                className="font-mono text-xs flex-1 min-w-0 max-w-full"
-                              />
-                              <Button variant="outline" size="icon" title="Copiar URL" onClick={() => { navigator.clipboard.writeText(getWebhookUrlForConfig(cfg)); toast({ title: 'URL copiada' }); }}>
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                              <Button variant="outline" size="sm" disabled={webhookTesting} onClick={async () => {
-                                setWebhookTesting(true);
-                                try {
-                                  const res = await fetch(getWebhookUrlForConfig(cfg), { method: 'GET' });
-                                  const data = await res.json().catch(() => ({}));
-                                  if (res.ok) toast({ title: 'URL acessível' });
-                                  else toast({ variant: 'destructive', title: 'Erro', description: data?.error || `Status ${res.status}` });
-                                } catch (e) { toast({ variant: 'destructive', title: 'Falha', description: e?.message }); }
-                                setWebhookTesting(false);
-                              }}>
-                                {webhookTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                Testar
-                              </Button>
-                              <Button variant="default" size="sm" disabled={webhookConfiguring} onClick={() => setWebhookInUazapi(cfg)} title="Registrar URL na uazapi">
-                                {webhookConfiguring ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                Configurar na uazapi
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <Button variant="outline" size="sm" onClick={() => generateWebhookSecret(cfg.id)}>
-                            Gerar secret e ver URL do webhook
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  <div className="border-t pt-4 mt-4 space-y-3">
+                <Card>
+                  <CardHeader className="pb-2">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <p className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
+                      <CardTitle className="text-base flex items-center gap-2">
                         <Activity className="h-4 w-4" />
-                        Eventos recebidos no webhook (uazapi)
-                      </p>
-                      <div className="flex items-center gap-2">
-                        {uazapiWebhookLogs.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">Nenhum evento ainda</span>
-                        ) : (
-                          <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                            Último: {formatLastEventAgo(uazapiWebhookLogs[0].created_at)}
-                          </span>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          disabled={uazapiLogsRefreshing}
-                          onClick={async () => { setUazapiLogsRefreshing(true); await fetchWebhookLogs(); setUazapiLogsRefreshing(false); }}
-                        >
-                          {uazapiLogsRefreshing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                          Atualizar
-                        </Button>
-                        {uazapiWebhookLogs.length >= 100 && (
-                          <Button variant="outline" size="sm" className="h-7 text-xs" disabled={uazapiLogsLoadingMore} onClick={loadMoreUazapiLogs}>
-                            {uazapiLogsLoadingMore ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                            Carregar mais
-                          </Button>
-                        )}
-                      </div>
+                        Log de eventos (diagnóstico)
+                      </CardTitle>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" disabled={uazapiLogsRefreshing} onClick={async () => { setUazapiLogsRefreshing(true); await fetchWebhookLogs(); setUazapiLogsRefreshing(false); }}>
+                        {uazapiLogsRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Atualizar'}
+                      </Button>
                     </div>
+                  </CardHeader>
+                  <CardContent>
                     {uazapiWebhookLogs.length > 0 ? (
-                      <div className="rounded-md border bg-muted/30 p-2 space-y-1 max-h-64 overflow-y-auto">
-                        <p className="text-[11px] font-medium text-muted-foreground sticky top-0 bg-muted/80 py-1">Histórico — últimos eventos (Webhook uazapi · Caixa de entrada)</p>
-                        {uazapiWebhookLogs.slice(0, 50).map((log) => {
-                          const sendResult = sendToCrmResultByLogId[log.id];
+                      <div className="rounded-md border bg-muted/30 p-2 space-y-1 max-h-56 overflow-y-auto">
+                        {uazapiWebhookLogs.slice(0, 30).map((log) => {
                           const sending = sendToCrmLoadingLogId === log.id;
                           return (
                             <div key={log.id} className="text-xs rounded px-2 py-1.5 bg-background border flex items-center gap-2 flex-wrap">
                               <span className="text-muted-foreground shrink-0">
-                                {log.created_at ? new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                                {log.created_at ? new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
                               </span>
-                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${log.status === 'ok' ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-destructive/20 text-destructive'}`}>
-                                {log.status}
-                              </span>
-                              {log.from_jid && <span className="font-mono truncate max-w-[140px]" title={log.from_jid}>{log.from_jid}</span>}
-                              <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => setWebhookLogViewing(log)}>
-                                Ver corpo
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${log.status === 'ok' ? 'bg-green-500/20 text-green-700' : 'bg-destructive/20 text-destructive'}`}>{log.status}</span>
+                              {log.from_jid && <span className="font-mono truncate max-w-[120px]" title={log.from_jid}>{log.from_jid}</span>}
+                              <Button variant="ghost" size="sm" className="h-6 px-1 text-[10px]" onClick={() => setWebhookLogViewing(log)}>Ver</Button>
+                              <Button variant="outline" size="sm" className="h-6 px-1 text-[10px]" onClick={() => sendEventToCrmApice(log, 'uazapi')} disabled={sending}>
+                                {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'CRM'}
                               </Button>
-                              <Button variant="outline" size="sm" className="h-6 px-1.5 text-[10px] shrink-0" onClick={() => sendEventToCrmApice(log, 'uazapi')} disabled={sending} title="Enviar este evento ao CRM-Apice (Webhook Genérico)">
-                                {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                                Enviar ao CRM
-                              </Button>
-                              {sendResult && (
-                                <span className={`shrink-0 text-[10px] ${sendResult.status === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`} title={sendResult.message}>
-                                  {sendResult.status === 'ok' ? '✓ Enviado' : `Erro ${sendResult.statusCode || ''}`}
-                                </span>
-                              )}
                             </div>
                           );
                         })}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground py-2">Configure a URL na uazapi e envie uma mensagem; os eventos recebidos aparecem aqui.</p>
+                      <p className="text-xs text-muted-foreground">Nenhum evento ainda. Configure o webhook e envie uma mensagem de teste.</p>
                     )}
-                    <p className="text-[11px] text-muted-foreground">
-                      Eventos salvos em <code className="bg-muted px-1 rounded">cliente_whatsapp_webhook_log</code>.
-                    </p>
-
-                    <div className="border-t pt-4 mt-4 space-y-3">
-                      <p className="text-sm font-medium flex items-center gap-1.5 text-muted-foreground">
-                        <Link2 className="h-4 w-4" />
-                        Encaminhar eventos para CRM-Apice
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Cole a URL do Webhook Genérico do CRM-Apice (Integrações). Cada evento recebido aqui será enviado para a Caixa de Entrada do CRM-Apice.
-                      </p>
-                      {crmApiceForwardLoading ? (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Carregando...</p>
-                      ) : (
-                        <>
-                          <div className="flex flex-col gap-2">
-                            <Label className="text-xs">URL do webhook (CRM-Apice → Integrações → Webhook Genérico)</Label>
-                            <Input
-                              type="url"
-                              placeholder="https://...supabase.co/functions/v1/generic-webhook?user_id=...&secret=..."
-                              value={crmApiceForwardUrl}
-                              onChange={(e) => setCrmApiceForwardUrl(e.target.value)}
-                              className="font-mono text-xs"
-                            />
-                          </div>
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <Switch
-                                id="crm-apice-forward-enabled"
-                                checked={crmApiceForwardEnabled}
-                                onCheckedChange={setCrmApiceForwardEnabled}
-                              />
-                              <Label htmlFor="crm-apice-forward-enabled" className="text-xs">Ativar encaminhamento</Label>
-                            </div>
-                            <Button size="sm" disabled={crmApiceForwardSaving} onClick={saveCrmApiceForward}>
-                              {crmApiceForwardSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                              Salvar
-                            </Button>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-1">
-                            Com o switch <strong>ligado</strong> e salvo, cada evento novo será enviado automaticamente ao CRM-Apice. Se só o manual funciona, confira se está ligado e clique em Salvar.
-                          </p>
-                          <div className="rounded-lg border border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/25 p-3 space-y-2 mt-3">
-                            <p className="text-xs font-medium text-foreground">Status do lead na página Contatos (CRM-Apice → Planeje)</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              Configure no CRM-Apice uma automação (ou script) que, ao mudar o status do lead, faça um POST para a URL abaixo com o header{' '}
-                              <code className="bg-background/80 px-1 rounded">Authorization: Bearer {'<secret>'}</code>. O texto de{' '}
-                              <code className="bg-background/80 px-1 rounded">status</code> aparece como tag ao lado do funil em Contatos.
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <code className="text-[10px] break-all bg-background/80 px-2 py-1 rounded border flex-1 min-w-0">{crmApiceStatusWebhookUrl}</code>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs shrink-0"
-                                onClick={() => {
-                                  void navigator.clipboard.writeText(crmApiceStatusWebhookUrl);
-                                  toast({ title: 'URL copiada' });
-                                }}
-                              >
-                                <Copy className="h-3 w-3 mr-1" />
-                                Copiar URL
-                              </Button>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button type="button" size="sm" className="h-7 text-xs" disabled={crmApiceStatusSecretSaving} onClick={() => void generateCrmApiceStatusSecret()}>
-                                {crmApiceStatusSecretSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                                Gerar ou renovar secret
-                              </Button>
-                              {crmApiceStatusSecret ? (
-                                <>
-                                  <code className="text-[10px] max-w-[200px] truncate bg-background/80 px-2 py-1 rounded border" title={crmApiceStatusSecret}>
-                                    {crmApiceStatusSecret}
-                                  </code>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs"
-                                    onClick={() => {
-                                      void navigator.clipboard.writeText(crmApiceStatusSecret);
-                                      toast({ title: 'Secret copiado' });
-                                    }}
-                                  >
-                                    <Copy className="h-3 w-3 mr-1" />
-                                    Copiar secret
-                                  </Button>
-                                </>
-                              ) : (
-                                <span className="text-[11px] text-muted-foreground">Nenhum secret ainda — gere para ativar o retorno.</span>
-                              )}
-                            </div>
-                            {effectiveClienteId ? (
-                              <pre className="text-[10px] leading-relaxed overflow-x-auto bg-muted/80 p-2 rounded whitespace-pre-wrap break-all">
-                                {`POST (corpo JSON)\n{\n  "cliente_id": "${effectiveClienteId}",\n  "phone": "5511999999999",\n  "status": "Nome do status no Apice"\n}\n\nOpcional: "from_jid": "5511999999999@s.whatsapp.net" em vez de phone.`}
-                              </pre>
-                            ) : null}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  </CardContent>
+                </Card>
+              </>
             )}
+          </TabsContent>
           </>
-        )}
-          </div>
-        </div>
+          )}
+        </Tabs>
 
         <Dialog open={addChannelOpen} onOpenChange={(open) => { setAddChannelOpen(open); if (!open) { setAddChannelName(''); setAddChannelSubdomain(''); setAddChannelToken(''); } }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Adicionar canal</DialogTitle>
-              <p className="text-sm text-muted-foreground">Nova API uazapi (subdomínio e token). Cada canal pode ter sua própria instância WhatsApp.</p>
+              <DialogTitle>{embeddedInMiniCrm ? 'Conectar WhatsApp' : 'Adicionar canal'}</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                {embeddedInMiniCrm
+                  ? 'Informe a URL da instância e o nome. A chave fica oculta.'
+                  : 'Nova API uazapi (subdomínio e token). Cada canal pode ter sua própria instância WhatsApp.'}
+              </p>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
-                <Label htmlFor="add-channel-name">Nome do canal (opcional)</Label>
+                <Label htmlFor="add-channel-name">{embeddedInMiniCrm ? 'Nome da instância' : 'Nome do canal (opcional)'}</Label>
                 <Input
                   id="add-channel-name"
-                  placeholder="Ex: Vendas, Suporte"
+                  placeholder={embeddedInMiniCrm ? 'Ex.: JR CAR' : 'Ex: Vendas, Suporte'}
                   value={addChannelName}
                   onChange={(e) => setAddChannelName(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="add-channel-subdomain">Subdomínio uazapi</Label>
+                <Label htmlFor="add-channel-subdomain">{embeddedInMiniCrm ? 'URL / subdomínio' : 'Subdomínio uazapi'}</Label>
                 <Input
                   id="add-channel-subdomain"
-                  placeholder="seu-subdominio (de https://seu-subdominio.uazapi.com)"
+                  placeholder={embeddedInMiniCrm ? 'ex.: sua-loja (de https://sua-loja.uazapi.com)' : 'seu-subdominio (de https://seu-subdominio.uazapi.com)'}
                   value={addChannelSubdomain}
                   onChange={(e) => setAddChannelSubdomain(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="add-channel-token">Token</Label>
+                <Label htmlFor="add-channel-token">{embeddedInMiniCrm ? 'Chave da instância' : 'Token'}</Label>
                 <Input
                   id="add-channel-token"
                   type="password"
-                  placeholder="Token da instância"
+                  autoComplete="new-password"
+                  placeholder={embeddedInMiniCrm ? 'Colada pelo gestor, se necessário' : 'Token da instância'}
                   value={addChannelToken}
                   onChange={(e) => setAddChannelToken(e.target.value)}
                 />
@@ -1187,7 +1576,78 @@ const ClienteCanaisPage = ({ onGoToApi, embeddedInCrm }) => {
                   }}
                 >
                   {addChannelSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Adicionar canal
+                  {embeddedInMiniCrm ? 'Salvar e continuar' : 'Adicionar canal'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={editChannelOpen} onOpenChange={(open) => { setEditChannelOpen(open); if (!open) setEditChannelCfg(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Alterar credenciais do canal</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                Cada token na uazapi aponta para uma instância (e um número). Ao trocar o token, o número exibido muda conforme a uazapi.
+              </p>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-channel-name">Nome do canal (opcional)</Label>
+                <Input
+                  id="edit-channel-name"
+                  value={editChannelName}
+                  onChange={(e) => setEditChannelName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-channel-subdomain">Subdomínio uazapi</Label>
+                <Input
+                  id="edit-channel-subdomain"
+                  placeholder="novo22"
+                  value={editChannelSubdomain}
+                  onChange={(e) => setEditChannelSubdomain(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-channel-token">Token da instância</Label>
+                <Input
+                  id="edit-channel-token"
+                  type="password"
+                  placeholder="Token da uazapi"
+                  value={editChannelToken}
+                  onChange={(e) => setEditChannelToken(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setEditChannelOpen(false)}>Cancelar</Button>
+                <Button
+                  disabled={editChannelSaving || !editChannelCfg || !editChannelSubdomain?.trim() || !editChannelToken?.trim()}
+                  onClick={async () => {
+                    if (!editChannelCfg) return;
+                    setEditChannelSaving(true);
+                    const cid = editChannelCfg.id;
+                    statusFetchGenRef.current[cid] = (statusFetchGenRef.current[cid] || 0) + 1;
+                    setChannelDataByConfigId((prev) => {
+                      const next = { ...prev };
+                      delete next[cid];
+                      return next;
+                    });
+                    const { success } = await saveConfig(
+                      editChannelSubdomain.trim(),
+                      editChannelToken.trim(),
+                      { configId: cid, name: editChannelName.trim() || undefined }
+                    );
+                    setEditChannelSaving(false);
+                    if (success) {
+                      setEditChannelOpen(false);
+                      setEditChannelCfg(null);
+                      toast({ title: 'Credenciais salvas', description: 'Consultando status na uazapi…' });
+                    }
+                  }}
+                >
+                  {editChannelSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Salvar e atualizar
                 </Button>
               </div>
             </div>

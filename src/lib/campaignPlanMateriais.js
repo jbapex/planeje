@@ -117,6 +117,50 @@ export async function patchCampaignPlanRow(supabase, planId, planRowLike, { maxR
 /** Marca linhas no JSONB array que representam ideias de story (texto curto). */
 export const PJ_STORY_MARKER = '__pj_story_idea';
 
+let storyIdSequence = 0;
+const newStoryId = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${++storyIdSequence}`;
+const storyText = (value) => typeof value === 'string' ? value.trim() : String(value?.descricao || '').trim();
+
+/**
+ * The legacy editor still edits plain strings. Keep the corresponding complete
+ * rows beside them so changing text does not replace an already linked material.
+ * Exact matches are reserved first (including duplicates), then edits at the
+ * same position reuse the remaining row. A removed idea is not emitted again.
+ */
+function reconcileStoryRows(stories, previousRows) {
+  const previous = Array.isArray(previousRows) ? previousRows : [];
+  const used = new Set();
+  const matches = stories.map((story) => {
+    if (story && typeof story === 'object') {
+      const index = previous.findIndex((row, i) => !used.has(i) && row?.id != null && row.id === story.id);
+      if (index >= 0) used.add(index);
+      return { ...story };
+    }
+    const index = previous.findIndex((row, i) => row && !used.has(i) && storyText(row) === storyText(story));
+    if (index < 0) return null;
+    used.add(index);
+    return { ...previous[index] };
+  });
+  return stories.map((story, index) => {
+    let existing = matches[index];
+    if (!existing && previous[index] && !used.has(index)) {
+      used.add(index);
+      existing = { ...previous[index] };
+    }
+    const descricao = storyText(story);
+    // A newly added empty input is only a draft. Existing empty rows retain IDs.
+    if (!descricao && !existing) return null;
+    return {
+      tipo: 'arte', formato: 'Story', detalhes: '', data_entrega: '',
+      data_postagem: '', responsavel_id: null, plataforma: 'Instagram',
+      ...existing,
+      id: existing?.id ?? newStoryId(),
+      descricao,
+      [PJ_STORY_MARKER]: true,
+    };
+  });
+}
+
 /** Título da tarefa criada a partir de um material: [Empresa do cliente] descrição */
 export function buildTaskTitleFromPlanMaterial(clientEmpresa, materialDescricao) {
   const nome = (clientEmpresa || '').trim() || 'Cliente';
@@ -196,21 +240,12 @@ export function editorMateriaisShapeToDbRows(input) {
     const { [PJ_STORY_MARKER]: _s, ...rest } = m;
     rows.push({ ...rest, id: nextId(m), tipo: 'video' });
   }
-  for (const line of stories) {
-    if (typeof line !== 'string' || !line.trim()) continue;
-    rows.push({
-      id: Date.now() + ++i,
-      tipo: 'arte',
-      formato: 'Story',
-      descricao: line.trim(),
-      detalhes: '',
-      data_entrega: '',
-      data_postagem: '',
-      responsavel_id: null,
-      plataforma: 'Instagram',
-      [PJ_STORY_MARKER]: true,
-    });
-  }
+  const storyRows = reconcileStoryRows(stories, input._storyRows);
+  // Retain generated IDs between saves of the same legacy draft. Only this
+  // internal sidecar changes; the strings and the original database rows do not.
+  if (Array.isArray(input._storyRows)) input._storyRows.splice(0, input._storyRows.length, ...storyRows);
+  else input._storyRows = storyRows;
+  rows.push(...storyRows.filter(Boolean).map((row) => ({ ...row })));
   for (const m of legados) {
     if (!m || typeof m !== 'object') continue;
     if (m[PJ_STORY_MARKER]) continue;
@@ -221,15 +256,17 @@ export function editorMateriaisShapeToDbRows(input) {
 
 /** Valor vindo do JSONB → forma do editor (objeto com carrosseis / posts / vídeos / stories / legados). */
 export function dbMateriaisToEditorShape(raw) {
-  const empty = { carrosseis: [], posts: [], videos: [], stories_ideias: [], _legados: [] };
+  const empty = { carrosseis: [], posts: [], videos: [], stories_ideias: [], _storyRows: [], _legados: [] };
   if (raw == null) return empty;
   if (!Array.isArray(raw)) {
     if (typeof raw === 'object') {
+      const stories = Array.isArray(raw.stories_ideias) ? raw.stories_ideias : [];
       return {
         carrosseis: Array.isArray(raw.carrosseis) ? raw.carrosseis : [],
         posts: Array.isArray(raw.posts) ? raw.posts : [],
         videos: Array.isArray(raw.videos) ? raw.videos : [],
-        stories_ideias: Array.isArray(raw.stories_ideias) ? raw.stories_ideias : [],
+        stories_ideias: stories.map(storyText),
+        _storyRows: reconcileStoryRows(stories, raw._storyRows),
         _legados: Array.isArray(raw._legados) ? raw._legados : [],
       };
     }
@@ -249,11 +286,12 @@ export function dbMateriaisToEditorShape(raw) {
   const posts = [];
   const videos = [];
   const stories_ideias = [];
+  const _storyRows = [];
   for (const m of raw) {
     if (!m || typeof m !== 'object') continue;
     if (m[PJ_STORY_MARKER] === true) {
-      const d = (m.descricao || '').trim();
-      if (d) stories_ideias.push(d);
+      stories_ideias.push(storyText(m));
+      _storyRows.push({ ...m });
       continue;
     }
     const tipo = String(m.tipo || '').trim();
@@ -261,7 +299,7 @@ export function dbMateriaisToEditorShape(raw) {
     else if (tipo === 'post') posts.push(m);
     else carrosseis.push(m);
   }
-  return { carrosseis, posts, videos, stories_ideias, _legados: [] };
+  return { carrosseis, posts, videos, stories_ideias, _storyRows, _legados: [] };
 }
 
 /** Lista plana para o calendário / merge de cronograma (sempre array). */

@@ -361,7 +361,7 @@ Retorne APENAS o JSON, sem markdown, sem code blocks.`;
   return (
     <div className="p-4 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Templates de Diagnóstico</h2>
+        <h2 className="text-2xl font-bold super-admin-embedded-hide">Templates de Diagnóstico</h2>
         <Dialog open={templateDialogOpen} onOpenChange={(open) => { setTemplateDialogOpen(open); if (!open) setEditingTemplate(null); }}>
           <DialogTrigger asChild>
             <Button onClick={() => {

@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
     import { ptBR } from "date-fns/locale";
     import { Checkbox } from "@/components/ui/checkbox";
     import { Label } from "@/components/ui/label";
+    import { actionMetric, adsInsightFields } from '@/lib/metaInsightFields';
 
     const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
     const formatNumber = (value) => new Intl.NumberFormat('pt-BR').format(Number(value) || 0);
@@ -55,8 +56,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
         if (metricConfig.isCalculated) {
             if (metricId === 'ticket_medio') {
-                const totalValue = (insights.action_values || []).find(a => a.action_type === 'omni_purchase')?.value || 0;
-                const totalPurchases = (insights.actions || []).find(a => a.action_type === 'omni_purchase')?.value || 0;
+                const totalValue = actionMetric(insights.action_values, ['purchase', 'omni_purchase']);
+                const totalPurchases = actionMetric(insights.actions, ['purchase', 'omni_purchase']);
                 return totalPurchases > 0 ? totalValue / totalPurchases : 0;
             }
             return 'N/A';
@@ -66,13 +67,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         
         if (apiField.includes(':')) {
             const [base, type] = apiField.split(':');
-            const action = (insights[base] || []).find(a => a.action_type === type);
-            return action?.value || 0;
+            const wanted = type === 'omni_purchase' ? ['purchase', 'omni_purchase'] : [type];
+            return actionMetric(insights[base], wanted);
         }
         
         if (apiField === 'website_purchase_roas') {
-           const roas = (insights.website_purchase_roas || []).find(r => r.action_type === 'omni_purchase');
-           return roas ? roas.value : 0;
+           return actionMetric(insights.website_purchase_roas, ['purchase', 'omni_purchase']);
         }
 
         return insights[apiField] || 0;
@@ -140,7 +140,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
                     until: format(date.to, 'yyyy-MM-dd'),
                 };
                 
-                const requestBody = { ...body, time_range, metrics: apiMetricsToFetch };
+                const requestBody = { ...body, time_range, metrics: adsInsightFields(apiMetricsToFetch) };
                 
                 const { data, error } = await supabase.functions.invoke('meta-ads-api', { body: requestBody });
 

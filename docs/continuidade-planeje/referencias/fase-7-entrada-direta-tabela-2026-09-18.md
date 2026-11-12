@@ -1,0 +1,31 @@
+# Entrada direta da tabela de tráfego — 18/09/2026
+
+Josias rejeitou a versão anterior por exigir digitação repetida, clique para adicionar linhas e etapas intermediárias. Pediu simplicidade de planilha. Este refinamento substitui a entrada com botões “Abrir análise” antes da tabela. Somente staging; fase 7 parcial, aceite de uso e promoção pendentes.
+
+## Comportamento vigente
+
+Escolher cliente abre diretamente a tabela da semana. No cabeçalho: cliente, navegação semanal, Resultados/Otimização e histórico. Tabela com seis linhas prontas, nova linha quando a última recebe conteúdo, limite de 50. Tab segue as células editáveis e passa à próxima linha, pulando custos calculados e botão de remoção; Shift+Tab volta. Enter desce na mesma coluna, Shift+Enter sobe; setas para cima/baixo trocam linha. Setas laterais conservam a edição do texto e mudam de célula somente quando o cursor chega à borda. Navegação por teclado seleciona o valor da próxima célula para substituição rápida. Linhas numeradas, campanha fixa na rolagem lateral, cabeçalhos/totais fixos na rolagem vertical. A grade tem altura limitada com rolagem interna, sem aumentar indefinidamente a página. Sem botão de adicionar linha nem formulário por linha. Pendências ficam recolhidas na entrada. Conta e tipo de conversão podem ser preenchidos uma vez; definições diferentes por linha e detalhes de orçamento/IDs continuam disponíveis. Contas já distintas são preservadas ao trocar a conta padrão.
+
+Colagem TSV de Excel/Sheets aceita várias linhas/células, inclusive aspas e quebras internas; reconhece cabeçalhos de campanha/conjunto, métricas e alguns campos da referência. Cabeçalhos de custo calculado não importam fórmulas nem valores de custo: sistema recalcula. Sem cabeçalho, a colagem segue as colunas físicas da tabela a partir da célula selecionada. Não importa XLSX nem integra Ads. Colagens acima de 50 linhas são rejeitadas antes de alterar a tabela.
+
+Campanhas da última revisão finalizada anterior podem ser reaproveitadas automaticamente para uma semana sem preenchimento: conserva nomes/IDs/contas/definição, limpa todos os números, não copia análise nem ação. Rascunhos/semana existente têm prioridade e não são sobrescritos pelo reaproveitamento. Linhas sem conteúdo, ainda que tenham conta/conversão padrão, são excluídas do payload e dos totais.
+
+Selecionar cliente, navegar e digitar não cria tarefa/registro. Primeiro Salvar/Concluir chama a RPC protegida existente start_traffic_week_record e salva com controle de revisão. Se outro processo já tiver gravado a semana, exige reabrir; não sobrescreve conteúdo por conveniência. Save RPC e regras de conclusão permanecem: revisão somente depois de encerrar a semana, análise/próxima ação explícita, otimização independente, finalizados de leitura. Botão principal Salvar mantém rascunho editável; Concluir encerra a tarefa real. Não presumir que salvar equivale a concluir. Não há nova migração ou backfill.
+
+## Evidência
+
+28 testes Node passaram (rotina/tabela, 4 testes de grade/TSV, guard de salvamento e ordenação), lint dirigido e build isolado. Testes cobrem exclusão de linhas vazias, zero válido, reaproveitamento sem números antigos, colagem com cabeçalhos/aspas, preservação de células fora do intervalo e rejeição atômica de mais de 50 linhas. QA de navegador confirmou entrada direta/seis linhas, colagem de duas campanhas, custos/totais, Enter avançando linha, nenhum registro antes de Salvar, gravação de duas linhas com uma tarefa e conclusão da mesma tarefa. QA descartável removido por UUID após conferência. No navegador, semana seguinte manteve nomes/contas/definições, limpou números; Tab e Enter confirmados. Sem overflow horizontal externo (1228px). Assets JS/CSS HTTP 200 com hashes iguais ao build. Regras SQL foram preservadas; SQL de regressão da entrega anterior continua evidência histórica, não foi repetido neste refinamento visual.
+
+Backup de fonte e index anterior em /opt/planeje-staging/private/traffic-grid-20260918. Assets antigos conservados. Sem novo dump/restauração integral nesta rodada visual. Produção não acessada/modificada; isolamento externo preservado. Planilha enviada permanece intacta.
+
+## Limites
+
+Não resolve autoria/comparação sem ID estável, sobreposição do gasto de campanha e conjuntos, correção auditada de finalizados, intervalos arbitrários, exportação ou coleta automática. Conjunto é opcional; conta/nome/definição de conversão e números de fechamento continuam validados. Em telas pequenas há rolagem horizontal da grade. Simplicidade e adequação à rotina real devem ser confirmadas por Josias; não registrar aceite por inferência.
+
+## Refinamento de células — 18/09/2026
+
+Pedido seguinte de Josias reforçou entrada tipo planilha. Acrescentados navegação bidirecional de teclado, índices de linha, coluna de campanha fixa e cabeçalhos/totais fixos. Campos numéricos alinhados à direita; realce indica célula e linha ativa. Não alterou payload, SQL, permissões, rotina, análise ou conclusão; só staging, aceite/promoção pendentes.
+
+Evidência desta rodada: 30 testes Node passaram, incluindo navegação que pula células calculadas, passagem de Tab entre linhas, limites sem aprisionar foco e contexto de otimização com somente duas colunas editáveis. Lint dirigido e build isolado passaram. No navegador: Tab/Shift+Tab, Enter/Shift+Enter, setas verticais, edição com cursor dentro do texto e mudança na borda confirmados; colagem de 18 linhas produziu 19 com uma vazia. Valores fictícios de interface: gasto total 1.800, 180 mensagens, custo por mensagem 10; 36 agendamentos e custo 50. Cabeçalho permaneceu no topo da grade após scrollTop 231; campanha permaneceu fixa após rolagem lateral. Documento e viewport de 1228px, sem overflow externo. Dados fictícios descartados, sem Salvar/Concluir e sem fixture de banco nesta rodada. Validação de gravação da entrega anterior permanece evidência histórica. Assets publicados HTTP 200 com SHA256 igual ao build.
+
+Build desta rodada: dist-traffic-sheet-cells-20260918, assets/index.8b757bd7.js e assets/index.fc465c2b.css. Backup privado da fonte e index anterior: /opt/planeje-staging/private/traffic-sheet-cells-20260918. Produção não acessada nem modificada. Ver [release de células](../evidencias/releases/trafego-celulas-planilha-2026-09-18.json).

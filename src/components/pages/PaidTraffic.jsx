@@ -1,209 +1,329 @@
-import React, { useState, useEffect, useCallback } from 'react';
-    import { Rocket, HelpCircle, FileBarChart, Settings } from 'lucide-react';
-    import { Button } from '@/components/ui/button';
-    import { useAuth } from '@/contexts/SupabaseAuthContext';
-    import { useNavigate, Link } from 'react-router-dom';
-    import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-    import CampaignOverview from '@/components/traffic/CampaignOverview';
-    import MetaInsights from '@/components/traffic/MetaInsights';
-    import CampaignStatusSettings from '@/components/traffic/CampaignStatusSettings';
-    import { supabase } from '@/lib/customSupabaseClient';
-    import { useToast } from '@/components/ui/use-toast';
-    import PaidCampaignForm from '@/components/traffic/PaidCampaignForm';
-    import FloatingTrafficAssistant from '@/components/traffic/FloatingTrafficAssistant';
-    import { AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { HelpCircle, Settings, Sparkles } from 'lucide-react';
+import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import CampaignOverview from '@/components/traffic/CampaignOverview';
+import MetaInsights from '@/components/traffic/MetaInsights';
+import GoogleAdsInsights from '@/components/traffic/GoogleAdsInsights';
+import CampaignStatusSettings from '@/components/traffic/CampaignStatusSettings';
+import { supabase } from '@/lib/customSupabaseClient';
+import FloatingTrafficAssistant from '@/components/traffic/FloatingTrafficAssistant';
+import TrafegoDashboard from '@/components/traffic/TrafegoDashboard';
+import TrafegoCarteiraDashboard from '@/components/traffic/TrafegoCarteiraDashboard';
+import CentralTrafegoHoje from '@/components/traffic/CentralTrafegoHoje';
+import CentralTrafegoSituacao from '@/components/traffic/CentralTrafegoSituacao';
+import TrafficWeeklyRoutine from '@/components/traffic/TrafficWeeklyRoutine';
+import TrafficPerformanceReport from '@/components/traffic/TrafficPerformanceReport';
+import { parsePaidTrafficRoute, paidTrafficPaths } from '@/lib/paidTrafficRoutes';
+import { canSeeGoogleAdsTab, paidTrafficHomePath } from '@/lib/carteiraGestor';
+import { useCentralTrafegoFlag } from '@/hooks/useCentralTrafegoFlag';
+import WorkspaceHeaderTools from '@/components/layout/WorkspaceHeaderTools';
+import '@/components/traffic/TrafegoHub.css';
 
-    const PaidTraffic = ({ isCreating = false }) => {
-      const [metaConnectionStatus, setMetaConnectionStatus] = useState('disconnected');
-      const [isCheckingConnection, setIsCheckingConnection] = useState(true);
-      const [showStatusSettings, setShowStatusSettings] = useState(false);
-      const [showForm, setShowForm] = useState(isCreating);
-      const [refreshKey, setRefreshKey] = useState(0);
+function trafficHeroCopy(tab) {
+  if (tab === 'rotina') return { kicker: 'Central de tráfego', title: 'Rotina semanal' };
+  if (tab === 'relatorio') return { kicker: 'Central de tráfego', title: 'Relatório' };
+  if (tab === 'dashboard') {
+    return { kicker: 'Central de tráfego', title: 'Dashboard' };
+  }
+  if (tab === 'hoje') {
+    return { kicker: 'Central de tráfego', title: 'Hoje' };
+  }
+  if (tab === 'situacao') {
+    return { kicker: 'Central de tráfego', title: 'Situação da carteira' };
+  }
+  if (tab === 'fila') {
+    return { kicker: 'Operação de tráfego', title: 'Painel' };
+  }
+  if (tab === 'meta-insights') {
+    return { kicker: 'Mídia paga', title: 'Insights' };
+  }
+  if (tab === 'google-insights') {
+    return { kicker: 'Mídia paga', title: 'Google Ads' };
+  }
+  return { kicker: 'Mídia paga', title: 'Solicitações' };
+}
 
-      const [clients, setClients] = useState([]);
-      const [users, setUsers] = useState([]);
-      const [tasks, setTasks] = useState([]);
-      const [campaigns, setCampaigns] = useState([]);
+const PaidTraffic = ({ isCreating = false }) => {
+  const [metaConnectionStatus, setMetaConnectionStatus] = useState('disconnected');
+  const [googleConnectionStatus, setGoogleConnectionStatus] = useState('disconnected');
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [hasGoogleAccounts, setHasGoogleAccounts] = useState(null);
 
-      const { profile } = useAuth();
-      const navigate = useNavigate();
-      const { toast } = useToast();
+  const { profile } = useAuth();
+  const { showCentral, loaded: flagLoaded } = useCentralTrafegoFlag();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-      const fetchDataForForm = useCallback(async () => {
-         // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
-         // Então removemos perfis de cliente de todas as listas de "usuários".
-         const { data: usersData, error: usersError } = await supabase
-           .from('profiles')
-           .select('id, full_name, avatar_url')
-           .neq('role', 'cliente');
-          if (usersError) throw usersError;
-          setUsers(usersData || []);
+  const route = useMemo(() => parsePaidTrafficRoute(location.pathname), [location.pathname]);
 
-          const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
-          if (clientsError) throw clientsError;
-          setClients(clientsData || []);
-          
-          const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, title, description');
-          if (tasksError) throw tasksError;
-          setTasks(tasksData || []);
-          
-           const { data: campaignsData, error: campaignsError } = await supabase.from('paid_campaigns').select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)').order('created_at', { ascending: false });
-           if(campaignsError) throw campaignsError;
-           setCampaigns(campaignsData || []);
+  useEffect(() => {
+    if (route.redirectTo) {
+      navigate(route.redirectTo, { replace: true });
+    }
+  }, [route.redirectTo, navigate]);
 
-      }, []);
+  useEffect(() => {
+    if (!flagLoaded) return;
+    if (!showCentral && (route.trafficTab === 'hoje' || route.trafficTab === 'situacao')) {
+      navigate(paidTrafficPaths.dashboard(), { replace: true });
+      return;
+    }
+    const path = (location.pathname || '').replace(/\/+$/, '') || '/paid-traffic';
+    if (path === '/paid-traffic') {
+      navigate(paidTrafficHomePath({ showCentral, profile }), { replace: true });
+    }
+  }, [flagLoaded, showCentral, route.trafficTab, navigate, location.pathname, profile]);
 
-      useEffect(() => {
-          if (showForm) {
-              fetchDataForForm();
-          }
-      }, [showForm, fetchDataForForm]);
+  useEffect(() => {
+    if (isCreating) {
+      navigate(paidTrafficPaths.campaignNew(), { replace: true });
+    }
+  }, [isCreating, navigate]);
 
-      // Buscar campanhas para o chat
-      const fetchCampaigns = useCallback(async () => {
-        try {
-          const { data: campaignsData, error: campaignsError } = await supabase
-            .from('paid_campaigns')
-            .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
-            .order('created_at', { ascending: false })
-            .limit(100);
-          
-          if (campaignsError) throw campaignsError;
-          setCampaigns(campaignsData || []);
-        } catch (error) {
-          console.error('Erro ao buscar campanhas:', error);
-        }
-      }, []);
+  const checkConnectionStatus = useCallback(async () => {
+    setIsCheckingConnection(true);
+    try {
+      const [metaRes, googleRes] = await Promise.all([
+        supabase.functions.invoke('meta-ads-api', { body: { action: 'check-connection' } }),
+        supabase.functions.invoke('google-ads-api', { body: { action: 'check-connection' } }),
+      ]);
+      const metaData = metaRes.data;
+      const googleData = googleRes.data;
 
-      useEffect(() => {
-        fetchCampaigns();
-      }, [fetchCampaigns]);
+      if (metaRes.error || metaData?.error || !metaData?.connected) {
+        setMetaConnectionStatus('disconnected');
+      } else {
+        setMetaConnectionStatus('connected');
+      }
 
+      if (googleRes.error || googleData?.error || !googleData?.connected) {
+        setGoogleConnectionStatus('disconnected');
+      } else {
+        setGoogleConnectionStatus('connected');
+      }
+    } catch {
+      setMetaConnectionStatus('disconnected');
+      setGoogleConnectionStatus('disconnected');
+    } finally {
+      setIsCheckingConnection(false);
+    }
+  }, []);
 
-      const checkConnectionStatus = useCallback(async () => {
-        setIsCheckingConnection(true);
-        try {
-          const { data, error } = await supabase.functions.invoke('meta-ads-api', {
-            body: { action: 'check-connection' },
-          });
-          if (error || data.error || !data.connected) {
-            setMetaConnectionStatus('disconnected');
-            if (profile?.role === 'superadmin') {
-                toast({
-                    title: "Conexão com Meta Ads inativa",
-                    description: "O token de acesso do System User não foi configurado ou é inválido. Configure-o no Vault.",
-                    variant: "destructive",
-                });
-            }
-          } else {
-            setMetaConnectionStatus('connected');
-          }
-        } catch (error) {
-            setMetaConnectionStatus('disconnected');
-        } finally {
-            setIsCheckingConnection(false);
-        }
-      }, [profile?.role, toast]);
+  useEffect(() => {
+    if (route.trafficTab !== 'rotina') checkConnectionStatus();
+  }, [checkConnectionStatus, route.trafficTab]);
 
-      useEffect(() => {
-        checkConnectionStatus();
-      }, [checkConnectionStatus]);
-      
-      useEffect(() => {
-        setShowForm(isCreating);
-      }, [isCreating]);
-
-      const handleCloseStatusSettings = () => {
-        setShowStatusSettings(false);
-        setRefreshKey(prev => prev + 1);
-      };
-
-      const handleCloseForm = () => {
-        setShowForm(false);
-        if(isCreating) {
-            navigate('/paid-traffic');
-        }
-      };
-
-      const handleSaveCampaign = async (formData) => {
-        const { error } = await supabase.rpc('create_ad_from_structure', { form_data: formData });
-
+  useEffect(() => {
+    supabase
+      .from('cliente_google_ads_accounts')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', true)
+      .then(({ count, error }) => {
         if (error) {
-          toast({ title: `Erro ao salvar estrutura`, description: error.message, variant: "destructive" });
-        } else {
-          toast({ title: `Estrutura da campanha salva com sucesso!` });
-          handleCloseForm();
-          setRefreshKey(prev => prev + 1);
+          setHasGoogleAccounts(false);
+          return;
         }
-      };
+        setHasGoogleAccounts(Number(count) > 0);
+      });
+  }, []);
 
+  useEffect(() => {
+    if (flagLoaded && route.trafficTab === 'google-insights' && hasGoogleAccounts === false) {
+      navigate(paidTrafficPaths.dashboard(), { replace: true });
+    }
+  }, [flagLoaded, route.trafficTab, hasGoogleAccounts, navigate]);
 
-      return (
-        <div className="space-y-6 h-full flex flex-col">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Rocket className="h-8 w-8 text-blue-500" />
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Tráfego</h1>
-            </div>
-            <div className="flex items-center gap-2">
-                <Button asChild variant="outline">
-                  <Link to="/meta-reporter">
-                    <FileBarChart className="mr-2 h-4 w-4" />
-                    Relatório Rápido
-                  </Link>
-                </Button>
-                {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
-                  <>
-                    <Button variant="outline" onClick={() => setShowStatusSettings(true)}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Gerenciar Status
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => navigate('/meta-integration-help')}>
-                        <HelpCircle className="h-5 w-5 text-muted-foreground" />
-                        <span className="sr-only">Ajuda com a integração do Meta</span>
-                    </Button>
-                  </>
-                )}
-            </div>
-          </div>
+  const handleCloseStatusSettings = () => {
+    navigate(paidTrafficPaths.campaignsKanban());
+    setRefreshKey((prev) => prev + 1);
+  };
 
-           <Tabs defaultValue="campaigns" className="flex-grow flex flex-col">
-            <TabsList className="dark:bg-gray-800">
-              <TabsTrigger value="campaigns" className="dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Campanhas Manuais</TabsTrigger>
-              <TabsTrigger value="meta-insights" className="dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white" disabled={isCheckingConnection || metaConnectionStatus !== 'connected'}>
-                Meta Insights
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="campaigns" className="flex-grow mt-4">
-              <CampaignOverview key={refreshKey} />
-            </TabsContent>
-            <TabsContent value="meta-insights" className="flex-grow mt-4">
-               {isCheckingConnection ? (
-                 <p className="text-center py-10 dark:text-gray-400">Verificando conexão com o Meta...</p>
-               ) : metaConnectionStatus === 'connected' ? (
-                 <MetaInsights />
-               ) : (
-                 <p className="text-center py-10 dark:text-gray-400">A conexão com o Meta Ads não está ativa. Por favor, peça a um Super Admin para configurar o token de acesso.</p>
-               )}
-            </TabsContent>
-          </Tabs>
-          {showStatusSettings && <CampaignStatusSettings onClose={handleCloseStatusSettings} />}
-          <AnimatePresence>
-            {showForm && (
-              <PaidCampaignForm
-                clients={clients}
-                users={users}
-                tasks={tasks}
-                onSave={handleSaveCampaign}
-                onClose={handleCloseForm}
-                campaigns={campaigns}
-                onDataChange={fetchDataForForm}
-              />
-            )}
-          </AnimatePresence>
-          <FloatingTrafficAssistant />
+  const trafficTab = route.trafficTab;
+  const [hojeAlive, setHojeAlive] = useState(trafficTab === 'hoje');
+  useEffect(() => {
+    if (showCentral && trafficTab === 'hoje') setHojeAlive(true);
+  }, [showCentral, trafficTab]);
+  const hero = trafficHeroCopy(trafficTab);
+  const navItem = 'planeje-trafego-nav-item';
+  const isAdmin = profile?.role === 'superadmin' || profile?.role === 'admin';
+  const showGoogleTab =
+    canSeeGoogleAdsTab(profile) &&
+    hasGoogleAccounts !== false &&
+    (isCheckingConnection || googleConnectionStatus === 'connected');
+  const showInsightsTab = isAdmin;
+
+  useEffect(() => {
+    if (!flagLoaded || isAdmin) return;
+    if (
+      trafficTab === 'campaigns' ||
+      trafficTab === 'meta-insights' ||
+      trafficTab === 'status-settings'
+    ) {
+      navigate(paidTrafficHomePath({ showCentral, profile }), { replace: true });
+    }
+  }, [flagLoaded, isAdmin, trafficTab, navigate, showCentral, profile]);
+
+  useEffect(() => {
+    if (!flagLoaded || !canSeeGoogleAdsTab(profile) || trafficTab !== 'google-insights') return;
+    if (isCheckingConnection || hasGoogleAccounts === null) return;
+    if (hasGoogleAccounts === false || googleConnectionStatus !== 'connected') {
+      navigate(paidTrafficPaths.dashboard(), { replace: true });
+    }
+  }, [flagLoaded, trafficTab, profile, navigate, isCheckingConnection, hasGoogleAccounts, googleConnectionStatus]);
+
+  const onTrafficTabChange = (value) => {
+    if (value === 'dashboard') {
+      navigate(paidTrafficPaths.dashboard());
+    } else if (value === 'hoje') {
+      navigate(paidTrafficPaths.hoje());
+    } else if (value === 'situacao') {
+      navigate(paidTrafficPaths.situacao());
+    } else if (value === 'rotina') {
+      navigate(paidTrafficPaths.rotina());
+    } else if (value === 'relatorio') {
+      navigate(paidTrafficPaths.relatorio());
+    } else if (value === 'fila') {
+      const qs = new URLSearchParams(location.search);
+      const next = new URLSearchParams();
+      for (const key of ['client_id', 'periodo', 'from', 'to', 'acao']) {
+        const v = qs.get(key);
+        if (v) next.set(key, v);
+      }
+      const s = next.toString();
+      navigate(s ? `${paidTrafficPaths.fila()}?${s}` : paidTrafficPaths.fila());
+    } else if (value === 'meta-insights') {
+      navigate(paidTrafficPaths.metaInsights());
+    } else if (value === 'google-insights') {
+      navigate(paidTrafficPaths.googleInsights());
+    } else {
+      navigate(paidTrafficPaths.campaignsKanban());
+    }
+  };
+
+  return (
+    <Tabs value={trafficTab} onValueChange={onTrafficTabChange} className="planeje-trafego">
+      <section className="planeje-trafego-hero">
+        <div className="planeje-trafego-hero-decor" aria-hidden>
+          <svg viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg">
+            <path d="M-40 80 Q 200 200 420 100 T 860 60" />
+            <path d="M-60 260 Q 180 340 400 240 T 880 200" opacity="0.7" />
+          </svg>
         </div>
-      );
-    };
+        <div className="planeje-trafego-hero-bar">
+          <div className="planeje-trafego-hero-brand">
+            <p className="planeje-trafego-kicker">
+              <Sparkles className="h-3.5 w-3.5" />
+              {hero.kicker}
+            </p>
+            <h1 className="planeje-trafego-title">{hero.title}</h1>
+          </div>
+          <div className="planeje-trafego-hero-right">
+            <WorkspaceHeaderTools tone="hero" />
+            {trafficTab === 'campaigns' && (profile?.role === 'superadmin' || profile?.role === 'admin') ? (
+              <button type="button" className="planeje-trafego-btn-ghost" onClick={() => navigate(paidTrafficPaths.statusSettings())}>
+                <Settings className="h-4 w-4" />
+                Status
+              </button>
+            ) : null}
+            {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
+              <button
+                type="button"
+                className="planeje-trafego-btn-ghost"
+                onClick={() => navigate(profile?.role === 'superadmin' ? '/settings/meta' : '/meta-integration-help')}
+                aria-label="Configurar integração do Meta"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+        <TabsList className="planeje-trafego-nav !bg-white/10 !text-white !h-auto !justify-start">
+          {showCentral ? <TabsTrigger value="hoje" className={navItem}>Hoje</TabsTrigger> : null}
+          <TabsTrigger value="rotina" className={navItem}>Rotina semanal</TabsTrigger>
+          <TabsTrigger value="relatorio" className={navItem}>Relatório</TabsTrigger>
+          <TabsTrigger value="dashboard" className={navItem}>Dashboard</TabsTrigger>
+          {showCentral ? <TabsTrigger value="situacao" className={navItem}>Situação</TabsTrigger> : null}
+          <TabsTrigger value="fila" className={navItem}>Painel</TabsTrigger>
+          {isAdmin ? <TabsTrigger value="campaigns" className={navItem}>Solicitações</TabsTrigger> : null}
+          {showInsightsTab ? (
+            <TabsTrigger
+              value="meta-insights"
+              className={navItem}
+              disabled={isCheckingConnection || metaConnectionStatus !== 'connected'}
+            >
+              Insights
+            </TabsTrigger>
+          ) : null}
+          {showGoogleTab ? (
+            <TabsTrigger value="google-insights" className={navItem}>
+              Google Ads
+            </TabsTrigger>
+          ) : null}
+        </TabsList>
+      </section>
 
-    export default PaidTraffic;
+      <div className="planeje-trafego-workbench">
+        <div className="planeje-trafego-body">
+          {trafficTab === 'rotina' ? (
+            <TabsContent value="rotina"><TrafficWeeklyRoutine /></TabsContent>
+          ) : null}
+          {trafficTab === 'relatorio' ? (
+            <TabsContent value="relatorio"><TrafficPerformanceReport /></TabsContent>
+          ) : null}
+          {trafficTab === 'dashboard' ? (
+            <TabsContent value="dashboard">
+              <TrafegoCarteiraDashboard />
+            </TabsContent>
+          ) : null}
+          {showCentral && hojeAlive ? (
+            <TabsContent value="hoje" forceMount className="hoje-keep-alive">
+              <CentralTrafegoHoje />
+            </TabsContent>
+          ) : null}
+          {showCentral && trafficTab === 'situacao' ? (
+            <TabsContent value="situacao">
+              <CentralTrafegoSituacao />
+            </TabsContent>
+          ) : null}
+          {trafficTab === 'fila' ? (
+            <TabsContent value="fila">
+              <TrafegoDashboard />
+            </TabsContent>
+          ) : null}
+          <TabsContent value="campaigns">
+            <CampaignOverview key={refreshKey} />
+          </TabsContent>
+          <TabsContent value="meta-insights">
+            {isCheckingConnection ? (
+              <p className="text-center py-10 text-muted-foreground">Verificando conexão com o Meta…</p>
+            ) : metaConnectionStatus === 'connected' ? (
+              trafficTab === 'meta-insights' ? <MetaInsights /> : null
+            ) : (
+              <p className="text-center py-10 text-muted-foreground">
+                A conexão com o Meta Ads não está ativa.
+              </p>
+            )}
+          </TabsContent>
+          <TabsContent value="google-insights">
+            {isCheckingConnection ? (
+              <p className="text-center py-10 text-muted-foreground">Verificando conexão com o Google Ads…</p>
+            ) : googleConnectionStatus === 'connected' ? (
+              trafficTab === 'google-insights' ? <GoogleAdsInsights /> : null
+            ) : (
+              <p className="text-center py-10 text-muted-foreground">
+                Google Ads ainda não está configurado nesta operação.
+              </p>
+            )}
+          </TabsContent>
+        </div>
+        <FloatingTrafficAssistant />
+      </div>
+      {route.overlay === 'status' && <CampaignStatusSettings onClose={handleCloseStatusSettings} />}
+    </Tabs>
+  );
+};
+
+export default PaidTraffic;

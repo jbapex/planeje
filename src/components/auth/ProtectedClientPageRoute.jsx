@@ -11,6 +11,7 @@ const ROUTE_TO_PAGE_KEY = {
   '/cliente/pgm-panel': 'pgm-panel',
   '/cliente/cadastros': 'cadastros', // Página "Meus Dados" - sempre permitida para clientes
   '/cliente/crm': 'crm',
+  '/cliente/atendimento': 'atendimento',
 };
 
 // Função helper para obter pageKey de uma rota
@@ -88,6 +89,7 @@ const ProtectedClientPageRoute = ({ children, pageKey }) => {
         'crm': '/cliente/crm',
         'api': '/cliente/crm',
         'canais': '/cliente/crm',
+        'atendimento': '/cliente/atendimento',
       };
       redirectPath = pageToRoute[firstAllowedPage] || '/cliente/support';
     } else if (allowedPages === null || allowedPages === undefined) {

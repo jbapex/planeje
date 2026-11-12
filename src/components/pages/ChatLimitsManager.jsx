@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-    import { motion } from 'framer-motion';
-    import { ArrowLeft, Save, Bot } from 'lucide-react';
-    import { useNavigate } from 'react-router-dom';
-    import { supabase } from '@/lib/customSupabaseClient';
-    import { useToast } from '@/components/ui/use-toast';
-    import { Button } from '@/components/ui/button';
-    import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-    import { Input } from '@/components/ui/input';
-    import { Label } from '@/components/ui/label';
+import { motion } from 'framer-motion';
+import { Save, Bot } from 'lucide-react';
+import { supabase } from '@/lib/customSupabaseClient';
+import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import SuperAdminPageHeader from '@/components/superadmin/SuperAdminPageHeader';
 
-    const ChatLimitsManager = () => {
-      const navigate = useNavigate();
-      const { toast } = useToast();
+const ChatLimitsManager = () => {
+  const { toast } = useToast();
       const [clients, setClients] = useState([]);
       const [loading, setLoading] = useState(true);
       const [saving, setSaving] = useState({});
@@ -67,19 +66,15 @@ import React, { useState, useEffect, useCallback } from 'react';
         setSaving(prev => ({...prev, [clientId]: false}));
       };
 
-      return (
-        <div className="space-y-6 max-w-4xl mx-auto p-4 sm:p-0">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/super-admin')}>
-              <ArrowLeft className="text-gray-700 dark:text-gray-300" />
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Limites do Chat IA</h1>
-              <p className="text-gray-500 dark:text-gray-400">Controle o uso do ApexIA por cliente. Deixe em branco para ilimitado.</p>
-            </div>
-          </div>
+  return (
+    <div className="planeje-super-admin-page space-y-6">
+      <SuperAdminPageHeader
+        sectionLabel="IA & ApexIA"
+        title="Limites do chat IA"
+        description="Controle o uso do ApexIA por cliente. Deixe em branco para ilimitado."
+      />
 
-          <Card className="dark:bg-gray-800 dark:border-gray-700">
+      <Card className="dark:bg-gray-800 dark:border-gray-700">
             <CardHeader>
               <CardTitle className="dark:text-white">Configuração por Cliente</CardTitle>
             </CardHeader>

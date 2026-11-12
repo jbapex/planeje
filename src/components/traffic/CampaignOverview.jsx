@@ -1,19 +1,39 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+    import { useLocation, useNavigate } from 'react-router-dom';
     import { supabase } from '@/lib/customSupabaseClient';
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Button } from '@/components/ui/button';
-    import { Filter, Plus, RefreshCw } from 'lucide-react';
+    import { Filter, Plus, RefreshCw, LayoutGrid, List } from 'lucide-react';
+    import { cn } from '@/lib/utils';
     import PaidCampaignKanban from '@/components/traffic/PaidCampaignKanban';
     import PaidCampaignList from '@/components/traffic/PaidCampaignList';
-    import ClientMetaList from '@/components/traffic/ClientMetaList';
     import PaidCampaignForm from '@/components/traffic/PaidCampaignForm';
     import { AnimatePresence } from 'framer-motion';
     import AdRequestForm from '@/components/traffic/AdRequestForm';
+    import {
+      getKanbanGateSourceStatusValue,
+      kanbanMoveRequiresMetaLinkedAd,
+      paidCampaignMainAdHasMetaLink,
+    } from '@/lib/paidTrafficKanbanRules';
+    import { parsePaidTrafficRoute, paidTrafficPaths } from '@/lib/paidTrafficRoutes';
+    import { fetchPaidCampaignsWithLinks } from '@/lib/paidCampaignsFetch';
+
+    /** Mesmo estilo das abas em Tarefas (Tasks.jsx) — barra pill + triggers arredondados. */
+    const cohortTabBar = cn(
+      'inline-flex h-auto w-full flex-shrink-0 flex-wrap items-center justify-center gap-1 rounded-full border border-gray-300/90 bg-gray-200/95 p-1 text-muted-foreground dark:border-gray-600 dark:bg-gray-900'
+    );
+    const cohortTabTrigger = cn(
+      'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:text-gray-400 dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
+    );
 
     const CampaignOverview = () => {
+      const navigate = useNavigate();
+      const location = useLocation();
+      const route = useMemo(() => parsePaidTrafficRoute(location.pathname), [location.pathname]);
+
       const [campaigns, setCampaigns] = useState([]);
       const [statuses, setStatuses] = useState([]);
       const [clients, setClients] = useState([]);
@@ -21,7 +41,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       const [tasks, setTasks] = useState([]);
       const [loading, setLoading] = useState(true);
       const [loadingTimeout, setLoadingTimeout] = useState(false);
-      const [activeTab, setActiveTab] = useState("list");
       const { toast } = useToast();
       const { profile } = useAuth();
       const userRole = profile?.role;
@@ -32,6 +51,11 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
       const [clientFilter, setClientFilter] = useState('all');
       const [assigneeFilter, setAssigneeFilter] = useState('all');
+
+      useEffect(() => {
+        const id = new URLSearchParams(location.search).get('client_id');
+        if (id) setClientFilter(id);
+      }, [location.search]);
 
       const fetchData = useCallback(async () => {
         setLoading(true);
@@ -47,16 +71,13 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         try {
           // Executa todas as queries em PARALELO para melhor performance
           const [
-            { data: campaignsData, error: campaignsError },
+            campaignsRes,
             { data: statusesData, error: statusesError },
             { data: clientsData, error: clientsError },
-            { data: usersData, error: usersError }
+            { data: usersData, error: usersError },
+            { data: tasksData, error: tasksError },
           ] = await Promise.all([
-            supabase
-              .from('paid_campaigns')
-              .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
-              .order('created_at', { ascending: false })
-              .limit(500), // Limite para evitar carregar milhares de campanhas
+            fetchPaidCampaignsWithLinks({ order: true, limit: 500 }),
             supabase
               .from('paid_campaign_statuses')
               .select('*')
@@ -64,16 +85,21 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
             supabase
               .from('clientes')
               .select('id, empresa')
+              .eq('etapa', 'closed')
               .order('empresa', { ascending: true }),
             supabase
               .from('profiles')
               .select('id, full_name, avatar_url')
               .neq('role', 'cliente')
-              .order('full_name', { ascending: true })
+              .order('full_name', { ascending: true }),
+            supabase
+              .from('tarefas')
+              .select('id, title, description, type, client_id')
+              .eq('type', 'paid_traffic'),
           ]);
 
-          if(campaignsError) throw campaignsError;
-          setCampaigns(campaignsData || []);
+          if (campaignsRes.error) throw campaignsRes.error;
+          setCampaigns(campaignsRes.data || []);
 
           if(statusesError) throw statusesError;
           setStatuses(statusesData || []);
@@ -84,9 +110,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           if (usersError) throw usersError;
           setUsers(usersData || []);
 
-          // Tarefas são carregadas apenas quando necessário (lazy loading)
-          // Isso melhora significativamente o tempo de carregamento inicial
-          setTasks([]);
+          if (!tasksError && tasksData) {
+            setTasks(tasksData || []);
+          } else if (tasksError) {
+            console.warn('Erro ao carregar tarefas (paid_traffic):', tasksError);
+            setTasks([]);
+          }
 
           clearTimeout(timeoutId);
         } catch (error) {
@@ -102,6 +131,54 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
       useEffect(() => {
         fetchData();
       }, [fetchData]);
+
+      const navigateToCampaignBase = useCallback(() => {
+        navigate(
+          route.campaignView === 'list' ? paidTrafficPaths.campaignsList() : paidTrafficPaths.campaignsKanban()
+        );
+      }, [navigate, route.campaignView]);
+
+      useEffect(() => {
+        if (route.trafficTab !== 'campaigns') return;
+
+        const openEdit = async (id) => {
+          let c = campaigns.find((x) => x.id === id);
+          if (!c) {
+            const { data, error } = await fetchPaidCampaignsWithLinks({ eqId: id });
+            if (!error && data) c = data;
+          }
+          if (c) {
+            setSelectedCampaign(c);
+            setShowForm(true);
+          } else {
+            toast({ title: 'Campanha não encontrada', variant: 'destructive' });
+            navigateToCampaignBase();
+          }
+        };
+
+        switch (route.overlay) {
+          case 'form-new':
+            setSelectedCampaign(null);
+            setShowForm(true);
+            setShowRequestForm(false);
+            break;
+          case 'form-edit':
+            if (route.editCampaignId) {
+              setShowRequestForm(false);
+              openEdit(route.editCampaignId);
+            }
+            break;
+          case 'request':
+            setShowForm(false);
+            setSelectedCampaign(null);
+            setShowRequestForm(true);
+            break;
+          default:
+            setShowForm(false);
+            setShowRequestForm(false);
+            setSelectedCampaign(null);
+        }
+      }, [route.trafficTab, route.overlay, route.editCampaignId, navigateToCampaignBase, toast]);
 
       // Subscription para atualizações em tempo real - ATUALIZA TODOS OS USUÁRIOS SIMULTANEAMENTE
       useEffect(() => {
@@ -199,34 +276,47 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 
       const handleUpdateStatus = async (campaignId, newStatus) => {
+        const campaign = campaigns.find((c) => c.id === campaignId);
+        if (!campaign) return false;
+
+        if (
+          kanbanMoveRequiresMetaLinkedAd(statuses, campaign.status, newStatus) &&
+          !paidCampaignMainAdHasMetaLink(campaign)
+        ) {
+          const gateValue = getKanbanGateSourceStatusValue(statuses);
+          const gateLabel = statuses.find((s) => s.value === gateValue)?.label || 'etapa inicial';
+          toast({
+            title: 'Vínculo Meta obrigatório',
+            description: `Para sair de «${gateLabel}», abra os detalhes do anúncio e use «Vincular anúncio Meta Ads» (conta, campanha, conjunto e anúncio). Sem isso não é possível comprovar que o anúncio foi associado à conta.`,
+            variant: 'destructive',
+          });
+          return false;
+        }
+
         // ATUALIZAÇÃO OTIMISTA: atualiza o estado local imediatamente para feedback visual instantâneo
         const originalCampaigns = [...campaigns];
-        
-        setCampaigns(currentCampaigns => 
-            currentCampaigns.map(c => 
-                c.id === campaignId ? { ...c, status: newStatus } : c
-            )
+
+        setCampaigns((currentCampaigns) =>
+          currentCampaigns.map((c) => (c.id === campaignId ? { ...c, status: newStatus } : c))
         );
 
         const { data: updatedCampaign, error } = await supabase
-            .from('paid_campaigns')
-            .update({ status: newStatus })
-            .eq('id', campaignId)
-            .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
-            .single();
-        
+          .from('paid_campaigns')
+          .update({ status: newStatus })
+          .eq('id', campaignId)
+          .select('*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)')
+          .single();
+
         if (error) {
-            toast({ title: 'Erro ao atualizar status', description: error.message, variant: 'destructive' });
-            setCampaigns(originalCampaigns);
-        } else {
-            // A subscription do Realtime vai atualizar automaticamente para todos os usuários
-            // Mas garantimos que o estado local está correto
-            setCampaigns(currentCampaigns => 
-                currentCampaigns.map(c => 
-                    c.id === updatedCampaign.id ? { ...c, ...updatedCampaign } : c
-                )
-            );
+          toast({ title: 'Erro ao atualizar status', description: error.message, variant: 'destructive' });
+          setCampaigns(originalCampaigns);
+          return false;
         }
+        // A subscription do Realtime vai atualizar automaticamente para todos os usuários
+        setCampaigns((currentCampaigns) =>
+          currentCampaigns.map((c) => (c.id === updatedCampaign.id ? { ...c, ...updatedCampaign } : c))
+        );
+        return true;
       };
 
       const handleDelete = async (campaignId) => {
@@ -239,34 +329,19 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         }
       };
 
-      // Carrega tarefas apenas quando o formulário é aberto (lazy loading)
-      const loadTasksIfNeeded = useCallback(async () => {
-        if (tasks.length === 0) {
-          try {
-            const { data: tasksData, error: tasksError } = await supabase
-              .from('tarefas')
-              .select('id, title, description, type, client_id')
-              .eq('type', 'paid_traffic'); // Apenas tarefas de tráfego pago
-            
-            if (!tasksError && tasksData) {
-              setTasks(tasksData || []);
-            }
-          } catch (error) {
-            console.error('Erro ao carregar tarefas:', error);
-          }
+      const handleOpenForm = (campaign = null) => {
+        const view = route.campaignView === 'list' ? 'list' : 'kanban';
+        if (campaign?.id) {
+          navigate(paidTrafficPaths.campaignEdit(campaign.id, view));
+        } else {
+          navigate(paidTrafficPaths.campaignNew(view));
         }
-      }, [tasks.length]);
-
-      const handleOpenForm = async (campaign = null) => {
-        setSelectedCampaign(campaign);
-        // Carrega tarefas apenas quando necessário
-        await loadTasksIfNeeded();
-        setShowForm(true);
       };
 
       const handleCloseForm = () => {
         setShowForm(false);
         setSelectedCampaign(null);
+        navigateToCampaignBase();
       };
 
       const handleSaveCampaign = async (formData) => {
@@ -276,22 +351,28 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
           toast({ title: `Erro ao salvar estrutura`, description: error.message, variant: "destructive" });
         } else {
           toast({ title: `Estrutura da campanha salva com sucesso!` });
-          handleCloseForm();
+          navigateToCampaignBase();
           fetchData();
         }
       };
 
       const handleOpenRequestForm = () => {
-        setShowRequestForm(true);
+        const view = route.campaignView === 'list' ? 'list' : 'kanban';
+        navigate(paidTrafficPaths.request(view));
       };
 
       const handleCloseRequestForm = () => {
         setShowRequestForm(false);
+        navigateToCampaignBase();
       };
 
       const trafficTasks = useMemo(() => {
           return tasks.filter(task => task.type === 'paid_traffic');
       }, [tasks]);
+
+      const tasksById = useMemo(() => {
+        return Object.fromEntries(trafficTasks.map((t) => [t.id, t]));
+      }, [trafficTasks]);
 
       const commonProps = {
         campaigns: filteredCampaigns,
@@ -300,6 +381,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
         onDelete: handleDelete,
         onUpdateStatus: handleUpdateStatus,
         userRole,
+        tasksById,
+        users,
       };
 
       if(loading) {
@@ -355,16 +438,28 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
                 </Button>
             </div>
           
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-grow flex flex-col">
-                <TabsList className="dark:bg-gray-800">
-                  <TabsTrigger value="kanban" className="dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Kanban</TabsTrigger>
-                  <TabsTrigger value="list" className="dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white">Lista</TabsTrigger>
+            <Tabs
+              value={route.campaignView}
+              onValueChange={(v) =>
+                navigate(v === 'list' ? paidTrafficPaths.campaignsList() : paidTrafficPaths.campaignsKanban())
+              }
+              className="w-full flex-grow flex flex-col overflow-hidden"
+            >
+                <TabsList className={cohortTabBar}>
+                  <TabsTrigger value="kanban" className={cohortTabTrigger}>
+                    <LayoutGrid className="h-4 w-4 shrink-0" />
+                    Kanban
+                  </TabsTrigger>
+                  <TabsTrigger value="list" className={cohortTabTrigger}>
+                    <List className="h-4 w-4 shrink-0" />
+                    Lista
+                  </TabsTrigger>
                 </TabsList>
-                <TabsContent value="kanban" className="flex-grow mt-4">
+                <TabsContent value="kanban" className="mt-2 flex-grow overflow-y-auto">
                   <PaidCampaignKanban {...commonProps} />
                 </TabsContent>
-                <TabsContent value="list" className="flex-grow mt-4">
-                  <ClientMetaList />
+                <TabsContent value="list" className="mt-2 flex-grow overflow-y-auto">
+                  <PaidCampaignList {...commonProps} />
                 </TabsContent>
             </Tabs>
              <AnimatePresence>
@@ -374,6 +469,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
                     clients={clients}
                     users={users}
                     tasks={trafficTasks}
+                    tasksById={tasksById}
                     onSave={handleSaveCampaign}
                     onClose={handleCloseForm}
                     campaigns={campaigns}

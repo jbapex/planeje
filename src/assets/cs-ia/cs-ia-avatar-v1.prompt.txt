@@ -1,0 +1,9 @@
+Created with built-in imagegen on 2026-11-11. No CLI or API fallback.
+Reference style: src/assets/gestor-ia/gestor-ia-avatar.jpg (preserved).
+
+Original prompt:
+Use case: stylized-concept. Asset type: square app avatar for Planeje CS IA, matching the supplied Gestor IA reference image as a sibling in one illustration family. Reference image is STYLE ONLY, not an edit target. Create one original friendly adult female AI customer success assistant, shoulder length dark wavy hair, warm medium brown skin, attentive confident smile, small futuristic earpiece. Match the reference's bold editorial comic/vector-like portrait, angular planes, strong outlines, clean smooth cel shading, crisp face features. Close portrait from upper shoulders upward, centered face taking similar space as reference, jacket with high collar and turquoise glowing cyber details. Purple to indigo gradient background with the same rounded-square avatar silhouette, opaque background. Maintain excellent readability at 24 and 36 pixels. No text, letters, logos, watermark or extra objects. Distinct person from Gestor and CRM but visibly the same design system. One square avatar only.
+
+Color edit prompt:
+Edit this existing CS IA avatar. Change ONLY the purple/indigo gradient background to a distinct rich emerald green to teal gradient, and the small purple jacket accent strips to emerald green. Preserve the character identity, face, skin, hair, smile, earpiece, turquoise neon, pose, crop, silhouette, outlines, shading, all other clothing colors and white rounded-square corners exactly. Same sharp illustration family. Opaque background. No text or logos. One square avatar.
+

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
+import ClientPortalReports from '@/components/client/ClientPortalReports';
+import ClientPortalPerformance from '@/components/client/ClientPortalPerformance';
+import ClientPortalNotices from '@/components/client/ClientPortalNotices';
 import { supabase } from '@/lib/customSupabaseClient';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { 
@@ -18,7 +20,8 @@ import {
   ChevronDown,
   LayoutDashboard,
   ArrowUpRight,
-  User
+  User,
+  UserCheck,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachWeekOfInterval, eachMonthOfInterval, subMonths, startOfDay, endOfDay, subDays } from 'date-fns';
@@ -28,8 +31,20 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { TooltipCustom } from '@/components/ui/tooltip-custom';
+import { MiniCrmBoard, useMiniCrmSummary } from '@/components/pages/MiniCrmSummary';
+import { loadDashboardMetaSpend } from '@/lib/dashboardMetaSpend';
+import { rowFromContact, statusLabel } from '@/lib/miniCrm';
+import { resolvePainelPeriod } from '@/lib/trafegoPainelHref';
 
 // Função para formatar moeda
+function ymd(date) {
+  const value = date instanceof Date ? date : new Date(date);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const formatCurrency = (value) => {
   const num = typeof value === 'number' ? value : parseFloat(value) || 0;
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
@@ -48,7 +63,6 @@ const formatNumber = (value) => {
 };
 
 const ClientSupport = () => {
-  const navigate = useNavigate();
   const { profile } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -343,6 +357,152 @@ const ClientSupport = () => {
       roi
     };
   }, [resultadosDiarios, resultadosSemanais, periodoCalculado]);
+
+  const { ready: crmReady, summary: crmResumo, rows: crmRows, statuses: crmStatuses } = useMiniCrmSummary(clienteId, periodoCalculado.inicio, periodoCalculado.fim);
+  const painel = useMemo(() => {
+    if (!crmResumo) return mesAtual;
+    const leads = crmResumo.leads;
+    const vendas = crmResumo.vendas;
+    const faturamento = Number(crmResumo.valor) || 0;
+    const investimento = mesAtual.totalInvestimento;
+    return {
+      ...mesAtual,
+      totalLeads: leads,
+      totalVendas: vendas,
+      totalFaturamento: faturamento,
+      taxaConversao: leads ? (vendas / leads) * 100 : 0,
+      ticketMedio: crmResumo.ticket,
+      roi: investimento > 0 ? ((faturamento - investimento) / investimento) * 100 : 0,
+      qualificados: crmResumo.qualificados,
+      noShow: crmResumo.noShow,
+      agendamentos: crmResumo.agendamentos,
+      fromCrm: true,
+    };
+  }, [crmResumo, mesAtual]);
+
+  const [metaSpend, setMetaSpend] = useState(null);
+  const [metaDaily, setMetaDaily] = useState([]);
+  const [yearRows, setYearRows] = useState([]);
+
+  useEffect(() => {
+    if (!clienteId || !painel.fromCrm) {
+      setMetaSpend(null);
+      setMetaDaily([]);
+      return undefined;
+    }
+    let cancel = false;
+    const since = ymd(periodoCalculado.inicio);
+    const untilDate = periodoCalculado.fim > new Date() ? new Date() : periodoCalculado.fim;
+    const until = ymd(untilDate);
+    const alternates = [];
+    if (periodo === 'mes_atual') alternates.push(resolvePainelPeriod('mes'));
+    if (periodo === 'mes_anterior') alternates.push(resolvePainelPeriod('mes_passado'));
+    if (periodo === '7') alternates.push(resolvePainelPeriod('7d'));
+    if (periodo === '30') alternates.push(resolvePainelPeriod('30d'));
+    loadDashboardMetaSpend(clienteId, since, until, alternates)
+      .then((result) => {
+        if (cancel) return;
+        setMetaSpend(result.spend);
+        setMetaDaily(result.daily || []);
+      })
+      .catch(() => {
+        if (!cancel) setMetaSpend(null);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [clienteId, painel.fromCrm, periodo, periodoCalculado.inicio, periodoCalculado.fim]);
+
+  useEffect(() => {
+    if (!clienteId || !painel.fromCrm) {
+      setYearRows([]);
+      return undefined;
+    }
+    let cancel = false;
+    const year = new Date().getFullYear();
+    supabase
+      .from('cliente_whatsapp_contact')
+      .select('first_seen_at, mini_crm')
+      .eq('cliente_id', clienteId)
+      .gte('first_seen_at', `${year}-01-01T00:00:00-03:00`)
+      .lte('first_seen_at', `${year}-12-31T23:59:59-03:00`)
+      .limit(5000)
+      .then(({ data }) => {
+        if (!cancel) setYearRows((data || []).map(rowFromContact));
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [clienteId, painel.fromCrm]);
+
+  const emNegociacao = useMemo(() => (
+    (crmRows || []).filter((row) => {
+      const label = statusLabel(crmStatuses, row.status) || row.status;
+      return row.status === 'Em Negociação' || label === 'Em Negociação';
+    }).length
+  ), [crmRows, crmStatuses]);
+
+  const serieAnual = useMemo(() => {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const meses = Array.from({ length: 12 }, (_, mes) => {
+      const data = new Date(ano, mes, 1);
+      return {
+        mes: format(data, 'MMM/yyyy', { locale: ptBR }),
+        faturamento: 0,
+        vendas: 0,
+        ticketMedio: 0,
+        dataCompleta: data,
+      };
+    });
+    (yearRows || []).forEach((row) => {
+      if (row.status !== 'Venda Realizada') return;
+      const stamp = row.data_venda || row.data;
+      const data = new Date(row.data_venda ? `${row.data_venda}T12:00:00` : stamp);
+      if (Number.isNaN(data.getTime()) || data.getFullYear() !== ano) return;
+      const item = meses[data.getMonth()];
+      item.faturamento += Number(row.valor) || 0;
+      item.vendas += 1;
+    });
+    return meses.map((item) => ({
+      ...item,
+      ticketMedio: item.vendas ? item.faturamento / item.vendas : 0,
+    }));
+  }, [yearRows]);
+
+  const cplMeta = useMemo(() => {
+    if (!painel.fromCrm || !metaDaily.length) return [];
+    const fim = periodoCalculado.fim > new Date() ? new Date() : periodoCalculado.fim;
+    const semanas = eachWeekOfInterval(
+      { start: periodoCalculado.inicio, end: fim },
+      { weekStartsOn: 1 },
+    );
+    return semanas.map((semana, index) => {
+      const inicioSemana = startOfDay(semana > periodoCalculado.inicio ? semana : periodoCalculado.inicio);
+      const fimSemana = endOfDay(endOfWeek(semana, { weekStartsOn: 1 }) < fim ? endOfWeek(semana, { weekStartsOn: 1 }) : fim);
+      const spend = metaDaily.reduce((sum, item) => {
+        const data = startOfDay(new Date(`${item.day}T12:00:00`));
+        return data >= inicioSemana && data <= fimSemana ? sum + (Number(item.spend) || 0) : sum;
+      }, 0);
+      const leads = (crmRows || []).filter((row) => {
+        const data = startOfDay(new Date(row.data));
+        return data >= inicioSemana && data <= fimSemana && String(row.nome || '').trim();
+      }).length;
+      return {
+        semana: `Semana ${index + 1}`,
+        cpl: leads > 0 ? Number((spend / leads).toFixed(2)) : null,
+      };
+    });
+  }, [painel.fromCrm, metaDaily, periodoCalculado, crmRows]);
+
+  const periodoLegenda = {
+    7: 'Últimos 7 dias',
+    15: 'Últimos 15 dias',
+    30: 'Últimos 30 dias',
+    mes_atual: 'Mês atual',
+    mes_anterior: 'Mês anterior',
+    custom: 'Período',
+  }[periodo] || 'Período';
 
   // Separar vídeos e artes
   const videos = tasks.filter(task => task.type === 'video');
@@ -926,140 +1086,120 @@ const ClientSupport = () => {
     );
   };
 
-  // Componente de gráfico de barras com linhas de grade (estilo CPL)
-  const BarChart = ({ data, dataKey, labelKey, color, title }) => {
+  // Componente de gráfico de barras (CPL semanal) — barras só para cima, sem overflow
+  const BarChart = ({ data, dataKey, labelKey, color }) => {
     const [hoveredBar, setHoveredBar] = useState(null);
-    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
-    
-    // Filtrar valores null e calcular max apenas com valores válidos
-    const valores = data.map(d => d[dataKey] !== null ? parseFloat(d[dataKey]) || 0 : 0);
-    const maxValue = Math.max(...valores, 0.01);
-    const niceMax = Math.max(Math.ceil(maxValue * 2) / 2, 1);
+
+    const valores = data.map((d) => {
+      const raw = d[dataKey];
+      if (raw === null || raw === undefined) return 0;
+      const n = typeof raw === 'number' ? raw : parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    });
+    const maxValue = Math.max(...valores, 0);
+    const niceMax = maxValue > 0 ? Math.max(Math.ceil(maxValue * 2) / 2, 1) : 1;
     const alturaMaxima = 200;
     const paddingTop = 20;
     const paddingBottom = 30;
     const alturaGrafico = alturaMaxima - paddingTop - paddingBottom;
-    
-    const larguraTotal = data.length * 80;
-    const larguraBarraPx = (larguraTotal / data.length) * 0.5;
-    const espacamento = (larguraTotal / data.length) * 0.5;
-    
-    // Valores simplificados para o eixo Y
+    const yBase = paddingTop + alturaGrafico;
+    const n = Math.max(data.length, 1);
+    const larguraTotal = n * 80;
+    const slot = larguraTotal / n;
+    const larguraBarraPx = slot * 0.5;
     const valoresEixoY = [niceMax, 0];
 
     return (
-      <div className="w-full">
-        <div className="relative" style={{ height: `${alturaMaxima}px` }}>
-          <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-2 py-[18px]" style={{ width: '50px' }}>
+      <div className="w-full overflow-hidden">
+        <div className="relative overflow-hidden" style={{ height: `${alturaMaxima}px` }}>
+          <div
+            className="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-2"
+            style={{ width: '50px', paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}
+          >
             {valoresEixoY.map((valor, idx) => (
-              <span key={idx} className="text-[10px] font-medium text-slate-400">
+              <span key={idx} className="text-[10px] font-medium text-slate-400 leading-none">
                 {valor.toFixed(1)}
               </span>
             ))}
           </div>
 
-          <div className="ml-14 relative" style={{ height: `${alturaMaxima}px` }}>
-            <svg 
-              className="w-full h-full overflow-visible" 
-              viewBox={`0 0 ${data.length * 80} ${alturaMaxima}`} 
+          <div className="ml-14 relative h-full overflow-hidden">
+            <svg
+              className="w-full h-full"
+              viewBox={`0 0 ${larguraTotal} ${alturaMaxima}`}
               preserveAspectRatio="none"
+              style={{ overflow: 'hidden' }}
             >
+              <line
+                x1={0}
+                y1={yBase}
+                x2={larguraTotal}
+                y2={yBase}
+                stroke="#e2e8f0"
+                strokeWidth="1"
+              />
               {data.map((item, index) => {
-                const valor = item[dataKey] !== null ? parseFloat(item[dataKey]) || 0 : 0;
-                const altura = valor > 0 ? (valor / niceMax) * alturaGrafico : 0;
-                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
-                const yBase = paddingTop + alturaGrafico;
+                const valor = valores[index];
+                if (valor <= 0) return null;
+                const altura = (valor / niceMax) * alturaGrafico;
+                const xPos = index * slot + (slot - larguraBarraPx) / 2;
                 const yTop = yBase - altura;
-                
+                const opaco = hoveredBar === index || index === data.length - 1;
+
                 return (
-                  <g key={index}>
-                    {/* Área invisível para detectar hover */}
-                    <rect
-                      x={xPos - 5}
-                      y={0}
-                      width={larguraBarraPx + 10}
-                      height={alturaMaxima}
-                      fill="transparent"
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={(e) => {
-                        setHoveredBar(index);
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const container = e.currentTarget.closest('.ml-14');
-                        if (container) {
-                          const containerRect = container.getBoundingClientRect();
-                          setTooltipPosition({
-                            x: rect.left - containerRect.left + rect.width / 2,
-                            y: rect.top - containerRect.top
-                          });
-                        }
-                      }}
-                      onMouseLeave={() => setHoveredBar(null)}
-                    />
-                    <motion.rect
-                      x={xPos}
-                      y={yTop}
-                      width={larguraBarraPx}
-                      height={altura}
-                      fill={color}
-                      fillOpacity={hoveredBar === index ? "1" : (index === data.length - 1 ? "1" : "0.4")}
-                      rx="6"
-                      initial={{ height: 0, y: yBase }}
-                      animate={{ height: altura, y: yTop }}
-                      transition={{ duration: 0.8, delay: index * 0.1 }}
-                      style={{ transition: 'fillOpacity 0.2s' }}
-                    />
-                    {index === data.length - 1 && item[dataKey] !== null && (
-                      <text
-                        x={xPos + larguraBarraPx / 2}
-                        y={yTop - 8}
-                        textAnchor="middle"
-                        className="text-[10px] font-black fill-slate-800"
-                      >
-                        {formatCurrency(valor)}
-                      </text>
-                    )}
-                  </g>
+                  <rect
+                    key={index}
+                    x={xPos}
+                    y={yTop}
+                    width={larguraBarraPx}
+                    height={altura}
+                    fill={color}
+                    fillOpacity={opaco ? 1 : 0.4}
+                    rx="6"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredBar(index)}
+                    onMouseLeave={() => setHoveredBar(null)}
+                  />
                 );
               })}
             </svg>
-            
-            {/* Tooltip */}
-            {hoveredBar !== null && (
-              <div
-                className="absolute z-50 bg-slate-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none border border-slate-700"
-                style={{
-                  left: `${tooltipPosition.x}px`,
-                  top: `${tooltipPosition.y - 10}px`,
-                  transform: 'translate(-50%, -100%)'
-                }}
-              >
-                <div className="font-semibold mb-1 text-white">{data[hoveredBar][labelKey]}</div>
-                <div className="text-white">
-                  CPL: {data[hoveredBar][dataKey] !== null 
-                    ? formatCurrency(data[hoveredBar][dataKey]) 
-                    : 'N/A (sem leads)'}
+
+            {hoveredBar !== null && valores[hoveredBar] > 0 && (() => {
+              const valor = valores[hoveredBar];
+              const altura = (valor / niceMax) * alturaGrafico;
+              const xCenter = ((hoveredBar + 0.5) / n) * 100;
+              const yBarTop = paddingTop + alturaGrafico - altura;
+              const tooltipTop = Math.max(8, yBarTop - 8);
+              return (
+                <div
+                  className="absolute z-50 bg-slate-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none border border-slate-700 whitespace-nowrap"
+                  style={{
+                    left: `${xCenter}%`,
+                    top: `${tooltipTop}px`,
+                    transform: 'translate(-50%, -100%)',
+                  }}
+                >
+                  <div className="font-semibold mb-1 text-white">{data[hoveredBar][labelKey]}</div>
+                  <div className="text-white">CPL: {formatCurrency(valor)}</div>
                 </div>
-              </div>
-            )}
-            
-            <div className="absolute bottom-2 left-0 right-0 flex justify-between px-2">
-              {data.map((item, index) => {
-                const xPos = index * (larguraBarraPx + espacamento) + espacamento / 2;
-                const xPercent = (xPos / (data.length * 80)) * 100;
-                return (
-                  <div 
-                    key={index} 
-                    className="absolute text-[10px] font-bold text-slate-400 uppercase tracking-tighter text-center"
-                    style={{ 
-                      left: `${xPercent}%`,
-                      transform: 'translateX(-50%)',
-                      width: '40px'
-                    }}
-                  >
-                    {item[labelKey].replace('Semana ', 'S')}
-                  </div>
-                );
-              })}
+              );
+            })()}
+
+            <div className="absolute bottom-0 left-0 right-0 h-[30px] pointer-events-none">
+              {data.map((item, index) => (
+                <div
+                  key={index}
+                  className="absolute text-[10px] font-bold text-slate-400 uppercase tracking-tighter text-center"
+                  style={{
+                    left: `${((index + 0.5) / n) * 100}%`,
+                    transform: 'translateX(-50%)',
+                    width: '40px',
+                    bottom: '6px',
+                  }}
+                >
+                  {String(item[labelKey] || '').replace('Semana ', 'S')}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1188,7 +1328,7 @@ const ClientSupport = () => {
     );
   };
 
-  if (loading) {
+  if (loading || (clienteId && !crmReady)) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1364,9 +1504,13 @@ const ClientSupport = () => {
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Coluna da Esquerda (2/3) */}
-          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+        {profile?.role === 'cliente' && clienteId && <React.Fragment key={`${profile.id}:${clienteId}`}>
+          <ClientPortalPerformance clientId={clienteId} />
+          <ClientPortalReports clientId={clienteId} />
+          <ClientPortalNotices />
+        </React.Fragment>}
+        <div className={painel.fromCrm ? 'space-y-4' : 'grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6'}>
+          <div className={painel.fromCrm ? 'space-y-4' : 'lg:col-span-2 space-y-4 sm:space-y-6'}>
             {/* Card Faturamento Estilizado (Hero KPI) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -1385,87 +1529,131 @@ const ClientSupport = () => {
                 
                 <div className="relative z-10 space-y-3 sm:space-y-4">
                   <div className="px-2">
-                    <p className="text-white text-base sm:text-lg font-normal tracking-tight leading-tight">Faturamento Total</p>
-                    <h2 className="text-2xl sm:text-3xl font-black text-[#A7F3D0] mt-1 tracking-tighter leading-none drop-shadow-sm">
-                      {formatCurrency(mesAtual.totalFaturamento)}
+                    <p className="text-white text-base sm:text-lg font-normal tracking-tight leading-tight">{painel.fromCrm ? 'Valor vendido' : 'Faturamento Total'}</p>
+                    <h2 className="text-2xl sm:text-3xl font-black text-sky-100 mt-1 tracking-tighter leading-none drop-shadow-sm">
+                      {formatCurrency(painel.totalFaturamento)}
                     </h2>
                   </div>
 
                   {/* Sub-card branco translúcido para KPIs secundários */}
                   <div className="bg-white/95 backdrop-blur-md rounded-xl p-4 sm:p-5 shadow-lg">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 md:gap-0 relative">
-                      {/* Leads */}
-                      <TooltipCustom
-                        content="Total de leads gerados no período selecionado. Leads são contatos potenciais que demonstraram interesse no seu produto ou serviço."
-                        side="top"
-                      >
-                        <div className="flex flex-col md:pr-4 relative cursor-help">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
-                              {formatNumber(mesAtual.totalLeads)}
-                            </span>
-                            <User className="h-4 w-4 text-emerald-500/80" />
-                          </div>
-                          <div className="mt-0.5">
-                            <p className="text-xs font-bold text-slate-600 leading-tight">Leads Gerados</p>
-                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
-                          </div>
-                        </div>
-                      </TooltipCustom>
-                      
-                      {/* Divisor Vertical */}
-                      <div className="hidden md:block absolute left-[33.33%] top-0 bottom-0 w-[1px] bg-slate-100" />
-
-                      {/* Vendas */}
-                      <TooltipCustom
-                        content="Total de vendas fechadas no período selecionado. Representa o número de conversões efetivas de leads em clientes."
-                        side="top"
-                      >
-                        <div className="flex flex-col md:px-4 relative cursor-help">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
-                              {formatNumber(mesAtual.totalVendas)}
-                            </span>
-                            <ShoppingCart className="h-4 w-4 text-slate-300" />
-                          </div>
-                          <div className="mt-0.5">
-                            <p className="text-xs font-bold text-slate-600 leading-tight">Vendas Fechadas</p>
-                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Mês atual</p>
-                          </div>
-                        </div>
-                      </TooltipCustom>
-
-                      {/* Divisor Vertical */}
-                      <div className="hidden md:block absolute left-[66.66%] top-0 bottom-0 w-[1px] bg-slate-100" />
-
-                      {/* Taxa de Conversão */}
-                      <TooltipCustom
-                        content="Percentual de leads que se converteram em vendas. Calculado como: (Vendas ÷ Leads) × 100. Quanto maior, melhor a eficiência do funil."
-                        side="top"
-                      >
-                        <div className="flex flex-col md:pl-4 relative cursor-help">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">
-                              {formatPercentage(mesAtual.taxaConversao)}
-                            </span>
-                            <div className="p-0.5 rounded-md bg-purple-50/50">
-                              <TrendingUp className="h-4 w-4 text-purple-500/80" />
+                    <div className={`grid grid-cols-2 gap-4 sm:gap-0 ${painel.fromCrm && painel.qualificados != null ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                      {[
+                        { label: 'Leads Gerados', value: formatNumber(painel.totalLeads), hint: periodoLegenda, icon: User, iconClass: 'text-emerald-500/80' },
+                        painel.fromCrm && painel.qualificados != null && { label: 'Qualificados', value: formatNumber(painel.qualificados), hint: periodoLegenda, icon: UserCheck, iconClass: 'text-sky-500/80' },
+                        { label: 'Vendas Fechadas', value: formatNumber(painel.totalVendas), hint: periodoLegenda, icon: ShoppingCart, iconClass: 'text-slate-300' },
+                        { label: 'Taxa de Conversão', value: formatPercentage(painel.taxaConversao), hint: 'Leads → Vendas', icon: TrendingUp, iconClass: 'text-blue-500/80' },
+                      ].filter(Boolean).map((item, index) => {
+                        const Icon = item.icon;
+                        return (
+                          <div key={item.label} className={`flex flex-col ${index ? 'sm:border-l sm:border-slate-100 sm:pl-4' : ''} ${index < 3 ? 'sm:pr-4' : ''}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tighter">{item.value}</span>
+                              <Icon className={`h-4 w-4 ${item.iconClass}`} />
+                            </div>
+                            <div className="mt-0.5">
+                              <p className="text-xs font-bold text-slate-600 leading-tight">{item.label}</p>
+                              <p className="text-[9px] font-semibold text-slate-400 uppercase">{item.hint}</p>
                             </div>
                           </div>
-                          <div className="mt-0.5">
-                            <p className="text-xs font-bold text-slate-600 leading-tight">Taxa de Conversão</p>
-                            <p className="text-[9px] font-semibold text-slate-400 uppercase">Leads → Vendas</p>
-                          </div>
-                        </div>
-                      </TooltipCustom>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
               </div>
             </motion.div>
 
+            {painel.fromCrm ? (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.15 }}
+              >
+                <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
+                  <div className="mb-4 sm:mb-6">
+                    <h3 className="text-base sm:text-lg font-bold text-slate-800">ROI - Retorno sobre Investimento</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Análise financeira do período selecionado</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-sky-50 to-blue-50 border border-blue-100">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Investido</span>
+                      </div>
+                      <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                        {metaSpend == null ? '…' : formatCurrency(metaSpend)}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">
+                        {metaSpend == null ? 'Lendo a Meta' : 'Total investido no período'}
+                      </p>
+                    </div>
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Ticket médio</span>
+                      </div>
+                      <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                        {formatCurrency(painel.ticketMedio || 0)}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">Média por venda fechada</p>
+                    </div>
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
+                      <div className="flex items-center justify-end mb-2 sm:mb-3">
+                        <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Em negociação</span>
+                      </div>
+                      <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                        {formatNumber(emNegociacao)}
+                      </h4>
+                      <p className="text-xs text-slate-500 font-medium mt-2">Leads neste status no período</p>
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+            ) : null}
+
+            {painel.fromCrm ? (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2 space-y-4">
+                  <Card className="border-none shadow-sm bg-white rounded-2xl">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base font-bold text-slate-800">Evolução de Faturamento</CardTitle>
+                      <CardDescription>Faturamento mensal ao longo do ano</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <LineChart data={serieAnual} dataKey="faturamento" labelKey="mes" color="#14b8a6" />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-none shadow-sm bg-white rounded-2xl">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base font-bold text-slate-800">Evolução do Ticket Médio</CardTitle>
+                      <CardDescription>Ticket médio mensal das vendas fechadas</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <LineChart data={serieAnual} dataKey="ticketMedio" labelKey="mes" color="#3b82f6" />
+                    </CardContent>
+                  </Card>
+                </div>
+                <Card className="border-none shadow-sm bg-white rounded-2xl h-fit self-start overflow-hidden">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-bold text-slate-800">Evolução de CPL</CardTitle>
+                    <CardDescription>Custo por lead semanal</CardDescription>
+                  </CardHeader>
+                  <CardContent className="overflow-hidden">
+                    {cplMeta.length ? (
+                      <BarChart data={cplMeta} dataKey="cpl" labelKey="semana" color="#6366f1" />
+                    ) : (
+                      <p className="text-sm text-slate-400 py-8">Sem gasto diário da Meta neste período.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            {painel.fromCrm ? (
+              <MiniCrmBoard summary={crmResumo} rows={crmRows} statuses={crmStatuses} detailsOnly />
+            ) : null}
+
             {/* Card ROI - Investimento, Faturamento e ROI */}
-            <motion.div
+            {!painel.fromCrm ? <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.15 }}
@@ -1481,9 +1669,9 @@ const ClientSupport = () => {
                     content="Total de recursos investidos em marketing e publicidade no período selecionado. Inclui investimentos em tráfego pago e campanhas."
                     side="top"
                   >
-                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-orange-50 to-red-50 border border-orange-100 cursor-help">
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-sky-50 to-blue-50 border border-blue-100 cursor-help">
                       <div className="flex items-center justify-end mb-2 sm:mb-3">
-                        <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide">Investido</span>
+                        <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Investido</span>
                       </div>
                       <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
                         {formatCurrency(mesAtual.totalInvestimento)}
@@ -1502,7 +1690,7 @@ const ClientSupport = () => {
                         <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Faturado</span>
                       </div>
                       <h4 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
-                        {formatCurrency(mesAtual.totalFaturamento)}
+                        {formatCurrency(painel.totalFaturamento)}
                       </h4>
                       <p className="text-xs text-slate-500 font-medium mt-2">Total faturado no período</p>
                     </div>
@@ -1513,229 +1701,28 @@ const ClientSupport = () => {
                     content="Retorno sobre Investimento (ROI) mostra a eficiência do investimento em marketing. Calculado como: ((Faturamento - Investimento) ÷ Investimento) × 100. Valores positivos indicam lucro."
                     side="top"
                   >
-                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 cursor-help">
+                    <div className="flex flex-col p-4 sm:p-6 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 cursor-help">
                       <div className="flex items-center justify-end mb-2 sm:mb-3">
-                        <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide">ROI</span>
+                        <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">ROI</span>
                       </div>
                       <h4 className={`text-xl sm:text-2xl font-black tracking-tight ${
-                        mesAtual.roi >= 0 ? 'text-emerald-600' : 'text-red-600'
+                        painel.roi >= 0 ? 'text-emerald-600' : 'text-red-600'
                       }`}>
-                        {mesAtual.totalInvestimento > 0 ? `${mesAtual.roi >= 0 ? '+' : ''}${Math.round(mesAtual.roi)}%` : '0%'}
+                        {painel.totalInvestimento > 0 ? `${painel.roi >= 0 ? '+' : ''}${Math.round(painel.roi)}%` : '0%'}
                       </h4>
                       <p className="text-xs text-slate-500 font-medium mt-2">
-                        {mesAtual.totalInvestimento > 0 
-                          ? `Retorno líquido: ${formatCurrency(mesAtual.totalFaturamento - mesAtual.totalInvestimento)}`
+                        {painel.totalInvestimento > 0 
+                          ? `Retorno líquido: ${formatCurrency(painel.totalFaturamento - painel.totalInvestimento)}`
                           : 'Sem investimento registrado'}
                       </p>
                     </div>
                   </TooltipCustom>
                 </div>
               </Card>
-            </motion.div>
+            </motion.div> : null}
 
-            {/* Evolução de Faturamento */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.2 }}
-            >
-              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
-                <div className="mb-4 sm:mb-6">
-                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução de Faturamento</h3>
-                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Faturamento mensal ao longo do ano</p>
-                </div>
-                <div className="h-48 sm:h-64">
-                  {dadosMensaisFaturamento.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-slate-300 font-medium text-sm">Nenhum dado disponível</div>
-                  ) : (
-                    <LineChart
-                      data={dadosMensaisFaturamento}
-                      dataKey="faturamento"
-                      labelKey="mes"
-                      color="#2dd4bf"
-                    />
-                  )}
-                </div>
-              </Card>
-            </motion.div>
-
-            {/* Evolução do Ticket Médio */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.25 }}
-            >
-              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl">
-                <div className="mb-4 sm:mb-6">
-                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução do Ticket Médio</h3>
-                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Valor médio por venda ao longo do ano</p>
-                </div>
-                <div className="h-48 sm:h-64">
-                  {dadosMensaisFaturamento.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-slate-300 font-medium text-sm">Nenhum dado disponível</div>
-                  ) : (
-                    <LineChart
-                      data={dadosMensaisFaturamento}
-                      dataKey="ticketMedio"
-                      labelKey="mes"
-                      color="#3b82f6"
-                    />
-                  )}
-                </div>
-              </Card>
-            </motion.div>
           </div>
 
-          {/* Coluna da Direita (1/3) */}
-          <div className="space-y-4 sm:space-y-6">
-            {/* Histórico Recente */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.3 }}
-            >
-              <Card className="border-none shadow-sm sm:shadow-md bg-white rounded-xl sm:rounded-2xl h-[400px] sm:h-[500px] flex flex-col overflow-hidden">
-                <CardHeader className="p-6 pb-4 border-b border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-lg font-bold text-slate-800">Histórico Recente</CardTitle>
-                      <p className="text-xs text-slate-500 mt-1 font-medium">Últimos 4 dias cadastrados</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-blue-50">
-                      <Activity className="h-4 w-4 text-blue-600" />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-6 flex-1 overflow-y-auto">
-                  {resultadosDiarios.length > 0 ? (
-                    <div className="space-y-3">
-                      {resultadosDiarios.slice(0, 4).map((item, index) => {
-                        const data = new Date(item.data_referencia);
-                        const diaSemana = format(data, "EEEE", { locale: ptBR });
-                        const diaSemanaAbrev = diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1, 3);
-                        
-                        return (
-                          <motion.div
-                            key={item.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                            className="group relative p-5 rounded-xl bg-gradient-to-br from-slate-50 to-white border-2 border-slate-200 hover:border-blue-300 hover:shadow-md transition-all duration-300 cursor-pointer overflow-hidden"
-                          >
-                            {/* Barra lateral colorida */}
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-purple-500 rounded-l-xl" />
-                            
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1">
-                                {/* Data e dia da semana */}
-                                <div className="flex items-center gap-3 mb-3">
-                                  <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 text-white shadow-sm">
-                                    <span className="text-xs font-bold leading-tight">{format(data, "dd")}</span>
-                                    <span className="text-[9px] font-semibold uppercase leading-tight">{format(data, "MMM", { locale: ptBR })}</span>
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-bold text-slate-800">{format(data, "dd 'de' MMMM", { locale: ptBR })}</p>
-                                    <p className="text-xs text-slate-500 font-medium">{diaSemanaAbrev}</p>
-                                  </div>
-                                </div>
-                                
-                                {/* Métricas */}
-                                <div className="grid grid-cols-3 gap-3 mt-3">
-                                  <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50/50 border border-emerald-100">
-                                    <ShoppingCart className="h-3.5 w-3.5 text-emerald-600" />
-                                    <div>
-                                      <p className="text-[10px] text-emerald-700 font-semibold uppercase">Vendas</p>
-                                      <p className="text-sm font-black text-emerald-700">{item.vendas || 0}</p>
-                                    </div>
-                                  </div>
-                                  
-                                  <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-50/50 border border-blue-100">
-                                    <User className="h-3.5 w-3.5 text-blue-600" />
-                                    <div>
-                                      <p className="text-[10px] text-blue-700 font-semibold uppercase">Leads</p>
-                                      <p className="text-sm font-black text-blue-700">{item.leads || 0}</p>
-                                    </div>
-                                  </div>
-                                  
-                                  {item.investimento > 0 && (
-                                    <div className="flex items-center gap-2 p-2 rounded-lg bg-orange-50/50 border border-orange-100">
-                                      <DollarSign className="h-3.5 w-3.5 text-orange-600" />
-                                      <div>
-                                        <p className="text-[10px] text-orange-700 font-semibold uppercase">Invest</p>
-                                        <p className="text-xs font-black text-orange-700">{formatCurrency(item.investimento).replace('R$', '').trim()}</p>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              
-                              {/* Faturamento destacado */}
-                              <div className="flex flex-col items-end">
-                                <p className="text-xs text-slate-500 font-medium mb-1">Faturamento</p>
-                                <p className="text-xl font-black text-blue-600 tracking-tight">{formatCurrency(item.faturamento)}</p>
-                                {item.investimento > 0 && (
-                                  <div className="mt-2 px-2 py-1 rounded-md bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200">
-                                    <p className="text-[10px] font-bold text-emerald-700">
-                                      ROI: {item.investimento > 0 ? `${((item.faturamento - item.investimento) / item.investimento * 100).toFixed(0)}%` : '0%'}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-center space-y-6 h-full">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full" />
-                        <div className="bg-white p-5 rounded-2xl shadow-sm relative z-10 border border-slate-50">
-                          <img src="/placeholder-illustration.svg" alt="Sem dados" className="h-24 w-24 opacity-80" />
-                        </div>
-                      </div>
-                      <div className="max-w-[200px]">
-                        <h4 className="text-lg font-bold text-slate-800">Nenhum dado ainda.</h4>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed font-medium">Considere adicionar dados diários para ver aqui.</p>
-                      </div>
-                      <button 
-                        onClick={() => navigate('/cliente/trafego')}
-                        className="w-full bg-blue-600 text-white text-sm font-bold py-3.5 rounded-xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 hover:-translate-y-1 active:scale-95 transition-all duration-300"
-                      >
-                        Cadastrar Dados
-                      </button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
-
-            {/* Evolução de CPL */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.4 }}
-            >
-              <Card className="border-none shadow-sm sm:shadow-md bg-white p-5 sm:p-8 rounded-xl sm:rounded-2xl overflow-hidden group flex flex-col">
-                <div className="mb-3 sm:mb-4">
-                  <h3 className="text-base sm:text-lg font-bold text-slate-800">Evolução de CPL</h3>
-                  <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-1">Custo por Lead semanal</p>
-                </div>
-                <div className="h-40">
-                  {cplSemanal.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-slate-300 font-medium text-sm">Nenhum dado disponível</div>
-                  ) : (
-                    <BarChart
-                      data={cplSemanal}
-                      dataKey="cpl"
-                      labelKey="semana"
-                      color="#3b82f6"
-                    />
-                  )}
-                </div>
-              </Card>
-            </motion.div>
-          </div>
         </div>
       </div>
     </>

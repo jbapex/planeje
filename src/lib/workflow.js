@@ -1,5 +1,7 @@
 import { format, startOfDay, parseISO, isSameDay } from 'date-fns';
 import { supabase } from '@/lib/customSupabaseClient';
+import { hasOperationalActions, compileOperationalActions } from '@/lib/operationalWorkflow';
+import { resolveOperationalContext } from '@/lib/operationalFunctionsApi';
 
 let automationsCache = null;
 let cacheTimestamp = 0;
@@ -130,7 +132,7 @@ function normalizeActions(raw) {
   });
 }
 
-function normalizeAutomationRow(automation) {
+export function normalizeAutomationRow(automation) {
   if (!automation) return automation;
   return {
     ...automation,
@@ -208,12 +210,20 @@ export const executeAutomation = async (taskId, triggerType, eventData) => {
       };
     }
 
+    const matching = automations.map(normalizeAutomationRow).filter((row) => checkTrigger(row, eventData));
+    const allActions = matching.flatMap((row) => row.actions);
+    // Resolve every new destination before any matching rule writes. Legacy rules keep
+    // their existing behavior and do not depend on the new configuration tables.
+    const context = hasOperationalActions(allActions)
+      ? await resolveOperationalContext(taskId, allActions) : null;
+    const prepared = matching.map((row) => ({
+      ...row,
+      actions: context ? compileOperationalActions(row.actions, context) : row.actions,
+    }));
     const results = [];
-    for (const automation of automations) {
-      const row = normalizeAutomationRow(automation);
-      if (!checkTrigger(row, eventData)) continue;
+    for (const row of prepared) {
       const result = await runActions(row.actions, taskId);
-      results.push({ automationId: automation.id, result });
+      results.push({ automationId: row.id, result });
     }
 
     const anyError = results.some((r) => r.result?.error);
@@ -228,7 +238,7 @@ export const executeAutomation = async (taskId, triggerType, eventData) => {
   }
 };
 
-const checkTrigger = (automation, eventData) => {
+export const checkTrigger = (automation, eventData) => {
   const config = parseJsonField(automation.trigger_config, {});
   switch (automation.trigger_type) {
     case 'status_change': {
@@ -323,7 +333,7 @@ const runActions = async (actions, taskId) => {
 
   const { data: task, error: fetchError } = await supabase
     .from('tarefas')
-    .select('assignee_ids, status_history, status, priority')
+    .select('assignee_ids, status_history, status, priority, operational_function_id, demand_type, demand_origin, sla_days, review_round')
     .eq('id', taskId)
     .single();
 
@@ -373,6 +383,17 @@ const runActions = async (actions, taskId) => {
         if (config.priority) {
           updates.priority = config.priority;
         }
+        break;
+      case 'set_operational_function':
+        if (config.function_id) updates.operational_function_id = config.function_id;
+        break;
+      case 'set_demand_control':
+        if (config.demand_type) updates.demand_type = config.demand_type;
+        if (config.demand_origin) updates.demand_origin = config.demand_origin;
+        if (config.sla_days !== '' && config.sla_days != null) updates.sla_days = Number(config.sla_days);
+        break;
+      case 'increment_review_round':
+        updates.review_round = Number(task.review_round || 0) + 1;
         break;
       case 'set_assignee': {
         let assigneesToAdd = [];
@@ -427,14 +448,32 @@ const runActions = async (actions, taskId) => {
         if (!hasRemoveAllAction && config.from_status && task.status_history) {
           const historyReversed = [...(task.status_history || [])].reverse();
           const previousEntry = historyReversed.find(
-            (h) => h.status === config.from_status && h.user_id
+            (h) =>
+              h &&
+              typeof h === 'object' &&
+              statusMatchesConfigured(config.from_status, String(h.status ?? ''))
           );
-          if (previousEntry && previousEntry.user_id) {
-            const newAssignee = String(previousEntry.user_id);
-            if (!allIdsToRemove.has(newAssignee)) {
-              if (JSON.stringify(currentAssignees) !== JSON.stringify([newAssignee])) {
-                currentAssignees = [newAssignee];
-                hasAssigneeChanges = true;
+          if (previousEntry && typeof previousEntry === 'object') {
+            const idsFromHistory = Array.isArray(previousEntry.assignee_ids)
+              ? normalizeAssigneeIdsFromTask(previousEntry.assignee_ids)
+              : [];
+            let nextAssignees = [];
+            if (idsFromHistory.length > 0) {
+              nextAssignees = [...new Set(idsFromHistory)];
+            } else if (previousEntry.user_id != null && String(previousEntry.user_id).trim()) {
+              nextAssignees = [String(previousEntry.user_id).trim()];
+            }
+            if (nextAssignees.length > 0) {
+              const allBlocked = nextAssignees.every((id) => allIdsToRemove.has(id));
+              if (!allBlocked) {
+                const filtered = nextAssignees.filter((id) => !allIdsToRemove.has(id));
+                const useAssignees = filtered.length > 0 ? filtered : nextAssignees;
+                const sortedA = [...useAssignees].sort();
+                const sortedB = [...currentAssignees].sort();
+                if (JSON.stringify(sortedA) !== JSON.stringify(sortedB)) {
+                  currentAssignees = useAssignees;
+                  hasAssigneeChanges = true;
+                }
               }
             }
           }

@@ -125,7 +125,12 @@ import React, { useState, useEffect } from 'react';
                       {!isNewTask && <TaskCommentsTab taskId={task.id} />}
                     </TabsContent>
                     <TabsContent value="attachments" className="mt-4">
-                      {!isNewTask && <TaskAttachmentsTab taskId={task.id} />}
+                      {!isNewTask && (
+                        <TaskAttachmentsTab
+                          taskId={task.id}
+                          clienteId={formData.client_id || task.client_id || null}
+                        />
+                      )}
                     </TabsContent>
                      <TabsContent value="history" className="mt-4">
                       {!isNewTask && <TaskHistoryTab history={formData.status_history} users={users} statusOptions={statusOptions} />}

@@ -95,7 +95,7 @@ import React, { useState, useEffect, useCallback } from 'react';
       return (
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">
-            <div>
+            <div className="super-admin-embedded-hide">
               <h1 className="text-3xl font-bold">Gerenciador de Agentes de IA</h1>
               <p className="text-gray-500">Crie e configure os agentes para o assistente ApexIA.</p>
             </div>

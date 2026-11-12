@@ -8,12 +8,14 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, CheckCircle2, XCircle, Loader2, Send } from 'lucide-react';
+import { MessageSquare, CheckCircle2, XCircle, Loader2, Send, Puzzle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const WhatsAppSettings = () => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
@@ -259,6 +261,23 @@ Se você recebeu esta mensagem, suas configurações estão corretas! 🎉`,
           Configure suas notificações WhatsApp para receber alertas sobre tarefas e campanhas
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Puzzle className="h-5 w-5" />
+            Extensão no Chrome
+          </CardTitle>
+          <CardDescription>
+            Ícone arrastável em qualquer página do Chrome, com demandas do dia e criação rápida de tarefa ou solicitação.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button type="button" variant="outline" onClick={() => navigate('/extensao-whatsapp')}>
+            Baixar extensão
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

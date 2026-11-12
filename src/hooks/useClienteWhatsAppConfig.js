@@ -11,25 +11,108 @@ import { useToast } from '@/components/ui/use-toast';
  * - saveConfig(subdomain, token, { configId?, name? }), addConfig(subdomain, token, name?), deleteConfig(configId)
  */
 export function useClienteWhatsAppConfig(options = {}) {
-  const { autoSelectFirstClient = true } = options;
+  const {
+    autoSelectFirstClient = true,
+    allowMultiClientHub = false,
+    forConversas = false,
+    controlledSelectedClienteId,
+    onSelectedClienteIdChange,
+    lockedClienteId = null,
+    preferredConversasClienteId = null,
+  } = options;
   const { profile } = useAuth();
   const { toast } = useToast();
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedClienteId, setSelectedClienteId] = useState(null);
+  const [internalSelectedClienteId, setInternalSelectedClienteId] = useState(null);
   const [clientesForAdmin, setClientesForAdmin] = useState([]);
+  const [conversasClienteId, setConversasClienteId] = useState(null);
+  const [conversasClienteLoading, setConversasClienteLoading] = useState(false);
 
-  const isAdminWithoutCliente =
-    profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
+  const isControlled =
+    controlledSelectedClienteId !== undefined && typeof onSelectedClienteIdChange === 'function';
+  const selectedClienteId = isControlled ? controlledSelectedClienteId : internalSelectedClienteId;
+  const setSelectedClienteId = useCallback(
+    (id) => {
+      if (isControlled) onSelectedClienteIdChange(id);
+      else setInternalSelectedClienteId(id);
+    },
+    [isControlled, onSelectedClienteIdChange]
+  );
 
-  const effectiveClienteId = isAdminWithoutCliente ? selectedClienteId : profile?.cliente_id;
+  const isStaff =
+    profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role);
+  const isInternalWithoutCliente = isStaff && !profile?.cliente_id;
+  /** Superadmin sem cliente vinculado escolhe a operação no hub Conversas. */
+  const isSuperadminConversasHub =
+    forConversas && profile?.role === 'superadmin' && !profile?.cliente_id;
+  /** Admin e colaborador usam vínculos de atendimento_usuario_acesso (sem seletor de cliente). */
+  const isScopedConversasUser =
+    forConversas && ['colaborador', 'admin'].includes(profile?.role) && !profile?.cliente_id;
+  const isAdminWithoutCliente = forConversas ? isSuperadminConversasHub : isInternalWithoutCliente;
+  const isColaboradorConversas = isScopedConversasUser;
+  /** Hub Rastreamento: equipe interna escolhe cliente mesmo com cliente_id no perfil */
+  const isMultiClientHub = allowMultiClientHub && isStaff;
+  const canPickCliente = forConversas
+    ? isSuperadminConversasHub
+    : isInternalWithoutCliente || isMultiClientHub;
+
+  const effectiveClienteId = lockedClienteId
+    ? lockedClienteId
+    : canPickCliente
+      ? selectedClienteId
+      : isScopedConversasUser
+        ? conversasClienteId
+        : profile?.cliente_id;
+
+  const conversasAccessMissing =
+    isScopedConversasUser && !conversasClienteLoading && !conversasClienteId;
 
   /** Primeiro config (retrocompatibilidade para páginas que usam um só) */
   const config = configs?.[0] ?? null;
 
   const fetchClientesForAdmin = useCallback(async () => {
-    if (!isAdminWithoutCliente) return;
+    if (!canPickCliente) return;
+    if (forConversas) {
+      const { data: filas, error: filasError } = await supabase
+        .from('atendimento_filas')
+        .select('cliente_id');
+      if (filasError) {
+        toast({ variant: 'destructive', title: 'Erro ao listar operações', description: filasError.message });
+        setClientesForAdmin([]);
+        return;
+      }
+      const ids = [...new Set((filas || []).map((f) => f.cliente_id).filter(Boolean))];
+      if (ids.length === 0) {
+        setClientesForAdmin([]);
+        return;
+      }
+      const { data: clientes, error } = await supabase
+        .from('clientes')
+        .select('id, empresa')
+        .in('id', ids)
+        .order('empresa');
+      if (error) {
+        toast({ variant: 'destructive', title: 'Erro ao listar clientes', description: error.message });
+        setClientesForAdmin([]);
+        return;
+      }
+      setClientesForAdmin(clientes || []);
+      if (autoSelectFirstClient && clientes?.length && !selectedClienteId) setSelectedClienteId(clientes[0].id);
+      return;
+    }
+    if (isMultiClientHub) {
+      const { data: clientes, error } = await supabase.from('clientes').select('id, empresa').order('empresa');
+      if (error) {
+        toast({ variant: 'destructive', title: 'Erro ao listar clientes', description: error.message });
+        setClientesForAdmin([]);
+        return;
+      }
+      setClientesForAdmin(clientes || []);
+      if (autoSelectFirstClient && clientes?.length && !selectedClienteId) setSelectedClienteId(clientes[0].id);
+      return;
+    }
     const { data: profilesData } = await supabase
       .from('profiles')
       .select('cliente_id')
@@ -43,7 +126,35 @@ export function useClienteWhatsAppConfig(options = {}) {
     const { data: clientes } = await supabase.from('clientes').select('id, empresa').in('id', ids).order('empresa');
     setClientesForAdmin(clientes || []);
     if (autoSelectFirstClient && clientes?.length && !selectedClienteId) setSelectedClienteId(clientes[0].id);
-  }, [isAdminWithoutCliente, selectedClienteId, autoSelectFirstClient]);
+  }, [canPickCliente, forConversas, isMultiClientHub, selectedClienteId, autoSelectFirstClient, toast]);
+
+  useEffect(() => {
+    if (!isScopedConversasUser || !profile?.id) {
+      setConversasClienteId(null);
+      setConversasClienteLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setConversasClienteLoading(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from('atendimento_usuario_acesso')
+        .select('cliente_id')
+        .eq('user_id', profile.id);
+      if (cancelled) return;
+      if (error) {
+        setConversasClienteId(null);
+        setConversasClienteLoading(false);
+        return;
+      }
+      const ids = [...new Set((data || []).map((r) => r.cliente_id).filter(Boolean))];
+      setConversasClienteId(ids.includes(preferredConversasClienteId) ? preferredConversasClienteId : ids[0] || null);
+      setConversasClienteLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isScopedConversasUser, profile?.id, preferredConversasClienteId]);
 
   useEffect(() => {
     fetchClientesForAdmin();
@@ -301,6 +412,11 @@ export function useClienteWhatsAppConfig(options = {}) {
     setUseSse,
     updateApicebotApi,
     isAdminWithoutCliente,
+    isColaboradorConversas,
+    conversasAccessMissing,
+    conversasClienteLoading,
+    isMultiClientHub,
+    canPickCliente,
     selectedClienteId,
     setSelectedClienteId,
     clientesForAdmin,

@@ -1,11 +1,19 @@
-import React, { memo, useRef, useEffect, useState } from 'react';
+import React, { memo, useRef, useEffect, useState, useMemo } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import SidebarCliente from '@/components/client/SidebarCliente';
 import BottomNavCliente from '@/components/client/BottomNavCliente';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut } from 'lucide-react';
+import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
+import { LogOut, RefreshCw } from 'lucide-react';
+import { reloadCurrentPage } from '@/lib/teamNav';
+import { cn } from '@/lib/utils';
+import {
+  CLIENT_PANEL_COLOR_EVENT,
+  CLIENT_PANEL_LOGO_EVENT,
+  buildClientPanelVars,
+  normalizeHex,
+} from '@/lib/clientPanelTheme';
 
 const MainLayoutCliente = memo(() => {
   const location = useLocation();
@@ -15,6 +23,7 @@ const MainLayoutCliente = memo(() => {
   const { profile, signOut } = auth || {};
   const [clienteData, setClienteData] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [panelColor, setPanelColor] = useState(null);
 
   // Salva posição de scroll ao navegar
   useEffect(() => {
@@ -84,26 +93,45 @@ const MainLayoutCliente = memo(() => {
 
       const { data, error } = await supabase
         .from('clientes')
-        .select('empresa, nome_contato, logo_urls')
+        .select('empresa, nome_contato, logo_urls, painel_cor')
         .eq('id', profile.cliente_id)
         .maybeSingle();
 
       if (!error && data) {
         setClienteData(data);
+        setPanelColor(normalizeHex(data.painel_cor));
       } else {
         setClienteData(null);
+        setPanelColor(null);
       }
     };
 
     fetchClienteData();
   }, [profile?.cliente_id, profile?.role]);
 
+  useEffect(() => {
+    const onColor = (e) => {
+      if (profile?.role !== 'cliente' || !profile?.cliente_id) return;
+      setPanelColor(normalizeHex(e.detail?.color));
+    };
+    const onLogo = (e) => {
+      if (profile?.role !== 'cliente' || !profile?.cliente_id) return;
+      setClienteData((prev) => (prev ? { ...prev, logo_urls: e.detail?.logoUrls || [] } : prev));
+    };
+    window.addEventListener(CLIENT_PANEL_COLOR_EVENT, onColor);
+    window.addEventListener(CLIENT_PANEL_LOGO_EVENT, onLogo);
+    return () => {
+      window.removeEventListener(CLIENT_PANEL_COLOR_EVENT, onColor);
+      window.removeEventListener(CLIENT_PANEL_LOGO_EVENT, onLogo);
+    };
+  }, [profile?.role, profile?.cliente_id]);
+
+  const panelVars = useMemo(() => buildClientPanelVars(panelColor), [panelColor]);
+
   // Calcular dados para exibição no header
   const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
   const clienteNome = clienteData?.empresa || clienteData?.nome_contato || profile?.full_name || 'JB APEX';
-  const clienteFoto = clienteData?.logo_urls && clienteData.logo_urls.length > 0 
-    ? clienteData.logo_urls[0] 
-    : null;
+  const clienteFoto = rewritePublicStorageUrl(clienteData?.logo_urls?.[0] || '') || null;
   const iniciais = clienteNome
     .split(' ')
     .map(n => n[0])
@@ -114,80 +142,120 @@ const MainLayoutCliente = memo(() => {
     ? 'JB APEX' 
     : (clienteData?.empresa || clienteData?.nome_contato || 'JB APEX');
 
-  // Colapsar automaticamente a sidebar quando estiver na rota de CRM
+  // Colapsar automaticamente a sidebar em CRM / Mini CRM / Atendimento (ícones como a faixa estreita)
   const path = location.pathname || '';
-  const isCrmRoute = path.startsWith('/cliente/crm') || path.startsWith('/client-area/crm');
+  const isCrmRoute =
+    path.startsWith('/cliente/crm') ||
+    path.startsWith('/client-area/crm') ||
+    path.startsWith('/cliente/mini-crm') ||
+    path.startsWith('/client-area/mini-crm');
+  const isAtendimentoRoute =
+    path.startsWith('/cliente/atendimento') || path.startsWith('/client-area/atendimento');
+  const isIconSidebarRoute = isCrmRoute || isAtendimentoRoute;
+
+  const isCalendarRoute = /^\/(cliente|client-area)\/calendario\/?$/.test(path);
 
   useEffect(() => {
-    setIsSidebarCollapsed(isCrmRoute);
-  }, [path]);
+    setIsSidebarCollapsed(isIconSidebarRoute);
+  }, [path, isIconSidebarRoute]);
+
+  useEffect(() => {
+    if (!isCalendarRoute) return undefined;
+    const root = document.documentElement;
+    root.classList.add('planeje-scroll-locked');
+    document.body.classList.add('planeje-scroll-locked');
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+      mainRef.current.scrollLeft = 0;
+    }
+    window.scrollTo(0, 0);
+    return () => {
+      root.classList.remove('planeje-scroll-locked');
+      document.body.classList.remove('planeje-scroll-locked');
+    };
+  }, [isCalendarRoute]);
 
   return (
-    <div className="h-screen flex overflow-hidden bg-[#f8fafc]">
+    <div
+      className="planeje-app planeje-cliente-app flex flex-row overflow-hidden flex-1 min-h-0 w-full h-full"
+      style={panelVars || undefined}
+      data-client-color={panelVars ? 'custom' : undefined}
+    >
       <SidebarCliente
         collapsed={isSidebarCollapsed}
-        onToggleCollapsed={() => setIsSidebarCollapsed(prev => !prev)}
+        onToggleCollapsed={() => setIsSidebarCollapsed((prev) => !prev)}
       />
-      
-      {/* Header Mobile Fixo */}
-      {auth && profile && (
-        <header className="md:hidden fixed top-0 left-0 right-0 h-24 bg-[#0f172a] z-50 border-b border-white/5">
-          {/* Background Image Celestial */}
-          <div 
-            className="absolute inset-0 opacity-80 pointer-events-none bg-cover bg-center" 
-            style={{ backgroundImage: "url('/sidebar-bg.png')" }} 
-          />
-          
-          {/* Overlay para profundidade e legibilidade */}
-          <div className="absolute inset-0 bg-gradient-to-b from-blue-950/40 via-transparent to-[#0f172a]/80 pointer-events-none" />
-          
-          <div className="h-24 flex flex-col justify-center px-6 relative z-10">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                {clienteFoto ? (
-                  <Avatar className="h-11 w-11 border-2 border-white/20 shadow-xl flex-shrink-0">
-                    <AvatarImage src={clienteFoto} alt={clienteNome} />
-                    <AvatarFallback className="bg-gradient-to-br from-blue-600 to-blue-400 text-white font-bold text-sm">
-                      {iniciais}
-                    </AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <div className="h-11 w-11 bg-gradient-to-br from-blue-600 to-blue-400 rounded-full flex items-center justify-center shadow-2xl shadow-blue-500/40 border border-white/10 flex-shrink-0">
-                    <span className="text-white font-bold text-sm">{iniciais}</span>
+
+      <div className="planeje-main-column flex-1 min-h-0 min-w-0 overflow-hidden">
+        <div className="planeje-workspace flex-1 min-h-0">
+          {auth && profile && (
+            <header
+              className="md:hidden fixed top-0 left-0 right-0 z-50 border-b border-white/20"
+              style={{ background: 'var(--jb-gradient)' }}
+            >
+              <div className="flex h-[5.5rem] flex-col justify-center px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="planeje-sidebar-logo h-11 w-11 shrink-0 overflow-hidden p-0 text-sm">
+                      {clienteFoto ? (
+                        <img src={clienteFoto} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span>{iniciais}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-lg font-bold leading-none text-white">{displayName}</span>
+                      <span className="mt-1 block text-xs font-medium text-white/80">Área do Cliente</span>
+                    </div>
                   </div>
-                )}
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-xl font-bold text-white tracking-tight leading-none truncate">
-                    {displayName}
-                  </span>
-                  <span className="text-xs text-slate-300/80 mt-1 font-medium tracking-wide">
-                    Área do Cliente
-                  </span>
+                  <button
+                    type="button"
+                    onClick={reloadCurrentPage}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white"
+                    aria-label="Atualizar a página"
+                    title="Atualizar a página"
+                  >
+                    <RefreshCw className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={signOut}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white"
+                    aria-label="Sair do sistema"
+                  >
+                    <LogOut className="h-5 w-5" />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={signOut}
-                className="h-10 w-10 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition-colors duration-200 flex-shrink-0"
-                aria-label="Sair do sistema"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-        </header>
-      )}
+            </header>
+          )}
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <main
-          ref={mainRef}
-          className={`flex-1 flex flex-col min-h-0 overflow-hidden ${isCrmRoute ? 'pt-24 md:pt-2 sm:pt-4 md:py-4 pb-20 md:pb-4' : 'overflow-y-auto px-3 sm:px-4 md:px-8 pt-28 md:pt-4 sm:pt-6 md:py-8 pb-20 md:pb-6'}`}
-          style={!isCrmRoute ? { paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))' } : undefined}
-        >
-          <div className={isCrmRoute ? 'flex-1 flex flex-col min-h-0 w-full' : 'max-w-7xl mx-auto'}>
-            <Outlet />
-          </div>
-        </main>
+          <main
+            ref={mainRef}
+            className={cn(
+              'planeje-workspace-main',
+              isIconSidebarRoute
+                ? 'planeje-workspace-main--flush pt-24 md:pt-0 pb-20 md:pb-0'
+                : 'planeje-workspace-main--scroll planeje-page-padding pt-28 md:pt-0 pb-20 md:pb-0',
+              isCalendarRoute && 'planeje-workspace-main--locked'
+            )}
+            style={
+              !isIconSidebarRoute
+                ? { paddingBottom: 'max(5rem, calc(4rem + env(safe-area-inset-bottom, 0px)))' }
+                : undefined
+            }
+          >
+            <div
+              className={
+                isIconSidebarRoute ? 'flex min-h-0 flex-1 flex-col w-full' : 'max-w-7xl mx-auto w-full'
+              }
+            >
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
+
       <BottomNavCliente />
     </div>
   );

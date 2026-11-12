@@ -4,14 +4,14 @@ import { useLocation } from 'react-router-dom';
 
 /**
  * Hook para persistir estado de formulário em sessionStorage
- * @param {string} formKey - Chave única para identificar o formulário (ex: 'project_form_123' ou 'client_form_new')
+ * @param {string|null} formKey - Chave única do formulário; null mantém o rascunho em memória.
  * @param {object} initialData - Dados iniciais do formulário
  * @param {number} debounceMs - Tempo de debounce para salvar (padrão: 500ms)
  * @returns {[object, function, function]} - [formData, setFormData, clearFormData]
  */
 export const useSessionFormState = (formKey, initialData = {}, debounceMs = 500) => {
   const location = useLocation();
-  const storageKey = `form_state_${formKey}`;
+  const storageKey = formKey ? `form_state_${formKey}` : null;
   const [formData, setFormData] = useState(() => {
     // SEMPRE inicia com initialData (dados do cliente)
     // A restauração de dados salvos será feita no useEffect do componente que usa o hook
@@ -21,6 +21,7 @@ export const useSessionFormState = (formKey, initialData = {}, debounceMs = 500)
 
   // Salva no sessionStorage sempre que formData muda (com debounce)
   useEffect(() => {
+    if (!storageKey) return;
     const timeoutId = setTimeout(() => {
       try {
         sessionStorage.setItem(storageKey, JSON.stringify({
@@ -49,7 +50,7 @@ export const useSessionFormState = (formKey, initialData = {}, debounceMs = 500)
   // Função para limpar o estado salvo
   const clearFormData = useCallback(() => {
     try {
-      sessionStorage.removeItem(storageKey);
+      if (storageKey) sessionStorage.removeItem(storageKey);
       setFormData(initialData);
     } catch (error) {
       console.error('Error clearing form state:', error);

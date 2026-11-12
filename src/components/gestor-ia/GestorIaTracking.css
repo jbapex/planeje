@@ -1,0 +1,43 @@
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] dl {
+  display: block;
+  margin: 8px 0 0;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] .rt-lead-ficha__mark-cell {
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid hsl(var(--border));
+  border-radius: 0;
+  background: transparent;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] .rt-lead-ficha__mark-cell:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] dd {
+  margin: 0;
+  text-align: right;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] .col-span-2 {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] .col-span-2 dd {
+  text-align: left;
+}
+
+.rt-lead-ficha--gestor [aria-label="Mini CRM"] .rt-lead-ficha__mini-status {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--mini-crm-status);
+  color: var(--mini-crm-status-ink);
+  font-weight: 600;
+}

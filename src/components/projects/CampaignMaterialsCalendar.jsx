@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import {
   format,
   parseISO,
@@ -23,6 +23,10 @@ import {
   ClipboardList,
   Pencil,
 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { createTaskFromPlanMaterial, normalizePlanMaterialChannels } from '@/lib/projectPlanTasks';
+import { CHANNEL_OPTIONS } from '@/lib/taskChannelPublications';
+import AutomationHelp from '@/components/tasks/automations/AutomationHelp';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -61,6 +65,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const MATERIAL_TEXT_FIELDS = [
+  { key: 'detalhes', label: 'Orientações para produção', rows: 5, placeholder: 'O que a equipe precisa saber para produzir.' },
+  { key: 'roteiro', label: 'Roteiro ou texto da peça', rows: 5 },
+  { key: 'legenda', label: 'Legenda base', rows: 3 },
+];
 
 /** Interpreta yyyy-MM-dd sem deslocar o dia por fuso */
 function parseMaterialDateString(yyyyMmDd) {
@@ -186,13 +195,16 @@ function defaultMaterial(dateStr) {
   };
 }
 
-const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
+const CampaignMaterialsCalendar = forwardRef(({ project, client, onRefresh }, ref) => {
+  const navigate = useNavigate();
+  const [linkedTasks, setLinkedTasks] = useState([]);
+  const linkedTask = (id) => linkedTasks.find((t) => t.plan_material_id != null && String(t.plan_material_id) === String(id));
   const { toast } = useToast();
   const { user } = useAuth();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const [month, setMonth] = useState(() => startOfMonth(project?.mes_referencia ? new Date(project.mes_referencia.slice(0, 10) + "T12:00:00") : new Date()));
   const [profiles, setProfiles] = useState([]);
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -234,6 +246,9 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
     } else {
       setPlan(null);
     }
+    const taskResult = await supabase.from('tarefas').select('id,title,status,project_id,plan_material_id').eq('project_id', project.id);
+    if (taskResult.error) toast({ title: 'Erro ao consultar tarefas do projeto', description: taskResult.error.message, variant: 'destructive' });
+    else setLinkedTasks(taskResult.data || []);
     setLoading(false);
   }, [project.id, toast]);
 
@@ -258,7 +273,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   const persistPlan = async (nextPlan, { silent } = {}) => {
     if (!nextPlan?.id) return false;
     setSaving(true);
-    const materiaisRows = editorMateriaisShapeToDbRows(dbMateriaisToEditorShape(nextPlan.materiais));
+    const materiaisRows = planMateriaisAsRows(nextPlan);
     const planForCron = { ...nextPlan, materiais: materiaisRows };
     const payload = pickWritableCampaignPlanPayload({
       ...nextPlan,
@@ -266,7 +281,10 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
       cronograma: mergeCronogramaWithMaterials(planForCron),
     });
 
-    const { error } = await patchCampaignPlanRow(supabase, nextPlan.id, payload);
+    let query = supabase.from('campaign_plans').update(payload).eq('id', nextPlan.id);
+    query = plan?.updated_at ? query.eq('updated_at', plan.updated_at) : query.is('updated_at', null);
+    const result = await query.select('updated_at').maybeSingle();
+    const error = result.error || (!result.data ? { message: 'O planejamento mudou em outra janela. Reabra o calendário antes de salvar.' } : null);
 
     setSaving(false);
     if (error) {
@@ -277,7 +295,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
       });
       return false;
     }
-    setPlan({ ...nextPlan, ...payload, materiais: materiaisRows });
+    setPlan({ ...nextPlan, ...payload, updated_at: result.data.updated_at, materiais: materiaisRows });
     if (!silent) toast({ title: 'Salvo', duration: 2000 });
     onRefresh?.();
     return true;
@@ -379,7 +397,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   };
 
   const saveEditor = async () => {
-    if (!plan || !editorDraft) return;
+    if (!plan || !editorDraft) return true;
     const list = [...planMateriaisAsRows(plan)];
     const idx = list.findIndex((x) => x.id === editorDraft.id);
     let next;
@@ -391,10 +409,14 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
     }
     const ok = await persistPlan({ ...plan, materiais: next });
     if (ok) setEditorOpen(false);
+    return ok;
   };
+
+  useImperativeHandle(ref, () => ({ flush: async () => saving ? false : editorOpen ? saveEditor() : true }));
 
   const removeMaterial = async (id) => {
     if (!plan) return;
+    if (linkedTask(id)) { toast({ title: 'Este material está ligado a uma tarefa. Abra a tarefa para gerenciar sua execução.' }); setDeleteTarget(null); return; }
     const next = planMateriaisAsRows(plan).filter((m) => m.id !== id);
     const ok = await persistPlan({ ...plan, materiais: next });
     if (ok) {
@@ -411,13 +433,11 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
     if (idx < 0) return;
     const orig = mats[idx];
     const oldKey = getMaterialCalendarDateKey(orig);
-    if (!oldKey || oldKey === targetKey) return;
+    if (oldKey === targetKey) return;
 
     const ent = (orig.data_entrega || '').trim();
     const updated = { ...orig, data_postagem: targetKey };
-    if (!ent || ent === oldKey) {
-      updated.data_entrega = targetKey;
-    }
+
 
     const nextMats = mats.map((m, i) => (i === idx ? updated : m));
     const ok = await persistPlan({ ...plan, materiais: nextMats }, { silent: true });
@@ -460,6 +480,8 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   };
 
   const openTaskDialog = (item) => {
+    const existing = linkedTask(item.id);
+    if (existing) { navigate(`/tasks/kanban/${existing.id}`); return; }
     setTaskItem(item);
     setTaskDialogOpen(true);
   };
@@ -475,35 +497,15 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
   };
 
   const confirmTask = async () => {
-    if (!taskItem || !user) return;
-    const { blocking } = getPlanItemTaskWarnings(taskItem);
-    if (blocking.length) return;
+    if (!taskItem || !user || !taskItem.descricao?.trim()) return;
     setInsertingTask(true);
     try {
-      const newTask = {
-        title: buildTaskTitleFromPlanMaterial(client?.empresa, taskItem.descricao),
-        description: taskItem.detalhes || null,
-        status: 'todo',
-        project_id: project.id,
-        client_id: project.client_id,
-        owner_id: user.id,
-        assignee_ids: taskItem.responsavel_id ? [taskItem.responsavel_id] : [],
-        type: taskItem.tipo,
-        due_date: taskItem.data_entrega || null,
-        post_date: taskItem.data_postagem || null,
-        plataforma: (taskItem.plataforma || '').trim() || null,
-      };
-      const { error } = await supabase.from('tarefas').insert(newTask);
-      if (error) {
-        toast({ title: 'Erro ao criar tarefa', description: error.message, variant: 'destructive' });
-      } else {
-        toast({ title: 'Tarefa criada!', description: 'Veja em Tarefas.' });
-        setTaskDialogOpen(false);
-        setTaskItem(null);
-      }
-    } finally {
-      setInsertingTask(false);
-    }
+      const { task, created } = await createTaskFromPlanMaterial(supabase, project.id, String(taskItem.id));
+      setLinkedTasks((current) => [...current.filter((t) => t.id !== task.id), task]);
+      toast({ title: created ? 'Tarefa criada no fluxo existente.' : 'Este material já tem uma tarefa.' });
+      setTaskDialogOpen(false); setTaskItem(null);
+    } catch (error) { toast({ title: 'Erro ao criar tarefa', description: error.message, variant: 'destructive' }); }
+    finally { setInsertingTask(false); }
   };
 
   if (loading) {
@@ -539,7 +541,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
             ) : null}
           </h2>
           <p className="text-sm text-muted-foreground capitalize">{format(month, 'MMMM yyyy', { locale: ptBR })}</p>
-          <p className="text-xs text-muted-foreground/80 hidden sm:block">Mesmos dados da aba Plano de Campanha</p>
+          <p className="text-xs text-muted-foreground/80 hidden sm:block">Mesmos materiais do Planejamento</p>
         </div>
         <div className="flex items-center gap-1 flex-wrap shrink-0">
           {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
@@ -770,14 +772,8 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                     '—'
                   )}
                 </PeekPropRow>
-                <PeekPropRow label="Plataforma">
-                  {peekMaterial.plataforma ? (
-                    <Badge variant="outline" className={cn('text-xs border', plataformaBadgeClass(peekMaterial.plataforma))}>
-                      {peekMaterial.plataforma}
-                    </Badge>
-                  ) : (
-                    '—'
-                  )}
+                <PeekPropRow label="Canais previstos">
+                  {normalizePlanMaterialChannels(peekMaterial).join(', ') || 'Ainda não definidos'}
                 </PeekPropRow>
                 <PeekPropRow label="Formato">
                   {peekMaterial.formato ? (
@@ -789,27 +785,20 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                   )}
                 </PeekPropRow>
                 <PeekPropRow label="Status">
-                  {peekMaterial.status_material ? (
-                    <Badge
-                      variant="outline"
-                      className={cn('text-xs border', STATUS_BADGE[peekMaterial.status_material] ?? 'bg-muted')}
-                    >
-                      {statusMaterialLabel(peekMaterial.status_material)}
-                    </Badge>
-                  ) : (
-                    '—'
-                  )}
+                  {linkedTask(peekMaterial.id) ? <Link className="text-primary underline" to={`/tasks/kanban/${linkedTask(peekMaterial.id).id}`}>Ver andamento na tarefa</Link> : <span className="text-muted-foreground">Ainda sem tarefa vinculada</span>}
                 </PeekPropRow>
-                <PeekPropRow label="Post publicado">{postPublicadoCell(peekMaterial)}</PeekPropRow>
+                <PeekPropRow label="Link registrado no plano">{postPublicadoCell(peekMaterial)}</PeekPropRow>
               </div>
 
-              <div className="border-t border-border pt-4">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Detalhes</p>
-                {(peekMaterial.detalhes || '').trim() ? (
-                  <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{peekMaterial.detalhes}</div>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">Nenhum briefing ou roteiro preenchido.</p>
-                )}
+              <div className="border-t border-border pt-4 space-y-4">
+                {MATERIAL_TEXT_FIELDS.some(({ key }) => String(peekMaterial[key] || '').trim()) ? (
+                  MATERIAL_TEXT_FIELDS.filter(({ key }) => String(peekMaterial[key] || '').trim()).map(({ key, label }) => (
+                    <section key={key} aria-label={label}>
+                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{label}</h3>
+                      <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{String(peekMaterial[key])}</div>
+                    </section>
+                  ))
+                ) : <p className="text-sm text-muted-foreground italic">Nenhum conteúdo preenchido.</p>}
               </div>
 
               <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-2 pt-6 border-t border-border mt-4">
@@ -832,7 +821,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                   </Button>
                   <Button type="button" variant="outline" onClick={prepareTaskFromPeek}>
                     <ClipboardList className="h-4 w-4 mr-2" />
-                    Criar tarefa…
+                    {linkedTask(editorDraft?.id || peekMaterial?.id) ? 'Abrir tarefa' : 'Criar tarefa…'}
                   </Button>
                   <Button type="button" onClick={openEditFromPeek}>
                     <Pencil className="h-4 w-4 mr-2" />
@@ -850,7 +839,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
           <DialogHeader>
             <DialogTitle>{editorDraft?.descricao ? 'Editar material' : 'Novo material'}</DialogTitle>
             <DialogDescription>
-              Salvo em <strong>Materiais necessários</strong> do plano. Preencha descrição e datas para poder criar tarefa.
+              As alterações são salvas no mesmo material do Planejamento.
             </DialogDescription>
           </DialogHeader>
           {editorDraft && (
@@ -977,60 +966,22 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>Plataforma</Label>
-                  <PlataformaMaterialSelect
-                    value={editorDraft.plataforma}
-                    onChange={(v) => setEditorDraft((d) => ({ ...d, plataforma: v }))}
-                    plataformas={plataformas}
-                    loading={platsLoading}
+              </div>
+              <div className="flex gap-2 items-center text-sm text-muted-foreground">Andamento e responsáveis em Tarefas<AutomationHelp>O planejamento não altera status nem redistribui responsáveis. Abra a tarefa vinculada para executar o fluxo configurado.</AutomationHelp></div>
+              <div><Label>Canais previstos</Label><div className="flex flex-wrap gap-2 mt-2">{CHANNEL_OPTIONS.map((channel) => { const selected = normalizePlanMaterialChannels(editorDraft).includes(channel); return <Button key={channel} size="sm" variant={selected ? 'default' : 'outline'} aria-pressed={selected} onClick={() => setEditorDraft((d) => ({ ...d, canais: selected ? normalizePlanMaterialChannels(d).filter((c) => c !== channel) : [...normalizePlanMaterialChannels(d), channel] }))}>{channel}</Button>; })}</div></div>
+              {MATERIAL_TEXT_FIELDS.map(({ key, label, rows, placeholder }) => (
+                <div key={key} className="space-y-1.5">
+                  <Label htmlFor={`calendar-material-${key}`}>{label}</Label>
+                  <Textarea
+                    id={`calendar-material-${key}`}
+                    aria-label={label}
+                    rows={rows}
+                    value={editorDraft[key] || ''}
+                    onChange={(e) => setEditorDraft((d) => ({ ...d, [key]: e.target.value }))}
+                    placeholder={placeholder}
                   />
                 </div>
-              </div>
-              <div>
-                <Label>Status</Label>
-                <Select
-                  value={editorDraft.status_material || 'em_andamento'}
-                  onValueChange={(v) => setEditorDraft((d) => ({ ...d, status_material: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rascunho">Rascunho</SelectItem>
-                    <SelectItem value="em_andamento">Em andamento</SelectItem>
-                    <SelectItem value="publicado">Publicado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Responsável</Label>
-                <Select
-                  value={editorDraft.responsavel_id || 'ninguem'}
-                  onValueChange={(v) => setEditorDraft((d) => ({ ...d, responsavel_id: v === 'ninguem' ? null : v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ninguem">Ninguém</SelectItem>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Detalhes / roteiro / legenda</Label>
-                <Textarea
-                  rows={5}
-                  value={editorDraft.detalhes || ''}
-                  onChange={(e) => setEditorDraft((d) => ({ ...d, detalhes: e.target.value }))}
-                  placeholder="Briefing, legenda, roteiro..."
-                />
-              </div>
+              ))}
               {renderTaskPlanHints(editorDraft)}
             </div>
           )}
@@ -1043,7 +994,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
             )}
             <Button type="button" variant="outline" onClick={prepareTaskFromEditor} disabled={!editorDraft || saving}>
               <ClipboardList className="h-4 w-4 mr-2" />
-              Criar tarefa…
+              {linkedTask(editorDraft?.id || peekMaterial?.id) ? 'Abrir tarefa' : 'Criar tarefa…'}
             </Button>
             <Button type="button" onClick={saveEditor} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
@@ -1091,7 +1042,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
                 </span>
               </p>
               {(() => {
-                const { blocking, optional } = getPlanItemTaskWarnings(taskItem);
+                const { blocking, optional } = { blocking: taskItem.descricao?.trim() ? [] : ['Título do material'], optional: [] };
                 return (
                   <>
                     {blocking.length > 0 && (
@@ -1116,7 +1067,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
             <Button
               type="button"
               onClick={confirmTask}
-              disabled={!taskItem || getPlanItemTaskWarnings(taskItem).blocking.length > 0 || insertingTask}
+              disabled={!taskItem || !taskItem.descricao?.trim() || insertingTask}
             >
               {insertingTask ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
               Sim, criar tarefa
@@ -1126,7 +1077,7 @@ const CampaignMaterialsCalendar = ({ project, client, onRefresh }) => {
       </AlertDialog>
     </div>
   );
-};
+});
 
 function PeekPropRow({ label, children }) {
   return (
@@ -1138,7 +1089,7 @@ function PeekPropRow({ label, children }) {
 }
 
 function renderTaskPlanHints(item) {
-  const { blocking, optional } = getPlanItemTaskWarnings(item);
+  const { blocking, optional } = { blocking: item.descricao?.trim() ? [] : ['Título do material'], optional: [] };
   if (!blocking.length && !optional.length) return null;
   return (
     <div className="text-xs space-y-1 rounded-md border p-2 bg-muted/30">

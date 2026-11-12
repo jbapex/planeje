@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { boolToComercialOption, comercialOptionToBool } from '@/lib/leadComercial';
 
 const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
   const { settings } = useClienteCrmSettings();
@@ -28,6 +29,8 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
         data_entrada: lead.data_entrada ? (typeof lead.data_entrada === 'string' ? lead.data_entrada.split('T')[0] : lead.data_entrada) : '',
         agendamento: lead.agendamento ? (typeof lead.agendamento === 'string' ? lead.agendamento.slice(0, 16) : '') : '',
         valor: lead.valor ?? '',
+        _qualificadoOpt: boolToComercialOption(lead.qualificado),
+        _comprouOpt: boolToComercialOption(lead.comprou),
         observacoes: lead.observacoes || '',
         responsavel_id: lead.responsavel_id || '',
         etiquetas: Array.isArray(lead.etiquetas) ? [...lead.etiquetas] : [],
@@ -62,6 +65,8 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
       vendedor: formData.vendedor,
       responsavel_id: formData.responsavel_id || null,
       valor: parseFloat(formData.valor) || 0,
+      qualificado: comercialOptionToBool(formData._qualificadoOpt),
+      comprou: comercialOptionToBool(formData._comprouOpt),
       observacoes: formData.observacoes,
       etiquetas: Array.isArray(formData.etiquetas) ? formData.etiquetas : [],
     });
@@ -176,6 +181,30 @@ const EditLeadModal = ({ lead, isOpen, onClose, onSave, members = [] }) => {
                       {seller}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Qualificado?</Label>
+              <Select value={formData._qualificadoOpt || 'pendente'} onValueChange={(v) => handleValueChange('_qualificadoOpt', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="sim">Sim</SelectItem>
+                  <SelectItem value="nao">Não</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Comprou?</Label>
+              <Select value={formData._comprouOpt || 'pendente'} onValueChange={(v) => handleValueChange('_comprouOpt', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="sim">Sim</SelectItem>
+                  <SelectItem value="nao">Não</SelectItem>
                 </SelectContent>
               </Select>
             </div>

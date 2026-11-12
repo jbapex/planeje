@@ -597,7 +597,7 @@ const ClientCadastroSemanal = () => {
                     <Button
                       onClick={handleRegister}
                       disabled={!isFormValid || saving}
-                      className="w-full h-10 sm:h-12 text-xs sm:text-base font-bold bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-500 hover:to-teal-400 text-white rounded-lg sm:rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 tracking-tight"
+                      className="w-full h-10 sm:h-12 text-xs sm:text-base font-bold bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg sm:rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50 tracking-tight"
                     >
                       {saving ? (
                         <>

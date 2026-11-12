@@ -6,6 +6,8 @@ import { Send } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { ATLAS_DEMANDS_ENABLED } from '@/lib/atlasDemands';
+import AtlasTaskFollowup from '@/components/atlas/AtlasTaskFollowup';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -51,6 +53,7 @@ const TaskCommentsTab = ({ taskId }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-grow space-y-4 overflow-y-auto pr-2 pb-4">
+        {ATLAS_DEMANDS_ENABLED && <AtlasTaskFollowup key={taskId} taskId={taskId} comments={comments} onUpdated={fetchComments} />}
         {comments.map(comment => (
           <div key={comment.id} className="flex items-start gap-3">
             <Avatar className="h-8 w-8 sm:h-10 sm:w-10">

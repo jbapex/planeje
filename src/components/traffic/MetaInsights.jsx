@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, Fragment, useMemo, useRef } from 'react';
     import { supabase } from '@/lib/customSupabaseClient';
     import { useToast } from '@/components/ui/use-toast';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +13,11 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
     import { Calendar } from "@/components/ui/calendar";
     import { format, isValid, parseISO } from "date-fns";
     import { ptBR } from "date-fns/locale";
+    import {
+        getMetaAdAccountsErrorMessage,
+        isMetaNoAdAccountsError,
+        isMetaNoAdAccountsResponse,
+    } from '@/lib/metaAdAccountsResponse';
 
     const METRICS_OPTIONS = {
       'Desempenho': [
@@ -386,6 +391,7 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
                     const { data, error } = await supabase
                         .from('clientes')
                         .select('id, empresa')
+                        .eq('etapa', 'closed')
                         .order('empresa', { ascending: true });
 
                     if (error) throw error;
@@ -399,83 +405,138 @@ import React, { useState, useEffect, useCallback, Fragment, useMemo } from 'reac
             fetchClients();
         }, []);
 
-        // Busca contas vinculadas quando cliente é selecionado
+        /** Evita toast/console duplicados se o mesmo erro ocorrer em sequência (ex.: hot reload). */
+        const lastAccountsErrorRef = useRef(null);
+        const emptyMetaAccountsToastShownRef = useRef(false);
+
+        // Uma sequência só: contas ligadas no Supabase (se cliente específico) + get-ad-accounts uma vez.
+        // Depende apenas de selectedClient — não de linkedAccounts — para não disparar 2× ao trocar cliente.
         useEffect(() => {
-            const fetchLinkedAccounts = async () => {
+            let cancelled = false;
+
+            const run = async () => {
+                setLoadingAccounts(true);
+                let linked = [];
+
                 if (selectedClient === 'all') {
-                    setLinkedAccounts([]);
-                    return;
+                    if (!cancelled) setLinkedAccounts([]);
+                } else {
+                    try {
+                        const { data, error } = await supabase
+                            .from('cliente_meta_accounts')
+                            .select('meta_account_id, meta_account_name')
+                            .eq('cliente_id', selectedClient)
+                            .eq('is_active', true);
+
+                        if (error) throw error;
+                        linked = data || [];
+                        if (!cancelled) setLinkedAccounts(linked);
+                    } catch (err) {
+                        console.error('Erro ao buscar contas vinculadas:', err);
+                        linked = [];
+                        if (!cancelled) setLinkedAccounts([]);
+                    }
                 }
+
+                if (cancelled) return;
 
                 try {
-                    const { data, error } = await supabase
-                        .from('cliente_meta_accounts')
-                        .select('meta_account_id, meta_account_name')
-                        .eq('cliente_id', selectedClient)
-                        .eq('is_active', true);
-
+                    const { data, error } = await supabase.functions.invoke('meta-ads-api', {
+                        body: { action: 'get-ad-accounts' },
+                    });
                     if (error) throw error;
-                    setLinkedAccounts(data || []);
-                } catch (err) {
-                    console.error('Erro ao buscar contas vinculadas:', err);
-                    setLinkedAccounts([]);
-                }
-            };
-            fetchLinkedAccounts();
-        }, [selectedClient]);
 
-        // Busca todas as contas do Meta e filtra baseado no cliente selecionado
-        useEffect(() => {
-            setLoadingAccounts(true);
-            const fetchInitialAccounts = async () => {
-                 try {
-                    const { data, error } = await supabase.functions.invoke('meta-ads-api', { body: { action: 'get-ad-accounts' } });
-                    if (error) throw error;
-                    
                     if (data?.error) {
-                        const errorMessage = typeof data.error === 'string' 
-                            ? data.error 
-                            : data.error?.message || JSON.stringify(data.error);
+                        const errorMessage = getMetaAdAccountsErrorMessage(data);
+                        if (isMetaNoAdAccountsResponse(data)) {
+                            lastAccountsErrorRef.current = null;
+                            if (!cancelled) {
+                                setAllAdAccounts([]);
+                                setAdAccounts([]);
+                            }
+                            if (!emptyMetaAccountsToastShownRef.current) {
+                                emptyMetaAccountsToastShownRef.current = true;
+                                console.warn('[MetaInsights] Sem contas de anúncio no Meta:', errorMessage);
+                                toast({
+                                    title: 'Nenhuma conta de anúncio no Meta',
+                                    description:
+                                        'O token responde, mas o System User não vê contas act_… Atribua contas no Business Manager ou ajuste META_BUSINESS_ID.',
+                                    variant: 'default',
+                                });
+                            }
+                            return;
+                        }
                         throw new Error(errorMessage);
                     }
 
-                    if (data?.adAccounts) {
-                        setAllAdAccounts(data.adAccounts);
-                        
-                        // Filtra contas baseado no cliente selecionado
-                        if (selectedClient === 'all' || linkedAccounts.length === 0) {
-                            // Mostra todas as contas se "Todos" ou se não há vinculações
-                            setAdAccounts(data.adAccounts);
+                    if (data?.adAccounts && Array.isArray(data.adAccounts)) {
+                        emptyMetaAccountsToastShownRef.current = false;
+                        lastAccountsErrorRef.current = null;
+                        if (!cancelled) setAllAdAccounts(data.adAccounts);
+
+                        if (selectedClient === 'all' || linked.length === 0) {
+                            if (!cancelled) setAdAccounts(data.adAccounts);
                         } else {
-                            // Mostra apenas contas vinculadas ao cliente
-                            const linkedIds = linkedAccounts.map(link => link.meta_account_id);
-                            const filtered = data.adAccounts.filter(acc => linkedIds.includes(acc.id));
-                            setAdAccounts(filtered);
-                            
-                            // Se a conta selecionada não está mais na lista filtrada, limpa a seleção
-                            if (selectedAccount && !filtered.some(acc => acc.id === selectedAccount)) {
-                                setSelectedAccount(null);
+                            const linkedIds = linked.map((link) => link.meta_account_id);
+                            const filtered = data.adAccounts.filter((acc) => linkedIds.includes(acc.id));
+                            if (!cancelled) {
+                                setAdAccounts(filtered);
+                                setSelectedAccount((prev) =>
+                                    prev && !filtered.some((acc) => acc.id === prev) ? null : prev
+                                );
                             }
                         }
                     } else {
-                        console.warn('Nenhuma conta de anúncio encontrada');
-                        setAdAccounts([]);
+                        if (!cancelled) {
+                            setAdAccounts([]);
+                            setAllAdAccounts([]);
+                        }
                     }
                 } catch (err) {
-                    const errorMessage = err?.message || err?.error?.message || 'Erro desconhecido ao buscar contas';
-                    console.error('Erro ao buscar contas:', err);
-                    toast({ 
-                        title: 'Erro ao buscar contas', 
-                        description: errorMessage, 
-                        variant: 'destructive' 
-                    });
-                    setAdAccounts([]);
+                    const errorMessage =
+                        err?.message || err?.error?.message || 'Erro desconhecido ao buscar contas';
+                    if (isMetaNoAdAccountsError(err)) {
+                        lastAccountsErrorRef.current = null;
+                        if (!cancelled) {
+                            setAllAdAccounts([]);
+                            setAdAccounts([]);
+                        }
+                        if (!emptyMetaAccountsToastShownRef.current) {
+                            emptyMetaAccountsToastShownRef.current = true;
+                            console.warn('[MetaInsights] Sem contas de anúncio no Meta:', errorMessage);
+                            toast({
+                                title: 'Nenhuma conta de anúncio no Meta',
+                                description:
+                                    'O token responde, mas o System User não vê contas act_… Atribua contas no Business Manager ou ajuste META_BUSINESS_ID.',
+                                variant: 'default',
+                            });
+                        }
+                    } else {
+                        console.error('Erro ao buscar contas:', err);
+                        if (lastAccountsErrorRef.current !== errorMessage) {
+                            lastAccountsErrorRef.current = errorMessage;
+                            toast({
+                                title: 'Erro ao buscar contas',
+                                description: errorMessage,
+                                variant: 'destructive',
+                            });
+                        }
+                        if (!cancelled) {
+                            setAdAccounts([]);
+                            setAllAdAccounts([]);
+                        }
+                    }
                 } finally {
-                    setLoadingAccounts(false);
+                    if (!cancelled) setLoadingAccounts(false);
                 }
             };
-            fetchInitialAccounts();
-        }, [toast, selectedClient, linkedAccounts]); 
+
+            run();
+            return () => {
+                cancelled = true;
+            };
+            // toast é intencionalmente omitido: evita re-fetch ao mudar referência do hook
+        }, [selectedClient]);
 
         const fetchAllDataForAccount = useCallback(async (loadAll = false) => {
             if (!selectedAccount || !date?.from || !date?.to) return;

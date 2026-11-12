@@ -1,13 +1,46 @@
+import { contactDisplayName } from '@/lib/leadIdentity';
+import { escapeContatosCsvValue } from '@/lib/contatosCsv';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+
+function formatCardCount(value) {
+  const n = Number(value);
+  return (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR');
+}
 import { Helmet } from 'react-helmet';
+import { useMatch, useSearchParams } from 'react-router-dom';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
-import { extractPhoneAndNameFromRawPayload, buildContactTrackingFromRawPayload, getFromJidFromRawPayload, isMetaAdsContactForStats, isMetaAdsLeadForStats } from '@/lib/contactFromWebhookPayload';
+import {
+  extractPhoneAndNameFromRawPayload,
+  buildContactTrackingFromRawPayload,
+  getFromJidFromRawPayload,
+  buildContactJidLookupVariants,
+  webhookLogMatchesContact,
+  isMetaAdsContactForStats,
+  isMetaAdsLeadForStats,
+} from '@/lib/contactFromWebhookPayload';
+import {
+  isGoogleAdsContactForStats,
+  isSiteContactForStats,
+  siteOriginLabel,
+  recordedOriginSource,
+} from '@/lib/rastreamentoTrackableLink';
 import { getPhoneVariations, normalizePhoneNumber } from '@/lib/leadUtils';
 import { useCrmPipeline } from '@/hooks/useCrmPipeline';
 import ImportFacebookLeadsModal from '@/components/crm/ImportFacebookLeadsModal';
+import ClienteWhatsAppChannelStatus from '@/components/crm/ClienteWhatsAppChannelStatus';
+import LeadComercialInline from '@/components/crm/LeadComercialInline';
+import LeadAnalysisLabels from '@/components/crm/LeadAnalysisLabels';
+import RastreamentoLeadFicha from '@/components/crm/RastreamentoLeadFicha';
+import {
+  catalogFromRows,
+  countAnalysisLabel,
+  resolveAnalysisLabels,
+  rowHasAnalysisLabel,
+} from '@/lib/rastreamentoAnalysisLabels';
+import { isVendaComercial } from '@/lib/leadComercial';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,6 +52,14 @@ import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import {
   Users,
   Loader2,
@@ -40,19 +81,202 @@ import {
   Facebook,
   CalendarRange,
   Calendar as CalendarPickerIcon,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  Check,
+  Tag,
 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format, isValid, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { RastreamentoHelp } from '@/components/crm/RastreamentoUi';
+import { rastreamentoTabHelp } from '@/lib/rastreamentoHub';
+import {
+  isoYmdToBrDisplay,
+  isoYmdToLocalDate,
+  localDateToIsoYmd,
+} from '@/lib/contatosMessagePeriod';
+import ContatosMessagePeriodPicker from '@/components/crm/ContatosMessagePeriodPicker';
+import { timestampInSaoPauloRange, defaultRastreamentoPeriod } from '@/lib/rastreamentoPeriod';
+import {
+  capiEventKeyForLeadRow,
+  indexCapiEventsByLeadKey,
+  periodUtcBounds,
+} from '@/lib/rastreamentoEventosMeta';
 
 const ORIGIN_FILTER_ALL = 'todos';
+const LABEL_FILTER_ALL = 'todas';
 const ORIGIN_FILTER_META = 'meta_ads';
+const ORIGIN_FILTER_GOOGLE = 'google_ads';
+const ORIGIN_FILTER_SITE = 'site';
 const ORIGIN_FILTER_NAO_IDENT = 'nao_identificado';
+const ADV_FILTER_ALL = '__all__';
+
+/** Campos usados para medir campanha (UTM + nomes Meta enriquecidos). */
+function contactCampaignMeasure(c) {
+  const td = c?.tracking_data && typeof c.tracking_data === 'object' ? c.tracking_data : {};
+  const ad = td.meta_ad_details?.ad;
+  return {
+    utm_source: String(c?.utm_source || td.utm_source || '').trim(),
+    utm_medium: String(c?.utm_medium || td.utm_medium || '').trim(),
+    utm_campaign: String(c?.utm_campaign || td.utm_campaign || '').trim(),
+    utm_content: String(c?.utm_content || td.utm_content || '').trim(),
+    meta_campaign: String(ad?.campaign?.name || td.campaign_name || '').trim(),
+    meta_adset: String(ad?.adset?.name || td.adset_name || '').trim(),
+    meta_ad: String(ad?.name || td.ad_name || '').trim(),
+  };
+}
+
+function matchesAdvancedCampaignFilter(c, adv) {
+  if (!adv) return true;
+  const m = contactCampaignMeasure(c);
+  const eq = (got, want) => {
+    if (!want || want === ADV_FILTER_ALL) return true;
+    return String(got || '').toLowerCase() === String(want).toLowerCase();
+  };
+  return (
+    eq(m.utm_source, adv.utm_source) &&
+    eq(m.utm_medium, adv.utm_medium) &&
+    eq(m.utm_campaign, adv.utm_campaign) &&
+    eq(m.utm_content, adv.utm_content) &&
+    eq(m.meta_campaign, adv.meta_campaign) &&
+    eq(m.meta_adset, adv.meta_adset) &&
+    eq(m.meta_ad, adv.meta_ad)
+  );
+}
+
+function uniqueSortedValues(rows, key) {
+  const set = new Set();
+  for (const row of rows || []) {
+    const v = contactCampaignMeasure(row)[key];
+    if (v) set.add(v);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+}
+
+/** Select com campo de busca (listas longas de campanha/UTM). */
+function SearchableFilterSelect({
+  value,
+  onValueChange,
+  options = [],
+  allValue = ADV_FILTER_ALL,
+  allLabel = 'Todos',
+  searchPlaceholder = 'Buscar…',
+}) {
+  const [open, setOpen] = useState(false);
+  const label = !value || value === allValue ? allLabel : value;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-8 w-full justify-between rounded-md px-2 text-xs font-normal"
+        >
+          <span className="truncate text-left">{label}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[220px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} className="h-9 text-xs" />
+          <CommandList>
+            <CommandEmpty className="py-4 text-xs">Nada encontrado</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={`__all__ ${allLabel}`}
+                onSelect={() => {
+                  onValueChange(allValue);
+                  setOpen(false);
+                }}
+              >
+                <Check className={cn('mr-2 h-3.5 w-3.5', value === allValue ? 'opacity-100' : 'opacity-0')} />
+                <span className="text-xs">{allLabel}</span>
+              </CommandItem>
+              {options.map((opt) => (
+                <CommandItem
+                  key={opt}
+                  value={opt}
+                  onSelect={() => {
+                    onValueChange(opt);
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn('mr-2 h-3.5 w-3.5', value === opt ? 'opacity-100' : 'opacity-0')} />
+                  <span className="truncate text-xs">{opt}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function contactMatchesOriginFilter(c, originFilter) {
+  if (originFilter === ORIGIN_FILTER_ALL) return true;
+  if (originFilter === ORIGIN_FILTER_META) return isMetaAdsContactForStats(c);
+  if (originFilter === ORIGIN_FILTER_GOOGLE) {
+    return isGoogleAdsContactForStats(c) && !isMetaAdsContactForStats(c);
+  }
+  if (originFilter === ORIGIN_FILTER_SITE) return isSiteContactForStats(c);
+  if (originFilter === ORIGIN_FILTER_NAO_IDENT) {
+    return (
+      !isMetaAdsContactForStats(c) &&
+      !isGoogleAdsContactForStats(c) &&
+      !isSiteContactForStats(c) &&
+      c.origin_source === 'nao_identificado'
+    );
+  }
+  return true;
+}
+
+function leadMatchesOriginFilter(l, originFilter, isMetaAdsLead) {
+  const recorded = recordedOriginSource(l, true);
+  if (originFilter === ORIGIN_FILTER_ALL) return true;
+  if (originFilter === ORIGIN_FILTER_META) return isMetaAdsLead(l);
+  if (originFilter === ORIGIN_FILTER_GOOGLE) {
+    const asContact = {
+      origin_source: recorded || null,
+      utm_source: l.utm_source,
+      tracking_data: l.tracking_data,
+    };
+    return isGoogleAdsContactForStats(asContact) && !isMetaAdsLead(l);
+  }
+  if (originFilter === ORIGIN_FILTER_SITE) {
+    return recorded === 'site';
+  }
+  if (originFilter === ORIGIN_FILTER_NAO_IDENT) return !isMetaAdsLead(l) && recorded !== 'google_ads' && !isGoogleAdsContactForStats(l) && recorded !== 'site';
+  return true;
+}
+
+function originBadgeForContact(c, rowIsMetaAds) {
+  if (rowIsMetaAds) {
+    return { label: c.utm_campaign ? 'Meta Ads · Via Campanha' : 'Meta Ads', tone: 'meta' };
+  }
+  if (isGoogleAdsContactForStats(c)) return { label: 'Google Ads', tone: 'google' };
+  if (isSiteContactForStats(c)) return { label: siteOriginLabel(c.utm_source, c.tracking_data?.utm_source), tone: 'site' };
+  return { label: 'Não rastreada', tone: 'off' };
+}
 
 /** Filtro de período: qual timestamp usar (primeira vs última mensagem). */
 const MESSAGE_DATE_FIELD_FIRST = 'primeira';
 const MESSAGE_DATE_FIELD_LAST = 'ultima';
+
+function matchesComprouUrlFilter(comprou, filter) {
+  if (!filter) return true;
+  if (filter === 'pendente') return comprou == null;
+  if (filter === 'sim') return comprou === true;
+  if (filter === 'nao') return comprou === false;
+  return true;
+}
 
 /** Limite pedido na query da lista (o servidor pode ainda cortar em ~1000 por resposta). */
 const CONTACTS_FETCH_LIMIT = 50000;
@@ -63,10 +287,10 @@ const CONTACTS_FETCH_LIMIT = 50000;
 const SUPABASE_PAGE_SIZE = 1000;
 
 const CONTACT_SELECT_FOR_STATS =
-  'id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url, instance_name, crm_apice_lead_status, crm_apice_lead_status_at';
+  'id, cliente_id, from_jid, phone, sender_name, mini_crm, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url, instance_name, whatsapp_config_id, crm_apice_lead_status, crm_apice_lead_status_at, qualificado, comprou, valor_venda';
 
 const LEAD_SELECT_FULL =
-  'id, nome, whatsapp, origem, status, valor, tracking_data, data_entrada, created_at, updated_at, ultima_interacao, utm_source, utm_medium, utm_campaign, utm_content, utm_term, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome), crm_apice_lead_status, crm_apice_lead_status_at';
+  'id, nome, whatsapp, origem, status, valor, qualificado, comprou, etiquetas, tracking_data, data_entrada, created_at, updated_at, ultima_interacao, utm_source, utm_medium, utm_campaign, utm_content, utm_term, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome), crm_apice_lead_status, crm_apice_lead_status_at';
 
 async function fetchAllClienteWhatsappContactsPaged(supabase, clienteId) {
   const all = [];
@@ -211,15 +435,14 @@ function createGetFunnelInfoForExport(funnelMap) {
 
 function filterContactsForExport(contacts, { origin, search, dateField, dateFrom, dateTo }) {
   let list = contacts;
-  if (origin === ORIGIN_FILTER_META) list = list.filter(isMetaAdsContactForStats);
-  else if (origin === ORIGIN_FILTER_NAO_IDENT) {
-    list = list.filter((c) => !isMetaAdsContactForStats(c) && c.origin_source === 'nao_identificado');
+  if (origin && origin !== ORIGIN_FILTER_ALL) {
+    list = list.filter((c) => contactMatchesOriginFilter(c, origin));
   }
   const term = search.trim().toLowerCase();
   const termNorm = term.replace(/\D/g, '');
   if (term) {
     list = list.filter((c) => {
-      const name = (c.sender_name || '').toLowerCase();
+      const name = contactDisplayName(c).toLowerCase();
       const phone = (c.phone || '').replace(/\D/g, '');
       return name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
     });
@@ -241,8 +464,9 @@ function filterLeadsForExport(leadsPool, { origin, search, dateField, dateFrom, 
       return name.includes(term) || (l.whatsapp || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
     });
   }
-  if (origin === ORIGIN_FILTER_META) pool = pool.filter(isMetaAdsLeadForStats);
-  else if (origin === ORIGIN_FILTER_NAO_IDENT) pool = pool.filter((l) => !isMetaAdsLeadForStats(l));
+  if (origin && origin !== ORIGIN_FILTER_ALL) {
+    pool = pool.filter((l) => leadMatchesOriginFilter(l, origin, isMetaAdsLeadForStats));
+  }
   if (dateFrom || dateTo) {
     pool = pool.filter((l) =>
       rowInMessageDateRange(
@@ -259,11 +483,13 @@ function filterLeadsForExport(leadsPool, { origin, search, dateField, dateFrom, 
 function mapLeadsToExportDisplayRows(leads) {
   return leads.map((l) => ({
     _fromLead: true,
+    _leadRef: l,
     id: `lead-${l.id}`,
     sender_name: l.nome || null,
     phone: l.whatsapp || null,
     from_jid: (l.whatsapp || '').replace(/\D/g, '') ? `${(l.whatsapp || '').replace(/\D/g, '')}@s.whatsapp.net` : null,
-    origin_source: isMetaAdsLeadForStats(l) ? 'meta_ads' : 'nao_identificado',
+    origin_source: recordedOriginSource(l, true) || (isMetaAdsLeadForStats(l) ? 'meta_ads'
+      : isGoogleAdsContactForStats(l) ? 'google_ads' : 'nao_identificado'),
     tracking_data: l.tracking_data || null,
     first_seen_at: leadFirstSeenIso(l),
     last_message_at: leadLastMessageIso(l),
@@ -272,6 +498,9 @@ function mapLeadsToExportDisplayRows(leads) {
     utm_source: l.utm_source,
     utm_medium: l.utm_medium,
     utm_campaign: l.utm_campaign,
+    qualificado: l.qualificado,
+    comprou: l.comprou,
+    valor_venda: l.valor,
     pipelineNome: l.pipeline?.nome ?? null,
     stageNome: l.stage?.nome ?? null,
     crm_apice_lead_status: l.crm_apice_lead_status ?? null,
@@ -307,8 +536,8 @@ function messageTimestampToMs(value) {
 }
 
 /**
- * Filtro por intervalo (inputs type=date = yyyy-MM-dd no fuso local).
- * Compara o instante da mensagem com início/fim do dia local em [de, até].
+ * Filtro por intervalo (inputs type=date = yyyy-MM-dd no calendário de Brasília).
+ * Compara o instante da mensagem com início/fim do dia em América/São Paulo.
  */
 function rowInMessageDateRange(row, dateFieldMode, dateFromStr, dateToStr) {
   const fromT = dateFromStr ? String(dateFromStr).trim() : '';
@@ -319,41 +548,7 @@ function rowInMessageDateRange(row, dateFieldMode, dateFromStr, dateToStr) {
   const rowMs = messageTimestampToMs(rawField);
   if (rowMs == null || Number.isNaN(rowMs)) return false;
 
-  if (fromT) {
-    const p = fromT.split('-').map(Number);
-    if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return false;
-    const [y, m, d] = p;
-    const fromStart = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
-    if (rowMs < fromStart) return false;
-  }
-  if (toT) {
-    const p = toT.split('-').map(Number);
-    if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return false;
-    const [y, m, d] = p;
-    const toEnd = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
-    if (rowMs > toEnd) return false;
-  }
-  return true;
-}
-
-/** yyyy-mm-dd → dd/mm/aaaa (só exibição / filtro de contatos). */
-function isoYmdToBrDisplay(iso) {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
-
-/** yyyy-mm-dd → Date local (calendário). */
-function isoYmdToLocalDate(iso) {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-/** Date local → yyyy-mm-dd. */
-function localDateToIsoYmd(d) {
-  if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return timestampInSaoPauloRange(rowMs, fromT || '', toT || '');
 }
 
 /** Uma única ação: abrir calendário (pt-BR); exibe dd/mm/aaaa; estado pai em yyyy-mm-dd. */
@@ -463,18 +658,76 @@ function GoogleAdsIcon({ className = 'h-5 w-5' }) {
   return <img src="/logos/google%20ads.png" alt="Google Ads" className={className} />;
 }
 
-const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClientsView = false }) => {
+const ContatosPage = ({
+  embeddedInCrm,
+  onOpenConversation,
+  onNovoLead,
+  allClientsView = false,
+  standaloneTracking = false,
+  hideHubClientSelector = false,
+  embeddedInHub = false,
+  sharedClienteSelection = null,
+  periodFromIso,
+  periodToIso,
+  onPeriodChange,
+}) => {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const gestorTracking = useMatch('/gestor-ia/rastreamento');
+  const utmCampaignFilter = standaloneTracking ? searchParams.get('utm_campaign') : null;
+  const planejeLinkIdFilter = standaloneTracking ? searchParams.get('planeje_link_id') : null;
+  const clienteFromUrl = searchParams.get('cliente_id');
+  const comprouFromUrl = searchParams.get('comprou');
+  const dateFromUrl = searchParams.get('from');
+  const dateToUrl = searchParams.get('to');
+  const foneFromUrl = searchParams.get('fone');
   const {
     effectiveClienteId,
     loading: configLoading,
     isAdminWithoutCliente,
+    isMultiClientHub,
+    canPickCliente,
     selectedClienteId,
     setSelectedClienteId,
     clientesForAdmin,
-  } = useClienteWhatsAppConfig({ autoSelectFirstClient: !embeddedInCrm });
+  } = useClienteWhatsAppConfig({
+    autoSelectFirstClient: sharedClienteSelection
+      ? false
+      : standaloneTracking || (!embeddedInCrm && !standaloneTracking),
+    allowMultiClientHub: standaloneTracking,
+    ...(sharedClienteSelection
+      ? {
+          controlledSelectedClienteId: sharedClienteSelection.selectedClienteId,
+          onSelectedClienteIdChange: sharedClienteSelection.setSelectedClienteId,
+        }
+      : {}),
+  });
+
+  useEffect(() => {
+    if (clienteFromUrl && canPickCliente) {
+      setSelectedClienteId(clienteFromUrl);
+    }
+  }, [clienteFromUrl, canPickCliente, setSelectedClienteId]);
+
+  useEffect(() => {
+    if (dateFromUrl) setMessageDateFrom(dateFromUrl);
+    if (dateToUrl) setMessageDateTo(dateToUrl);
+    if (comprouFromUrl) setComprouFilter(comprouFromUrl);
+  }, [dateFromUrl, dateToUrl, comprouFromUrl]);
+
+  useEffect(() => {
+    if (periodFromIso) setMessageDateFrom(periodFromIso);
+    if (periodToIso) setMessageDateTo(periodToIso);
+  }, [periodFromIso, periodToIso]);
+
+  /** Rastreamento: sempre um cliente por vez. Área do cliente (admin): modo agregado opcional. */
   const allClientsMode = embeddedInCrm && isAdminWithoutCliente && allClientsView;
+  const clienteEmpresaById = useMemo(() => {
+    const m = new Map();
+    (clientesForAdmin || []).forEach((c) => m.set(c.id, c.empresa || c.id));
+    return m;
+  }, [clientesForAdmin]);
   const adminClienteIds = useMemo(
     () => (clientesForAdmin || []).map((c) => c.id).filter(Boolean),
     [clientesForAdmin]
@@ -483,17 +736,87 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
   const canLoadData = !!effectiveClienteId || canLoadAllClients;
 
   const [contacts, setContacts] = useState([]);
+  useEffect(() => {
+    const digits = String(foneFromUrl || '').replace(/\D/g, '');
+    if (digits.length < 8 || !contacts.length) return;
+    const tail = digits.slice(-8);
+    const found = contacts.find((row) => String(row.phone || row.whatsapp || '').replace(/\D/g, '').endsWith(tail));
+    if (found) setLeadFichaContact(found);
+  }, [foneFromUrl, contacts]);
   /** Total real de linhas no banco (count exact), pode ser > contacts.length se houver limite de fetch */
   const [contactsTotalDbCount, setContactsTotalDbCount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fillFromWebhookLogLoading, setFillFromWebhookLogLoading] = useState(false);
   const [recalcTimestampsLoading, setRecalcTimestampsLoading] = useState(false);
-  const [originFilter, setOriginFilter] = useState(ORIGIN_FILTER_ALL);
+  const [originFilter, setOriginFilter] = useState(
+    standaloneTracking ? ORIGIN_FILTER_ALL : ORIGIN_FILTER_ALL,
+  );
   const [searchTerm, setSearchTerm] = useState('');
   const [messageDateField, setMessageDateField] = useState(MESSAGE_DATE_FIELD_LAST);
-  const [messageDateFrom, setMessageDateFrom] = useState('');
-  const [messageDateTo, setMessageDateTo] = useState('');
+  const [messageDateFrom, setMessageDateFrom] = useState(periodFromIso || dateFromUrl || '');
+  const [messageDateTo, setMessageDateTo] = useState(periodToIso || dateToUrl || '');
+  const [comprouFilter, setComprouFilter] = useState('');
+  const [labelFilter, setLabelFilter] = useState(LABEL_FILTER_ALL);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [cardsCollapsed, setCardsCollapsed] = useState(() => {
+    try {
+      return sessionStorage.getItem('planeje-rastreamento-cards-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [advUtmSource, setAdvUtmSource] = useState(ADV_FILTER_ALL);
+  const [advUtmMedium, setAdvUtmMedium] = useState(ADV_FILTER_ALL);
+  const [advUtmCampaign, setAdvUtmCampaign] = useState(ADV_FILTER_ALL);
+  const [advUtmContent, setAdvUtmContent] = useState(ADV_FILTER_ALL);
+  const [advMetaCampaign, setAdvMetaCampaign] = useState(ADV_FILTER_ALL);
+  const [advMetaAdset, setAdvMetaAdset] = useState(ADV_FILTER_ALL);
+  const [advMetaAd, setAdvMetaAd] = useState(ADV_FILTER_ALL);
+
+  useEffect(() => {
+    if (utmCampaignFilter) {
+      setAdvUtmCampaign(utmCampaignFilter);
+      setAdvancedOpen(true);
+    }
+  }, [utmCampaignFilter]);
+
+  const advancedFilter = useMemo(
+    () => ({
+      utm_source: advUtmSource,
+      utm_medium: advUtmMedium,
+      utm_campaign: advUtmCampaign,
+      utm_content: advUtmContent,
+      meta_campaign: advMetaCampaign,
+      meta_adset: advMetaAdset,
+      meta_ad: advMetaAd,
+    }),
+    [advUtmSource, advUtmMedium, advUtmCampaign, advUtmContent, advMetaCampaign, advMetaAdset, advMetaAd]
+  );
+
+  const advancedFilterActive = useMemo(
+    () => Object.values(advancedFilter).some((v) => v && v !== ADV_FILTER_ALL),
+    [advancedFilter]
+  );
+
+  const clearAdvancedFilters = useCallback(() => {
+    setAdvUtmSource(ADV_FILTER_ALL);
+    setAdvUtmMedium(ADV_FILTER_ALL);
+    setAdvUtmCampaign(ADV_FILTER_ALL);
+    setAdvUtmContent(ADV_FILTER_ALL);
+    setAdvMetaCampaign(ADV_FILTER_ALL);
+    setAdvMetaAdset(ADV_FILTER_ALL);
+    setAdvMetaAd(ADV_FILTER_ALL);
+    if (utmCampaignFilter) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('utm_campaign');
+      setSearchParams(next, { replace: true });
+    }
+  }, [utmCampaignFilter, searchParams, setSearchParams]);
+
   const [contactEventsViewing, setContactEventsViewing] = useState(null);
+  const [leadFichaContact, setLeadFichaContact] = useState(null);
+  const [leadCapiByKey, setLeadCapiByKey] = useState(() => new Map());
+  const [leadGoogleByKey, setLeadGoogleByKey] = useState(() => new Map());
   const [contactEvents, setContactEvents] = useState([]);
   const [contactEventsLoading, setContactEventsLoading] = useState(false);
   const [eventBodyViewing, setEventBodyViewing] = useState(null);
@@ -518,6 +841,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
   const [exportCsvSearch, setExportCsvSearch] = useState('');
   const [exportCsvRunning, setExportCsvRunning] = useState(false);
   const [phoneToFunnelInfo, setPhoneToFunnelInfo] = useState(new Map());
+  const [phoneToLinkedLead, setPhoneToLinkedLead] = useState(new Map());
   const [leadsOnlyInFunnel, setLeadsOnlyInFunnel] = useState([]);
   /** Todos os leads do cliente (lista completa via paginação) — contagem por origem e funil. */
   const [allLeadsForStats, setAllLeadsForStats] = useState([]);
@@ -554,6 +878,60 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         setExportStageId((prev) => ((data || []).some((s) => s.id === prev) ? prev : (data?.[0]?.id || '')));
       });
   }, [exportPipelineId]);
+
+  useEffect(() => {
+    if (!standaloneTracking || !effectiveClienteId) {
+      setLeadCapiByKey(new Map());
+      setLeadGoogleByKey(new Map());
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const bounds = periodUtcBounds(messageDateFrom, messageDateTo);
+      let query = supabase
+        .from('meta_conversion_event_log')
+        .select('contact_id, lead_id, event_name, success, created_at, error_message')
+        .eq('cliente_id', effectiveClienteId)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+      if (bounds?.from && bounds?.to) {
+        query = query.gte('created_at', bounds.from).lte('created_at', bounds.to);
+      }
+      let googleQuery = supabase
+        .from('google_conversion_event_log')
+        .select('contact_id, lead_id, event_name, success, created_at')
+        .eq('cliente_id', effectiveClienteId)
+        .eq('success', true)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+      if (bounds?.from && bounds?.to) {
+        googleQuery = googleQuery.gte('created_at', bounds.from).lte('created_at', bounds.to);
+      }
+      const [{ data, error }, { data: googleData, error: googleError }] = await Promise.all([
+        query,
+        googleQuery,
+      ]);
+      if (cancelled) return;
+      if (error) {
+        setLeadCapiByKey(new Map());
+      } else {
+        setLeadCapiByKey(indexCapiEventsByLeadKey(data || []));
+      }
+      if (googleError) {
+        setLeadGoogleByKey(new Map());
+      } else {
+        const map = new Map();
+        for (const row of googleData || []) {
+          if (row.contact_id) map.set(`c:${row.contact_id}`, true);
+          if (row.lead_id) map.set(`l:${row.lead_id}`, true);
+        }
+        setLeadGoogleByKey(map);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [standaloneTracking, effectiveClienteId, messageDateFrom, messageDateTo]);
 
   const toggleContactSelection = useCallback((id) => {
     setSelectedContactIds((prev) => {
@@ -674,7 +1052,8 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
           meta += 1;
           continue;
         }
-        if (c.origin_source === 'google_ads') google += 1;
+        if (isGoogleAdsContactForStats(c)) google += 1;
+        else if (isSiteContactForStats(c)) outras += 1;
         else if (c.origin_source === 'nao_identificado') nao += 1;
         else if (c.origin_source && !['nao_identificado', 'google_ads'].includes(c.origin_source)) outras += 1;
       }
@@ -684,14 +1063,18 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       setAllLeadsForStats(allLeads);
 
       const map = new Map();
+      const leadByPhone = new Map();
       allLeads.forEach((l) => {
         const pipelineNome = l.pipeline?.nome || null;
         const stageNome = l.stage?.nome || null;
-        if (!pipelineNome && !stageNome) return;
         const variations = getPhoneVariations(l.whatsapp || '');
-        variations.forEach((v) => map.set(v, { pipelineNome, stageNome }));
+        variations.forEach((v) => {
+          leadByPhone.set(v, l);
+          if (pipelineNome || stageNome) map.set(v, { pipelineNome, stageNome });
+        });
       });
       setPhoneToFunnelInfo(map);
+      setPhoneToLinkedLead(leadByPhone);
 
       const contactPhones = new Set();
       allContacts.forEach((c) => {
@@ -725,7 +1108,59 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     setAllContactsFull([]);
     setAggregatesLoading(false);
     setPhoneToFunnelInfo(new Map());
+    setPhoneToLinkedLead(new Map());
   }, [canLoadData, effectiveClienteId, adminClienteIds]);
+
+  const getLinkedLeadForRow = useCallback((row) => {
+    if (row._leadRef) return row._leadRef;
+    if (row._fromLead && row.id?.startsWith('lead-')) {
+      const lid = row.id.replace(/^lead-/, '');
+      return (allLeadsForStats || []).find((l) => l.id === lid) || null;
+    }
+    const raw = (row.phone || '').trim() || (row.from_jid || '').replace(/@.*$/, '').trim();
+    for (const v of getPhoneVariations(raw)) {
+      const l = phoneToLinkedLead.get(v);
+      if (l) return l;
+    }
+    return null;
+  }, [allLeadsForStats, phoneToLinkedLead]);
+
+  const refreshComercialData = useCallback(() => {
+    loadContacts({ silent: true });
+    void loadFullAggregates();
+  }, [loadContacts, loadFullAggregates]);
+
+  const onAnalysisLabelsSaved = useCallback((row, next) => {
+    const apply = (td) => ({ ...(td && typeof td === 'object' ? td : {}), planeje_labels: next });
+    if (row?._fromLead && row._leadRef?.id) {
+      const leadId = row._leadRef.id;
+      setLeadsOnlyInFunnel((prev) => prev.map((item) => (item.id === leadId ? { ...item, tracking_data: apply(item.tracking_data) } : item)));
+      setAllLeadsForStats((prev) => (prev || []).map((item) => (item.id === leadId ? { ...item, tracking_data: apply(item.tracking_data) } : item)));
+    } else if (row?.id) {
+      setContacts((prev) => prev.map((item) => (item.id === row.id ? { ...item, tracking_data: apply(item.tracking_data) } : item)));
+      setAllContactsFull((prev) => (prev || []).map((item) => (item.id === row.id ? { ...item, tracking_data: apply(item.tracking_data) } : item)));
+      if (row._leadRef?.id) {
+        const leadId = row._leadRef.id;
+        setAllLeadsForStats((prev) => (prev || []).map((item) => (item.id === leadId ? { ...item, tracking_data: apply(item.tracking_data) } : item)));
+        setPhoneToLinkedLead((prev) => {
+          const nextMap = new Map(prev);
+          for (const [key, value] of nextMap) {
+            if (value?.id === leadId) nextMap.set(key, { ...value, tracking_data: apply(value.tracking_data) });
+          }
+          return nextMap;
+        });
+      }
+    }
+    setLeadFichaContact((prev) => {
+      if (!prev) return prev;
+      if (prev.id !== row?.id && prev._leadRef?.id !== row?._leadRef?.id) return prev;
+      return {
+        ...prev,
+        tracking_data: apply(prev.tracking_data),
+        _leadRef: prev._leadRef ? { ...prev._leadRef, tracking_data: apply(prev._leadRef.tracking_data) } : prev._leadRef,
+      };
+    });
+  }, []);
 
   useEffect(() => {
     loadContacts();
@@ -961,16 +1396,14 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
 
   const filteredContacts = useMemo(() => {
     let list = contacts;
-    if (originFilter === ORIGIN_FILTER_META) {
-      list = list.filter(isMetaAdsContactForStats);
-    } else if (originFilter === ORIGIN_FILTER_NAO_IDENT) {
-      list = list.filter((c) => !isMetaAdsContactForStats(c) && c.origin_source === 'nao_identificado');
+    if (originFilter !== ORIGIN_FILTER_ALL) {
+      list = list.filter((c) => contactMatchesOriginFilter(c, originFilter));
     }
     if (searchTerm.trim()) {
       const term = searchTerm.trim().toLowerCase();
       const termNorm = term.replace(/\D/g, '');
       list = list.filter((c) => {
-        const name = (c.sender_name || '').toLowerCase();
+        const name = contactDisplayName(c).toLowerCase();
         const phone = (c.phone || '').replace(/\D/g, '');
         return name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
       });
@@ -978,8 +1411,18 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     if (messageDateFrom || messageDateTo) {
       list = list.filter((c) => rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo));
     }
+    if (comprouFilter) {
+      list = list.filter((c) => matchesComprouUrlFilter(c.comprou, comprouFilter));
+    }
+    if (planejeLinkIdFilter) {
+      const want = String(planejeLinkIdFilter);
+      list = list.filter((c) => String(c.tracking_data?.planeje_link_id || '') === want);
+    }
+    if (advancedFilterActive) {
+      list = list.filter((c) => matchesAdvancedCampaignFilter(c, advancedFilter));
+    }
     return list;
-  }, [contacts, originFilter, searchTerm, messageDateField, messageDateFrom, messageDateTo]);
+  }, [contacts, originFilter, searchTerm, messageDateField, messageDateFrom, messageDateTo, comprouFilter, planejeLinkIdFilter, advancedFilter, advancedFilterActive]);
 
   const filteredLeadsOnlyInFunnel = useMemo(() => {
     let pool = leadsOnlyInFunnel || [];
@@ -992,10 +1435,8 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         return name.includes(term) || (l.whatsapp || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
       });
     }
-    if (originFilter === ORIGIN_FILTER_META) {
-      pool = pool.filter(isMetaAdsLead);
-    } else if (originFilter === ORIGIN_FILTER_NAO_IDENT) {
-      pool = pool.filter((l) => !isMetaAdsLead(l));
+    if (originFilter !== ORIGIN_FILTER_ALL) {
+      pool = pool.filter((l) => leadMatchesOriginFilter(l, originFilter, isMetaAdsLead));
     }
     if (messageDateFrom || messageDateTo) {
       pool = pool.filter((l) =>
@@ -1007,29 +1448,61 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         )
       );
     }
+    if (comprouFilter) {
+      pool = pool.filter((l) => matchesComprouUrlFilter(l.comprou, comprouFilter));
+    }
+    if (planejeLinkIdFilter) {
+      const want = String(planejeLinkIdFilter);
+      pool = pool.filter((l) => String(l.tracking_data?.planeje_link_id || '') === want);
+    }
+    if (advancedFilterActive) {
+      pool = pool.filter((l) => matchesAdvancedCampaignFilter(l, advancedFilter));
+    }
     return pool;
-  }, [leadsOnlyInFunnel, searchTerm, originFilter, isMetaAdsLead, messageDateField, messageDateFrom, messageDateTo]);
+  }, [leadsOnlyInFunnel, searchTerm, originFilter, isMetaAdsLead, messageDateField, messageDateFrom, messageDateTo, comprouFilter, planejeLinkIdFilter, advancedFilter, advancedFilterActive]);
 
+  const displayListBase = useMemo(() => {
+    const leadRows = filteredLeadsOnlyInFunnel.map((l) => {
+      const origin_source = recordedOriginSource(l, true) || (isMetaAdsLead(l) ? 'meta_ads'
+        : isGoogleAdsContactForStats(l) ? 'google_ads' : 'nao_identificado');
+      return {
+        _fromLead: true,
+        _leadRef: l,
+        id: `lead-${l.id}`,
+        sender_name: l.nome || null,
+        phone: l.whatsapp || null,
+        from_jid: (l.whatsapp || '').replace(/\D/g, '') ? `${(l.whatsapp || '').replace(/\D/g, '')}@s.whatsapp.net` : null,
+        origin_source,
+        utm_source: l.utm_source ?? null,
+        tracking_data: l.tracking_data || null,
+        first_seen_at: leadFirstSeenIso(l),
+        last_message_at: leadLastMessageIso(l),
+        instance_name: null,
+        profile_pic_url: null,
+        pipelineNome: l.pipeline?.nome ?? null,
+        stageNome: l.stage?.nome ?? null,
+        crm_apice_lead_status: l.crm_apice_lead_status ?? null,
+        crm_apice_lead_status_at: l.crm_apice_lead_status_at ?? null,
+      };
+    });
+    return [
+      ...filteredContacts.map((c) => ({ ...c, _leadRef: getLinkedLeadForRow(c) })),
+      ...leadRows,
+    ];
+  }, [filteredContacts, filteredLeadsOnlyInFunnel, isMetaAdsLead, getLinkedLeadForRow]);
+
+  const analysisCatalog = useMemo(() => catalogFromRows(displayListBase), [displayListBase]);
+  const analysisLabelCounts = useMemo(
+    () => analysisCatalog.map((item) => ({
+      ...item,
+      count: countAnalysisLabel(displayListBase, item.name, analysisCatalog),
+    })),
+    [analysisCatalog, displayListBase],
+  );
   const displayList = useMemo(() => {
-    const leadRows = filteredLeadsOnlyInFunnel.map((l) => ({
-      _fromLead: true,
-      id: `lead-${l.id}`,
-      sender_name: l.nome || null,
-      phone: l.whatsapp || null,
-      from_jid: (l.whatsapp || '').replace(/\D/g, '') ? `${(l.whatsapp || '').replace(/\D/g, '')}@s.whatsapp.net` : null,
-      origin_source: isMetaAdsLead(l) ? 'meta_ads' : 'nao_identificado',
-      tracking_data: l.tracking_data || null,
-      first_seen_at: leadFirstSeenIso(l),
-      last_message_at: leadLastMessageIso(l),
-      instance_name: null,
-      profile_pic_url: null,
-      pipelineNome: l.pipeline?.nome ?? null,
-      stageNome: l.stage?.nome ?? null,
-      crm_apice_lead_status: l.crm_apice_lead_status ?? null,
-      crm_apice_lead_status_at: l.crm_apice_lead_status_at ?? null,
-    }));
-    return [...filteredContacts, ...leadRows];
-  }, [filteredContacts, filteredLeadsOnlyInFunnel, isMetaAdsLead]);
+    if (labelFilter === LABEL_FILTER_ALL) return displayListBase;
+    return displayListBase.filter((row) => rowHasAnalysisLabel(row, labelFilter, analysisCatalog));
+  }, [displayListBase, labelFilter, analysisCatalog]);
 
   const getFunnelInfoForRow = useCallback((row) => {
     if (row._fromLead && row.pipelineNome) return { pipelineNome: row.pipelineNome, stageNome: row.stageNome };
@@ -1126,25 +1599,23 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         searchTerm.trim() ||
         messageDateFrom ||
         messageDateTo ||
-        originFilter !== ORIGIN_FILTER_ALL
+        comprouFilter ||
+        originFilter !== ORIGIN_FILTER_ALL ||
+        advancedFilterActive ||
+        planejeLinkIdFilter ||
+        labelFilter !== LABEL_FILTER_ALL
       ),
-    [searchTerm, messageDateFrom, messageDateTo, originFilter]
+    [searchTerm, messageDateFrom, messageDateTo, comprouFilter, originFilter, advancedFilterActive, planejeLinkIdFilter, labelFilter]
   );
 
   const contactCardStatsFiltered = useMemo(() => {
     const source = allContactsFull.length > 0 ? allContactsFull : contacts;
     const list = source.filter((c) => {
-      if (originFilter === ORIGIN_FILTER_META && !isMetaAdsContactForStats(c)) return false;
-      if (
-        originFilter === ORIGIN_FILTER_NAO_IDENT &&
-        !(!isMetaAdsContactForStats(c) && c.origin_source === 'nao_identificado')
-      ) {
-        return false;
-      }
+      if (!contactMatchesOriginFilter(c, originFilter)) return false;
       const term = searchTerm.trim().toLowerCase();
       const termNorm = term.replace(/\D/g, '');
       if (term) {
-        const name = (c.sender_name || '').toLowerCase();
+        const name = contactDisplayName(c).toLowerCase();
         const phone = (c.phone || '').replace(/\D/g, '');
         if (!(name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm)))) {
           return false;
@@ -1153,6 +1624,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       if (messageDateFrom || messageDateTo) {
         if (!rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo)) return false;
       }
+      if (advancedFilterActive && !matchesAdvancedCampaignFilter(c, advancedFilter)) return false;
       return true;
     });
     let meta = 0;
@@ -1164,9 +1636,10 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         meta += 1;
         continue;
       }
-      if (c.origin_source === 'google_ads') google += 1;
+      if (isGoogleAdsContactForStats(c)) google += 1;
+      else if (isSiteContactForStats(c)) outras += 1;
       else if (c.origin_source === 'nao_identificado') nao += 1;
-      else if (c.origin_source && !['nao_identificado', 'google_ads'].includes(c.origin_source)) outras += 1;
+      else if (c.origin_source && !['nao_identificado', 'google_ads', 'site'].includes(c.origin_source)) outras += 1;
     }
     return { total: list.length, meta, google, outras, nao, usedFullDataset: allContactsFull.length > 0 };
   }, [
@@ -1177,12 +1650,15 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     messageDateField,
     messageDateFrom,
     messageDateTo,
+    advancedFilter,
+    advancedFilterActive,
   ]);
 
   const leadCardStatsFiltered = useMemo(() => {
     let list = allLeadsForStats || [];
-    if (originFilter === ORIGIN_FILTER_META) list = list.filter(isMetaAdsLead);
-    else if (originFilter === ORIGIN_FILTER_NAO_IDENT) list = list.filter((l) => !isMetaAdsLead(l));
+    if (originFilter !== ORIGIN_FILTER_ALL) {
+      list = list.filter((l) => leadMatchesOriginFilter(l, originFilter, isMetaAdsLead));
+    }
     const term = searchTerm.trim().toLowerCase();
     const termNorm = term.replace(/\D/g, '');
     if (term) {
@@ -1202,6 +1678,9 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         )
       );
     }
+    if (advancedFilterActive) {
+      list = list.filter((l) => matchesAdvancedCampaignFilter(l, advancedFilter));
+    }
     let meta = 0;
     let semOrigem = 0;
     let outras = 0;
@@ -1211,8 +1690,20 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       else outras += 1;
     }
     return { total: list.length, meta, semOrigem, outras };
-  }, [allLeadsForStats, originFilter, searchTerm, messageDateField, messageDateFrom, messageDateTo, isMetaAdsLead]);
+  }, [allLeadsForStats, originFilter, searchTerm, messageDateField, messageDateFrom, messageDateTo, isMetaAdsLead, advancedFilter, advancedFilterActive]);
 
+  const advancedFilterOptions = useMemo(() => {
+    const pool = [...(contacts || []), ...(leadsOnlyInFunnel || [])];
+    return {
+      utm_source: uniqueSortedValues(pool, 'utm_source'),
+      utm_medium: uniqueSortedValues(pool, 'utm_medium'),
+      utm_campaign: uniqueSortedValues(pool, 'utm_campaign'),
+      utm_content: uniqueSortedValues(pool, 'utm_content'),
+      meta_campaign: uniqueSortedValues(pool, 'meta_campaign'),
+      meta_adset: uniqueSortedValues(pool, 'meta_adset'),
+      meta_ad: uniqueSortedValues(pool, 'meta_ad'),
+    };
+  }, [contacts, leadsOnlyInFunnel]);
   /** Valores exibidos nos cards: totais do banco ou totais filtrados. */
   const contactCardsDisplay = useMemo(() => {
     if (!listFiltersActive) {
@@ -1295,17 +1786,11 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       contactList = contactSource;
     } else {
       contactList = contactSource.filter((c) => {
-        if (originFilter === ORIGIN_FILTER_META && !isMetaAdsContactForStats(c)) return false;
-        if (
-          originFilter === ORIGIN_FILTER_NAO_IDENT &&
-          !(!isMetaAdsContactForStats(c) && c.origin_source === 'nao_identificado')
-        ) {
-          return false;
-        }
+        if (!contactMatchesOriginFilter(c, originFilter)) return false;
         const term = searchTerm.trim().toLowerCase();
         const termNorm = term.replace(/\D/g, '');
         if (term) {
-          const name = (c.sender_name || '').toLowerCase();
+          const name = contactDisplayName(c).toLowerCase();
           const phone = (c.phone || '').replace(/\D/g, '');
           if (!(name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm)))) {
             return false;
@@ -1320,8 +1805,9 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
 
     let leadList = allLeadsForStats || [];
     if (listFiltersActive) {
-      if (originFilter === ORIGIN_FILTER_META) leadList = leadList.filter(isMetaAdsLead);
-      else if (originFilter === ORIGIN_FILTER_NAO_IDENT) leadList = leadList.filter((l) => !isMetaAdsLead(l));
+      if (originFilter !== ORIGIN_FILTER_ALL) {
+        leadList = leadList.filter((l) => leadMatchesOriginFilter(l, originFilter, isMetaAdsLead));
+      }
       const term = searchTerm.trim().toLowerCase();
       const termNorm = term.replace(/\D/g, '');
       if (term) {
@@ -1383,12 +1869,12 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     contactsTotalDbCount != null && contacts.length < contactsTotalDbCount;
 
   const filterMetaCount = useMemo(() => {
-    let list = contacts.filter(isMetaAdsContactForStats);
+    let list = contacts.filter((c) => contactMatchesOriginFilter(c, ORIGIN_FILTER_META));
     const term = searchTerm.trim().toLowerCase();
     const termNorm = term.replace(/\D/g, '');
     if (term) {
       list = list.filter((c) => {
-        const name = (c.sender_name || '').toLowerCase();
+        const name = contactDisplayName(c).toLowerCase();
         const phone = (c.phone || '').replace(/\D/g, '');
         return name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
       });
@@ -1396,7 +1882,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     if (messageDateFrom || messageDateTo) {
       list = list.filter((c) => rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo));
     }
-    let lp = (leadsOnlyInFunnel || []).filter(isMetaAdsLead);
+    let lp = (leadsOnlyInFunnel || []).filter((l) => leadMatchesOriginFilter(l, ORIGIN_FILTER_META, isMetaAdsLead));
     if (term) {
       lp = lp.filter((l) => {
         const name = (l.nome || '').toLowerCase();
@@ -1417,13 +1903,31 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     return list.length + lp.length;
   }, [contacts, leadsOnlyInFunnel, searchTerm, messageDateField, messageDateFrom, messageDateTo, isMetaAdsLead]);
 
+  const filterGoogleCount = useMemo(() => {
+    let list = contacts.filter((c) => contactMatchesOriginFilter(c, ORIGIN_FILTER_GOOGLE));
+    if (messageDateFrom || messageDateTo) {
+      list = list.filter((c) => rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo));
+    }
+    const lp = (leadsOnlyInFunnel || []).filter((l) => leadMatchesOriginFilter(l, ORIGIN_FILTER_GOOGLE, isMetaAdsLead));
+    return list.length + lp.length;
+  }, [contacts, leadsOnlyInFunnel, messageDateField, messageDateFrom, messageDateTo, isMetaAdsLead]);
+
+  const filterSiteCount = useMemo(() => {
+    let list = contacts.filter((c) => contactMatchesOriginFilter(c, ORIGIN_FILTER_SITE));
+    if (messageDateFrom || messageDateTo) {
+      list = list.filter((c) => rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo));
+    }
+    const lp = (leadsOnlyInFunnel || []).filter((l) => leadMatchesOriginFilter(l, ORIGIN_FILTER_SITE, isMetaAdsLead));
+    return list.length + lp.length;
+  }, [contacts, leadsOnlyInFunnel, messageDateField, messageDateFrom, messageDateTo, isMetaAdsLead]);
+
   const filterNaoIdentCount = useMemo(() => {
-    let list = contacts.filter((c) => !isMetaAdsContactForStats(c) && c.origin_source === 'nao_identificado');
+    let list = contacts.filter((c) => contactMatchesOriginFilter(c, ORIGIN_FILTER_NAO_IDENT));
     const term = searchTerm.trim().toLowerCase();
     const termNorm = term.replace(/\D/g, '');
     if (term) {
       list = list.filter((c) => {
-        const name = (c.sender_name || '').toLowerCase();
+        const name = contactDisplayName(c).toLowerCase();
         const phone = (c.phone || '').replace(/\D/g, '');
         return name.includes(term) || (c.phone || '').toLowerCase().includes(term) || (termNorm && phone.includes(termNorm));
       });
@@ -1431,7 +1935,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     if (messageDateFrom || messageDateTo) {
       list = list.filter((c) => rowInMessageDateRange(c, messageDateField, messageDateFrom, messageDateTo));
     }
-    let lp = (leadsOnlyInFunnel || []).filter((l) => !isMetaAdsLead(l));
+    let lp = (leadsOnlyInFunnel || []).filter((l) => leadMatchesOriginFilter(l, ORIGIN_FILTER_NAO_IDENT, isMetaAdsLead));
     if (term) {
       lp = lp.filter((l) => {
         const name = (l.nome || '').toLowerCase();
@@ -1486,9 +1990,10 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       'Funil',
       'Etapa',
       'Etiqueta (CRM-Apice)',
+      'Etiquetas de análise',
       'Rastreio (UTM)',
     ];
-    const escape = (v) => (v == null ? '' : String(v).replace(/"/g, '""'));
+    const escape = escapeContatosCsvValue;
 
     const buildRow = (c, resolveFunnel) => {
       const name =
@@ -1498,14 +2003,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         c.from_jid ||
         '';
       const rowIsMetaAds = c._fromLead ? c.origin_source === 'meta_ads' : isMetaAdsContactForStats(c);
-      const origin =
-        rowIsMetaAds
-          ? c.utm_campaign
-            ? 'Meta Ads · Via Campanha'
-            : 'Meta Ads'
-          : c.origin_source === 'google_ads'
-            ? 'Google Ads'
-            : 'Não rastreada';
+      const origin = originBadgeForContact(c, rowIsMetaAds).label;
       const campaign =
         c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name ?? '';
       const adset = c.tracking_data?.meta_ad_details?.ad?.adset?.name ?? '';
@@ -1515,6 +2013,10 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       const funnel = fi?.pipelineNome ?? '';
       const etapa = fi?.stageNome ?? '';
       const etiquetaApice = c.crm_apice_lead_status ? `CRM-Apice: ${c.crm_apice_lead_status}` : '';
+      const etiquetasAnalise = resolveAnalysisLabels({
+        contact: c._fromLead ? null : c,
+        lead: c._leadRef || null,
+      }).join(' | ');
       const rastreio =
         [c.utm_source, c.utm_medium, c.utm_campaign].filter(Boolean).join(' · ') ||
         (rowIsMetaAds ? 'Meta Ads' : '');
@@ -1531,6 +2033,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
         funnel,
         etapa,
         etiquetaApice,
+        etiquetasAnalise,
         rastreio || '—',
       ]
         .map(escape)
@@ -1694,19 +2197,42 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
       return;
     }
     setContactEventsLoading(true);
-    const jid = contactEventsViewing.from_jid;
-    const phoneOnly = jid ? String(jid).replace(/@s\.whatsapp\.net$/i, '').trim() : '';
-    const fromJidValues = [...new Set([jid, phoneOnly].filter(Boolean))];
-    let query = supabase
-      .from('cliente_whatsapp_webhook_log')
-      .select('id, created_at, source, body_preview, status, raw_payload, from_jid')
-      .eq('cliente_id', effectiveClienteId)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    query = fromJidValues.length ? query.in('from_jid', fromJidValues) : query.eq('from_jid', jid);
-    query
-      .then(({ data }) => setContactEvents(data || []))
-      .finally(() => setContactEventsLoading(false));
+    const contact = contactEventsViewing;
+    const fromJidValues = buildContactJidLookupVariants(contact);
+
+    (async () => {
+      const select =
+        'id, created_at, source, body_preview, status, raw_payload, from_jid';
+      const base = () =>
+        supabase
+          .from('cliente_whatsapp_webhook_log')
+          .select(select)
+          .eq('cliente_id', effectiveClienteId)
+          .order('created_at', { ascending: false });
+
+      let rows = [];
+      if (fromJidValues.length > 0) {
+        const { data: direct } = await base().in('from_jid', fromJidValues).limit(100);
+        rows = direct || [];
+      }
+
+      // Logs com from_jid vazio/outro formato: busca lote recente e filtra pelo raw_payload
+      if (rows.length < 100) {
+        const { data: recent } = await base().limit(500);
+        const seen = new Set(rows.map((r) => r.id));
+        for (const row of recent || []) {
+          if (seen.has(row.id)) continue;
+          if (webhookLogMatchesContact(row, contact)) {
+            rows.push(row);
+            seen.add(row.id);
+          }
+          if (rows.length >= 100) break;
+        }
+      }
+
+      rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setContactEvents(rows.slice(0, 100));
+    })().finally(() => setContactEventsLoading(false));
   }, [contactEventsViewing?.id, contactEventsViewing?.from_jid, effectiveClienteId]);
 
   const hasSourceId = (raw) => {
@@ -1717,6 +2243,123 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
     const v = (o, ...keys) => { if (!o) return null; for (const k of keys) if (o[k] != null && String(o[k]).trim()) return true; return false; };
     return v(body, 'source_id', 'sourceId') || v(payload, 'source_id', 'sourceId') || (chat && v(chat, 'source_id', 'sourceId'));
   };
+
+  const defaultPeriod = defaultRastreamentoPeriod();
+  const periodIsDefault = messageDateFrom === defaultPeriod.since && messageDateTo === defaultPeriod.until;
+  const hubToolbarExtra = embeddedInHub ? (
+    <div className="rt-wa-status__extra">
+      <Select value={messageDateField} onValueChange={setMessageDateField}>
+        <SelectTrigger className="h-7 w-[136px] text-[11px] rounded-md border-gray-200/80 bg-white px-1.5 dark:border-gray-700/50 dark:bg-card">
+          <CalendarRange className="mr-1 h-3.5 w-3.5 shrink-0" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={MESSAGE_DATE_FIELD_FIRST}>Primeira mensagem</SelectItem>
+          <SelectItem value={MESSAGE_DATE_FIELD_LAST}>Última mensagem</SelectItem>
+        </SelectContent>
+      </Select>
+      <ContatosMessagePeriodPicker
+        fromIso={messageDateFrom}
+        toIso={messageDateTo}
+        onChangeFrom={setMessageDateFrom}
+        onChangeTo={setMessageDateTo}
+        onChangePeriod={({ from, to }) => {
+          setMessageDateFrom(from);
+          setMessageDateTo(to);
+          if (onPeriodChange && from && to) onPeriodChange({ since: from, until: to });
+        }}
+        compact
+      />
+      {periodIsDefault ? null : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 px-2 text-xs"
+          onClick={() => {
+            if (onPeriodChange) {
+              const next = defaultRastreamentoPeriod();
+              setMessageDateFrom(next.since);
+              setMessageDateTo(next.until);
+              onPeriodChange(next);
+              return;
+            }
+            setMessageDateFrom('');
+            setMessageDateTo('');
+          }}
+        >
+          Limpar
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant={advancedOpen || advancedFilterActive ? 'default' : 'outline'}
+        size="sm"
+        className="h-7 gap-1 rounded-md px-2 text-[11px] shrink-0"
+        onClick={() => setAdvancedOpen((v) => !v)}
+        title="Filtrar por utm_source, campanha Meta, conjunto e anúncio"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Avançado
+        {advancedFilterActive ? (
+          <span className="ml-0.5 rounded-full bg-white/20 px-1.5 text-[10px] tabular-nums">
+            {Object.values(advancedFilter).filter((v) => v && v !== ADV_FILTER_ALL).length}
+          </span>
+        ) : (
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+        )}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 rounded-md px-2 text-[11px] shrink-0">
+            Ações
+            {selectedContactIds.size > 0 ? (
+              <span className="tabular-nums">{selectedContactIds.size}</span>
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onSelect={openExportCsvDialog} disabled={loading || !canLoadData}>
+            <FileDown className="mr-2 h-3.5 w-3.5" />
+            Exportar contatos
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => openExportFunnelForContacts(filteredContacts)}
+            disabled={loading || filteredContacts.length === 0}
+          >
+            <Send className="mr-2 h-3.5 w-3.5" />
+            Exportar para funil
+          </DropdownMenuItem>
+          {selectedContactIds.size > 0 ? (
+            <DropdownMenuItem
+              onSelect={() => openExportFunnelForContacts(filteredContacts.filter((c) => selectedContactIds.has(c.id)))}
+            >
+              <Send className="mr-2 h-3.5 w-3.5" />
+              Exportar {selectedContactIds.size} selecionado(s)
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={fillContactsFromWebhookLog} disabled={loading || fillFromWebhookLogLoading}>
+            {fillFromWebhookLogLoading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-2 h-3.5 w-3.5" />}
+            Importar contatos
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setImportFacebookLeadsOpen(true)} disabled={!effectiveClienteId}>
+            <Facebook className="mr-2 h-3.5 w-3.5" />
+            Importar leads do Facebook
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={recalcContactTimestampsFromWebhookLog}
+            disabled={loading || !effectiveClienteId || recalcTimestampsLoading}
+          >
+            {recalcTimestampsLoading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+            Recalcular datas
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : null;
 
   if (configLoading) {
     return (
@@ -1733,9 +2376,39 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
           <title>Contatos - CRM</title>
         </Helmet>
       )}
-      <div className={embeddedInCrm ? 'space-y-6' : 'space-y-4'}>
-        <div className="flex flex-col gap-3">
-          {embeddedInCrm && isAdminWithoutCliente && !allClientsMode && clientesForAdmin?.length > 0 && (
+      <div className={embeddedInCrm ? 'space-y-6' : embeddedInHub ? 'rastreamento-leads-shell' : 'space-y-4'}>
+        <div className={embeddedInHub ? 'flex flex-col gap-2 shrink-0' : 'flex flex-col gap-3'}>
+          {standaloneTracking && !hideHubClientSelector && isMultiClientHub && clientesForAdmin?.length > 0 && (
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/50 bg-white dark:bg-card p-4 shadow-sm">
+              <Label className="text-sm font-medium text-muted-foreground block mb-2">Cliente</Label>
+              <Select
+                value={selectedClienteId || ''}
+                onValueChange={(v) => setSelectedClienteId(v || null)}
+              >
+                <SelectTrigger className="w-full sm:w-[360px] h-10 rounded-lg">
+                  <Users className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+                  <SelectValue placeholder="Selecione o cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientesForAdmin.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.empresa || c.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-2">
+                Contatos e conversas são carregados somente do cliente selecionado (evita sobrecarregar a tela).
+              </p>
+            </div>
+          )}
+          {standaloneTracking && effectiveClienteId && !embeddedInHub && (
+            <ClienteWhatsAppChannelStatus
+              clienteId={effectiveClienteId}
+              empresaNome={clienteEmpresaById.get(effectiveClienteId)}
+            />
+          )}
+          {embeddedInCrm && isAdminWithoutCliente && !allClientsMode && !standaloneTracking && clientesForAdmin?.length > 0 && (
             <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/50 bg-white dark:bg-card p-4 shadow-sm">
               <Label className="text-sm font-medium text-muted-foreground block mb-2">Cliente</Label>
               <Select value={selectedClienteId || ''} onValueChange={(v) => setSelectedClienteId(v || null)}>
@@ -1752,13 +2425,20 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
               </Select>
             </div>
           )}
-          {/* Título + cliente (admin) + Novo */}
+          {/* Título + cliente (admin) + Novo — no hub o título já está nas abas */}
+          {!(embeddedInHub && standaloneTracking) && (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0">
-              {(!embeddedInCrm || !isAdminWithoutCliente) && (
+              {(!embeddedInCrm || !isAdminWithoutCliente) && !standaloneTracking && (
                 <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
                   Contatos
                 </h1>
+              )}
+              {standaloneTracking && !embeddedInHub && (
+                <div className="flex items-center gap-0.5 min-w-0">
+                  <h2 className="text-lg font-semibold tracking-[-0.025em] text-slate-950 dark:text-white">Leads</h2>
+                  <RastreamentoHelp label="Sobre os leads rastreados">{rastreamentoTabHelp('leads')}</RastreamentoHelp>
+                </div>
               )}
               {!embeddedInCrm && isAdminWithoutCliente && !allClientsMode && clientesForAdmin?.length > 0 && (
                 <Select value={selectedClienteId || ''} onValueChange={(v) => setSelectedClienteId(v || null)}>
@@ -1789,11 +2469,36 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
               </Button>
             ) : null}
           </div>
+          )}
 
-          <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white dark:bg-card shadow-sm overflow-hidden">
-            <div className="p-2 sm:p-3 space-y-2.5">
+          {standaloneTracking && !effectiveClienteId && !configLoading && (
+            <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 bg-white dark:bg-card shadow-sm">
+              <CardContent className="py-10 px-6 text-center">
+                <Users className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-foreground">Selecione um cliente</p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                  Escolha o cliente no campo acima para carregar contatos, origem e campanhas Meta.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {(canLoadData || !standaloneTracking) && (
+          <div className={embeddedInHub
+            ? 'rastreamento-leads-toolbar rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white dark:bg-card shadow-[0_10px_28px_rgba(15,23,42,0.05)] overflow-hidden shrink-0'
+            : 'rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white dark:bg-card shadow-sm overflow-hidden'}>
+            {embeddedInHub && standaloneTracking && effectiveClienteId ? (
+              <ClienteWhatsAppChannelStatus
+                clienteId={effectiveClienteId}
+                empresaNome={clienteEmpresaById.get(effectiveClienteId)}
+                compact
+                extra={hubToolbarExtra}
+              />
+            ) : null}
+            <div className={embeddedInHub ? 'px-2.5 py-1.5' : 'p-2 sm:p-3 space-y-2.5'}>
+              {embeddedInHub ? null : (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Ações</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Ações</p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Button variant="outline" size="sm" className="h-8 text-xs rounded-md gap-1 px-2.5" onClick={openExportCsvDialog} disabled={loading || !canLoadData}>
                     <FileDown className="h-3.5 w-3.5" />
@@ -1830,12 +2535,34 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                   </Button>
                 </div>
               </div>
+              )}
 
-              {effectiveClienteId && (
-                <div className="border-t border-slate-200/70 dark:border-slate-700/50 pt-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Filtros</p>
+              {canLoadData && (
+                <div className={embeddedInHub ? 'rastreamento-leads-filters' : 'border-t border-slate-200/70 dark:border-slate-700/50 pt-2'}>
+                  {planejeLinkIdFilter ? (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900/40 dark:bg-indigo-950/40 dark:text-indigo-100">
+                      <span>
+                        Filtrado pelas mensagens do link rastreável
+                        <code className="ml-1 font-mono text-[10px] opacity-80">{String(planejeLinkIdFilter).slice(0, 8)}…</code>
+                      </span>
+                      <button
+                        type="button"
+                        className="font-semibold underline underline-offset-2"
+                        onClick={() => {
+                          const next = new URLSearchParams(searchParams);
+                          next.delete('planeje_link_id');
+                          setSearchParams(next, { replace: true });
+                        }}
+                      >
+                        Limpar filtro
+                      </button>
+                    </div>
+                  ) : null}
+                  {embeddedInHub ? null : (
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Filtros</p>
+                  )}
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-                    <div className="relative flex-1 min-w-[min(100%,200px)] max-w-md">
+                    <div className={embeddedInHub ? 'rastreamento-leads-filters__search' : 'relative flex-1 min-w-[min(100%,200px)] max-w-md'}>
                       <Input
                         placeholder="Pesquisar"
                         value={searchTerm}
@@ -1854,9 +2581,59 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                           {listFiltersActive || !listaContatosCortada ? `Todos (${filterTodosCount})` : 'Todos'}
                         </SelectItem>
                         <SelectItem value={ORIGIN_FILTER_META}>Meta Ads ({filterMetaCount})</SelectItem>
+                        <SelectItem value={ORIGIN_FILTER_GOOGLE}>Google Ads ({filterGoogleCount})</SelectItem>
+                        <SelectItem value={ORIGIN_FILTER_SITE}>Site ({filterSiteCount})</SelectItem>
                         <SelectItem value={ORIGIN_FILTER_NAO_IDENT}>Não identificado ({filterNaoIdentCount})</SelectItem>
                       </SelectContent>
                     </Select>
+                    <div className={`flex items-center gap-1 ${embeddedInHub ? 'flex-nowrap shrink-0' : 'flex-wrap min-w-0'}`}>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-0.5">
+                        <Tag className="h-3 w-3" />
+                        Análise
+                      </span>
+                      <Button
+                        type="button"
+                        variant={labelFilter === LABEL_FILTER_ALL ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 px-2 text-[11px] rounded-md"
+                        onClick={() => setLabelFilter(LABEL_FILTER_ALL)}
+                      >
+                        Todas
+                      </Button>
+                      {analysisLabelCounts.map((item) => (
+                        <Button
+                          key={item.id}
+                          type="button"
+                          variant={labelFilter === item.name ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-7 px-2 text-[11px] rounded-md gap-1"
+                          onClick={() => setLabelFilter((current) => (current === item.name ? LABEL_FILTER_ALL : item.name))}
+                          title="Filtra a lista. Não envia à Meta."
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ background: item.color }}
+                          />
+                          {item.name}
+                          <span className="tabular-nums opacity-80">{item.count}</span>
+                        </Button>
+                      ))}
+                      {embeddedInHub ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] rounded-md shrink-0 gap-1"
+                          onClick={() => loadContacts({ resetMetaBatchKey: true })}
+                          disabled={loading || aggregatesLoading}
+                          title="Recarrega lista e totais"
+                        >
+                          {loading || aggregatesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          Atualizar
+                        </Button>
+                      ) : null}
+                    </div>
+                    {embeddedInHub ? null : (
                     <Button
                       variant="outline"
                       size="sm"
@@ -1868,6 +2645,9 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                       {loading || aggregatesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                       Atualizar
                     </Button>
+                    )}
+                    {embeddedInHub ? null : (
+                    <>
                     <Select value={messageDateField} onValueChange={setMessageDateField}>
                       <SelectTrigger className="h-8 w-[min(100%,168px)] sm:w-[168px] text-xs rounded-md border-gray-200/80 dark:border-gray-700/50 px-2">
                         <CalendarRange className="h-3.5 w-3.5 mr-1 shrink-0" />
@@ -1878,18 +2658,17 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                         <SelectItem value={MESSAGE_DATE_FIELD_LAST}>Última mensagem</SelectItem>
                       </SelectContent>
                     </Select>
-                    <ContatosBrDateInput
-                      id="contatos-date-from"
-                      valueIso={messageDateFrom}
-                      onChangeIso={setMessageDateFrom}
-                      aria-label="Data inicial do período"
-                    />
-                    <span className="text-muted-foreground text-xs px-0.5 shrink-0">até</span>
-                    <ContatosBrDateInput
-                      id="contatos-date-to"
-                      valueIso={messageDateTo}
-                      onChangeIso={setMessageDateTo}
-                      aria-label="Data final do período"
+                    <ContatosMessagePeriodPicker
+                      fromIso={messageDateFrom}
+                      toIso={messageDateTo}
+                      onChangeFrom={setMessageDateFrom}
+                      onChangeTo={setMessageDateTo}
+                      onChangePeriod={({ from, to }) => {
+                        setMessageDateFrom(from);
+                        setMessageDateTo(to);
+                        if (onPeriodChange && from && to) onPeriodChange({ since: from, until: to });
+                      }}
+                      compact={embeddedInHub}
                     />
                     {(messageDateFrom || messageDateTo) && (
                       <Button
@@ -1898,6 +2677,13 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                         size="sm"
                         className="h-8 px-2 text-xs shrink-0"
                         onClick={() => {
+                          if (onPeriodChange) {
+                            const next = defaultRastreamentoPeriod();
+                            setMessageDateFrom(next.since);
+                            setMessageDateTo(next.until);
+                            onPeriodChange(next);
+                            return;
+                          }
                           setMessageDateFrom('');
                           setMessageDateTo('');
                         }}
@@ -1905,46 +2691,237 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                         Limpar
                       </Button>
                     )}
+                    <Button
+                      type="button"
+                      variant={advancedOpen || advancedFilterActive ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-8 px-2.5 text-xs rounded-md gap-1"
+                      onClick={() => setAdvancedOpen((v) => !v)}
+                      title="Filtrar por utm_source, campanha Meta, conjunto e anúncio"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      Avançado
+                      {advancedFilterActive ? (
+                        <span className="ml-0.5 rounded-full bg-white/20 px-1.5 text-[10px] tabular-nums">
+                          {Object.values(advancedFilter).filter((v) => v && v !== ADV_FILTER_ALL).length}
+                        </span>
+                      ) : (
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                      )}
+                    </Button>
+                    {advancedFilterActive ? (
+                      <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={clearAdvancedFilters}>
+                        Limpar avançado
+                      </Button>
+                    ) : null}
+                    </>
+                    )}
                   </div>
+                  {advancedOpen ? (
+                    <div className="mt-2 grid gap-2 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 dark:border-slate-700/50 dark:bg-slate-900/40 sm:grid-cols-2 lg:grid-cols-4">
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">utm_source</span>
+                        <SearchableFilterSelect
+                          value={advUtmSource}
+                          onValueChange={setAdvUtmSource}
+                          options={advancedFilterOptions.utm_source}
+                          searchPlaceholder="Buscar source…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">utm_medium</span>
+                        <SearchableFilterSelect
+                          value={advUtmMedium}
+                          onValueChange={setAdvUtmMedium}
+                          options={advancedFilterOptions.utm_medium}
+                          searchPlaceholder="Buscar medium…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">utm_campaign</span>
+                        <SearchableFilterSelect
+                          value={advUtmCampaign}
+                          onValueChange={setAdvUtmCampaign}
+                          options={advancedFilterOptions.utm_campaign}
+                          searchPlaceholder="Buscar campaign…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">utm_content</span>
+                        <SearchableFilterSelect
+                          value={advUtmContent}
+                          onValueChange={setAdvUtmContent}
+                          options={advancedFilterOptions.utm_content}
+                          searchPlaceholder="Buscar content…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Campanha Meta</span>
+                        <SearchableFilterSelect
+                          value={advMetaCampaign}
+                          onValueChange={setAdvMetaCampaign}
+                          options={advancedFilterOptions.meta_campaign}
+                          allLabel="Todas"
+                          searchPlaceholder="Buscar campanha…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Conjunto</span>
+                        <SearchableFilterSelect
+                          value={advMetaAdset}
+                          onValueChange={setAdvMetaAdset}
+                          options={advancedFilterOptions.meta_adset}
+                          searchPlaceholder="Buscar conjunto…"
+                        />
+                      </label>
+                      <label className="grid gap-1 min-w-0 sm:col-span-2 lg:col-span-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Anúncio</span>
+                        <SearchableFilterSelect
+                          value={advMetaAd}
+                          onValueChange={setAdvMetaAd}
+                          options={advancedFilterOptions.meta_ad}
+                          searchPlaceholder="Buscar anúncio…"
+                        />
+                      </label>
+                      <p className="sm:col-span-2 lg:col-span-4 text-[11px] text-muted-foreground">
+                        Digite no campo de busca de cada lista. Campanha/conjunto/anúncio Meta dependem do enriquecimento da API.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
           </div>
+          )}
         </div>
 
-        {!canLoadData ? (
+        {!canLoadData && !standaloneTracking && (
           <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 bg-white dark:bg-card shadow-sm">
             <CardContent className="py-12 px-6 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 mb-4">
                 <Users className="h-7 w-7" />
               </div>
               <p className="text-sm font-medium text-foreground">
-                {isAdminWithoutCliente ? 'Selecione um cliente' : 'Cliente não identificado'}
+                {canPickCliente ? 'Selecione um cliente' : 'Cliente não identificado'}
               </p>
               <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                {isAdminWithoutCliente ? 'Use o seletor acima para escolher o cliente e visualizar os contatos.' : 'Não foi possível identificar o cliente.'}
+                {canPickCliente ? 'Use o seletor acima para escolher o cliente e visualizar os contatos.' : 'Não foi possível identificar o cliente.'}
               </p>
             </CardContent>
           </Card>
-        ) : (
-          <Card className="rounded-xl border-slate-200/60 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-card shadow-sm">
-            <CardContent className="p-0">
-              <div className="p-5 pb-4 border-b border-slate-200/60 dark:border-slate-700/50 space-y-4">
-                <div
-                  className="rounded-lg border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/20 px-3 py-2"
-                  title="Contatos = total no banco (WhatsApp). Meta / Outras / Não = telefones únicos entre contatos + leads (prioridade Meta → Google → Outras → Não)."
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex flex-wrap items-center gap-2">
-                    <span>Resumo</span>
-                    {listFiltersActive && (
-                      <span className="normal-case font-normal text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200">
-                        Filtros ativos
-                      </span>
-                    )}
-                  </p>
+        )}
+
+        {canLoadData && (
+          <Card className={embeddedInHub
+            ? 'rastreamento-leads-board rounded-2xl border border-slate-200/70 dark:border-white/10 overflow-hidden bg-white dark:bg-card shadow-[0_10px_28px_rgba(15,23,42,0.05)]'
+            : 'rounded-xl border-slate-200/60 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-card shadow-sm'}>
+            <CardContent className={embeddedInHub ? 'p-0 flex flex-col flex-1 min-h-0' : 'p-0'}>
+              <div className={`${embeddedInHub ? 'p-3' : 'p-5 pb-4'} border-b border-slate-200/60 dark:border-slate-700/50 ${embeddedInHub ? 'space-y-2 shrink-0' : 'space-y-4'}`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  {cardsCollapsed ? (
+                    <p className="text-xs text-muted-foreground min-w-0 truncate" title="Resumo recolhido">
+                      <span className="font-semibold text-foreground tabular-nums">{formatCardCount(contactCardsDisplay.total)}</span>
+                      {' '}contatos
+                      <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                      Meta <span className="font-semibold text-foreground tabular-nums">{formatCardCount(embeddedInHub ? contactCardsDisplay.meta : mergedUniqueStats.metaUnique)}</span>
+                      <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                      Outras <span className="font-semibold text-foreground tabular-nums">{formatCardCount(embeddedInHub ? (contactCardsDisplay.google || 0) + (contactCardsDisplay.outras || 0) : mergedUniqueStats.outrasUnique)}</span>
+                      <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+                      Sem origem <span className="font-semibold text-foreground tabular-nums">{formatCardCount(embeddedInHub ? contactCardsDisplay.nao : mergedUniqueStats.naoUnique)}</span>
+                    </p>
+                  ) : (
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2 min-w-0">
+                      <span>Resumo</span>
+                      {listFiltersActive && (
+                        <span className="normal-case font-normal text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200">
+                          Filtros ativos
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] rounded-md ml-auto shrink-0 gap-1"
+                    onClick={() => {
+                      setCardsCollapsed((current) => {
+                        const next = !current;
+                        try {
+                          sessionStorage.setItem('planeje-rastreamento-cards-collapsed', next ? '1' : '0');
+                        } catch {
+                          /* ignore */
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-expanded={!cardsCollapsed}
+                    aria-controls="rastreamento-resumo-cards"
+                  >
+                    {cardsCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+                    {cardsCollapsed ? 'Expandir' : 'Recolher'}
+                  </Button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {cardsCollapsed ? null : embeddedInHub ? (
+                <div id="rastreamento-resumo-cards" className="rastreamento-resumo-strip">
+                  <div
+                    className="rastreamento-resumo-chip rastreamento-resumo-chip--contatos"
+                    title={
+                      listFiltersActive
+                        ? `Contatos com os filtros atuais.${contactCardsDisplay.partialList ? ' Lista parcial.' : ''}`
+                        : 'Total de linhas na tabela de contatos WhatsApp no banco.'
+                    }
+                  >
+                    <MessageCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="rastreamento-resumo-chip__label">Contatos</span>
+                    <span className="rastreamento-resumo-chip__value">{contactCardsDisplay.total.toLocaleString('pt-BR')}</span>
+                  </div>
+                  <div
+                    className="rastreamento-resumo-chip"
+                    title="Conversas WhatsApp com anúncio no período — mesma conta da Visão geral."
+                  >
+                    <MetaLogoIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="rastreamento-resumo-chip__label">Meta Ads</span>
+                    <span className="rastreamento-resumo-chip__value">
+                      {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : (
+                        contactCardsDisplay.meta
+                      )}
+                    </span>
+                  </div>
+                  <div
+                    className="rastreamento-resumo-chip"
+                    title="Telefones únicos · Google e outras origens (não Meta)."
+                  >
+                    <Globe className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
+                    <span className="rastreamento-resumo-chip__label">Outras / Google</span>
+                    <span className="rastreamento-resumo-chip__value">
+                      {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : (
+                        (contactCardsDisplay.google || 0) + (contactCardsDisplay.outras || 0)
+                      )}
+                    </span>
+                  </div>
+                  <div
+                    className="rastreamento-resumo-chip"
+                    title="Telefones únicos · não rastreada ou lead sem origem."
+                  >
+                    <UserX className="h-3.5 w-3.5 text-orange-700 dark:text-orange-400 shrink-0" />
+                    <span className="rastreamento-resumo-chip__label">Não rastreada</span>
+                    <span className="rastreamento-resumo-chip__value">
+                      {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : (
+                        contactCardsDisplay.nao
+                      )}
+                    </span>
+                  </div>
+                </div>
+                ) : (
+                <div id="rastreamento-resumo-cards" className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {/* 1 — Contatos (só tabela cliente_whatsapp_contact) */}
                   <div
                     className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 p-4 flex flex-col gap-2 min-h-[120px]"
@@ -1963,7 +2940,7 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                         </p>
                       </div>
                     </div>
-                    <p className="text-2xl font-semibold tabular-nums text-foreground flex-1 flex items-center">
+                    <p className={`${embeddedInHub ? 'text-xl' : 'text-2xl'} font-semibold tabular-nums text-foreground flex-1 flex items-center`}>
                       {contactCardsDisplay.total.toLocaleString('pt-BR')}
                     </p>
                     {(contactCardsDisplay.subtitle === 'filtered' ||
@@ -1990,34 +2967,49 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
 
                   {/* 2 — Meta unificado */}
                   <div
-                    className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]"
-                    title="Telefones únicos · Meta. Mesmo número nas duas bases conta uma vez."
+                    className={embeddedInHub
+                      ? 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-3 flex flex-col gap-1'
+                      : 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]'}
+                    title={
+                      embeddedInHub
+                        ? 'Conversas WhatsApp com anúncio no período — mesma conta da Visão geral.'
+                        : 'Telefones únicos · Meta. Mesmo número nas duas bases conta uma vez.'
+                    }
                   >
                     <div className="flex items-center gap-2">
-                      <MetaLogoIcon className="h-10 w-10 shrink-0" />
+                      <MetaLogoIcon className={embeddedInHub ? 'h-6 w-6 shrink-0' : 'h-10 w-10 shrink-0'} />
                       <p className="text-xs font-medium text-muted-foreground">Meta Ads</p>
                     </div>
-                    <p className="text-2xl font-semibold tabular-nums inline-flex items-center min-h-[32px]">
+                    <p className={`${embeddedInHub ? 'text-xl min-h-0' : 'text-2xl min-h-[32px]'} font-semibold tabular-nums inline-flex items-center`}>
                       {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
                         <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                      ) : embeddedInHub ? (
+                        contactCardsDisplay.meta
                       ) : (
                         mergedUniqueStats.metaUnique
                       )}
                     </p>
+                    {embeddedInHub ? (
+                      <p className="text-[10px] text-muted-foreground leading-snug">Conversas no período</p>
+                    ) : null}
                   </div>
 
                   {/* 3 — Outras unificadas (inclui Google nos contatos) */}
                   <div
-                    className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]"
+                    className={embeddedInHub
+                      ? 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-3 flex flex-col gap-1'
+                      : 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]'}
                     title="Telefones únicos · Google e outras origens (não Meta)."
                   >
                     <div className="flex items-center gap-2">
                       <Globe className="h-5 w-5 text-slate-600 dark:text-slate-400 shrink-0" />
                       <p className="text-xs font-medium text-muted-foreground">Outras / Google</p>
                     </div>
-                    <p className="text-2xl font-semibold tabular-nums inline-flex items-center min-h-[32px]">
+                    <p className={`${embeddedInHub ? 'text-xl min-h-0' : 'text-2xl min-h-[32px]'} font-semibold tabular-nums inline-flex items-center`}>
                       {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
                         <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                      ) : embeddedInHub ? (
+                        (contactCardsDisplay.google || 0) + (contactCardsDisplay.outras || 0)
                       ) : (
                         mergedUniqueStats.outrasUnique
                       )}
@@ -2026,22 +3018,27 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
 
                   {/* 4 — Não rastreada + sem origem */}
                   <div
-                    className="rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]"
+                    className={embeddedInHub
+                      ? 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-3 flex flex-col gap-1'
+                      : 'rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col gap-1 min-h-[120px]'}
                     title="Telefones únicos · não rastreada ou lead sem origem."
                   >
                     <div className="flex items-center gap-2">
                       <UserX className="h-5 w-5 text-orange-700 dark:text-orange-400 shrink-0" />
                       <p className="text-xs font-medium text-muted-foreground">Não rastreada / sem origem</p>
                     </div>
-                    <p className="text-2xl font-semibold tabular-nums inline-flex items-center min-h-[32px]">
+                    <p className={`${embeddedInHub ? 'text-xl min-h-0' : 'text-2xl min-h-[32px]'} font-semibold tabular-nums inline-flex items-center`}>
                       {aggregatesLoading && contactOriginDb == null && !listFiltersActive ? (
                         <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                      ) : embeddedInHub ? (
+                        contactCardsDisplay.nao
                       ) : (
                         mergedUniqueStats.naoUnique
                       )}
                     </p>
                   </div>
                 </div>
+                )}
 
                 <div className="hidden rounded-xl border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex items-center gap-4">
                   <GoogleAdsIcon className="h-20 w-20" />
@@ -2082,30 +3079,43 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                   <p className="text-xs text-muted-foreground mt-1">Use &quot;Importar contatos&quot; para preencher a partir dos eventos do webhook.</p>
                 </div>
               ) : (
-                <div className="flex flex-col min-h-0">
-                  {(messageDateFrom || messageDateTo) && (
+                <div className={embeddedInHub ? 'flex flex-col min-h-0 flex-1' : 'flex flex-col min-h-0'}>
+                  {(messageDateFrom || messageDateTo || comprouFilter) && (
                     <div className="px-4 py-2 border-b border-slate-200/60 dark:border-slate-700/50 bg-slate-50/80 dark:bg-slate-900/40 shrink-0">
                       <p className="text-xs text-muted-foreground">
-                        Filtro de data —{' '}
-                        <span className="font-medium text-foreground">
-                          {messageDateField === MESSAGE_DATE_FIELD_FIRST ? 'Primeira mensagem' : 'Última mensagem'}
-                        </span>
-                        {': '}
-                        <span className="tabular-nums">
-                          {messageDateFrom ? isoYmdToBrDisplay(messageDateFrom) : '…'}
-                        </span>
-                        {' → '}
-                        <span className="tabular-nums">
-                          {messageDateTo ? isoYmdToBrDisplay(messageDateTo) : '…'}
-                        </span>
-                        {' · '}
+                        {messageDateFrom || messageDateTo ? (
+                          <>
+                            Filtro de data —{' '}
+                            <span className="font-medium text-foreground">
+                              {messageDateField === MESSAGE_DATE_FIELD_FIRST ? 'Primeira mensagem' : 'Última mensagem'}
+                            </span>
+                            {': '}
+                            <span className="tabular-nums">
+                              {messageDateFrom ? isoYmdToBrDisplay(messageDateFrom) : '…'}
+                            </span>
+                            {' → '}
+                            <span className="tabular-nums">
+                              {messageDateTo ? isoYmdToBrDisplay(messageDateTo) : '…'}
+                            </span>
+                            {' · '}
+                          </>
+                        ) : null}
+                        {comprouFilter ? (
+                          <>
+                            Comprou:{' '}
+                            <span className="font-medium text-foreground">
+                              {comprouFilter === 'pendente' ? 'Pendente' : comprouFilter === 'sim' ? 'Sim' : comprouFilter === 'nao' ? 'Não' : comprouFilter}
+                            </span>
+                            {' · '}
+                          </>
+                        ) : null}
                         <span className="font-semibold text-foreground tabular-nums">{displayList.length}</span> linha(s) na lista
                       </p>
                     </div>
                   )}
-                  <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                  <div className={embeddedInHub ? 'rastreamento-leads-board__table' : 'overflow-x-auto max-h-[60vh] overflow-y-auto'}>
                   <table className="w-full text-sm">
-                    <thead className="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-900/95 border-b border-gray-200/80 dark:border-gray-700/50">
+                    <thead className={`sticky top-0 z-10 border-b border-gray-200/80 dark:border-gray-700/50 ${embeddedInHub ? 'bg-gray-50 dark:bg-gray-900' : 'bg-gray-50/95 dark:bg-gray-900/95'}`}>
                       <tr>
                         <th className="w-10 py-3 px-2 text-left">
                           <Checkbox
@@ -2114,26 +3124,48 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                             aria-label="Selecionar todos"
                           />
                         </th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider" style={standaloneTracking ? { width: 180, minWidth: 180, maxWidth: 180 } : undefined}>Nome</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Telefone</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Origem</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Campanha</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Conjunto de anúncio</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Anúncio</th>
+                        {standaloneTracking ? (
+                          <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">Dados da campanha</th>
+                        ) : (
+                          <>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Campanha</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Conjunto de anúncio</th>
+                            <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">Anúncio</th>
+                          </>
+                        )}
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Primeira mensagem</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Última mensagem</th>
+                        {canLoadAllClients && (
+                          <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Cliente</th>
+                        )}
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">Conta</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Funil / Etapa</th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider min-w-[8rem]">Etiqueta</th>
+                        {!standaloneTracking && (
+                          <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">Funil / Etapa</th>
+                        )}
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider min-w-[7rem]">Qualificado</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider min-w-[7rem]">Comprou</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider min-w-[6rem]">Valor (R$)</th>
+                        <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider min-w-[12rem]">Etiqueta</th>
                         <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider w-24">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200/60 dark:divide-gray-700/50">
                         {displayList.map((c) => {
                           const isLeadOnly = c._fromLead === true;
-                          const displayName = (c.tracking_data?.lead_name && String(c.tracking_data.lead_name).trim()) || c.sender_name || c.phone || c.from_jid || '—';
+                          const displayName = contactDisplayName(c) || c.phone || c.from_jid || '—';
                           const funnelInfo = getFunnelInfoForRow(c);
+                          const linkedLead = getLinkedLeadForRow(c);
                           const rowIsMetaAds = isLeadOnly ? c.origin_source === 'meta_ads' : isMetaAdsContactForStats(c);
+                          const campaignName = c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name;
+                          const adSetName = c.tracking_data?.meta_ad_details?.ad?.adset?.name;
+                          const adName = c.tracking_data?.meta_ad_details?.ad?.name ?? c.tracking_data?.ad_name;
+                          const capiChip = standaloneTracking ? leadCapiByKey.get(capiEventKeyForLeadRow(c)) : null;
+                          const googleChip = standaloneTracking
+                            ? leadGoogleByKey.get(capiEventKeyForLeadRow(c))
+                            : null;
                           return (
                           <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                             <td className="py-3 px-2">
@@ -2145,100 +3177,211 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                                 />
                               )}
                             </td>
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="h-9 w-9 rounded-full border border-gray-200/50 dark:border-gray-700/50">
+                            <td className="py-3 px-4" style={standaloneTracking ? { width: 180, minWidth: 180, maxWidth: 180 } : undefined}>
+                              <div className="flex items-center gap-3 min-w-0" style={standaloneTracking ? { width: 'calc(180px - 2rem)' } : undefined}>
+                                <Avatar className="h-9 w-9 shrink-0 rounded-full border border-gray-200/50 dark:border-gray-700/50">
                                   <AvatarImage src={c.profile_pic_url || undefined} />
                                   <AvatarFallback className="text-xs bg-muted text-foreground">
                                     {(displayName !== '—' ? displayName : '?').slice(0, 2).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
-                                <span className="font-medium text-foreground">{displayName}</span>
+                                <div className={standaloneTracking ? 'min-w-0 flex-1' : 'min-w-0'}>
+                                <span
+                                  className={standaloneTracking ? 'font-medium text-foreground cursor-pointer hover:text-violet-700 block truncate' : 'font-medium text-foreground block truncate'}
+                                  title={standaloneTracking ? displayName : undefined}
+                                  onClick={standaloneTracking ? () => setLeadFichaContact(c) : undefined}
+                                  role={standaloneTracking ? 'button' : undefined}
+                                  tabIndex={standaloneTracking ? 0 : undefined}
+                                  onKeyDown={
+                                    standaloneTracking
+                                      ? (event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            setLeadFichaContact(c);
+                                          }
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {displayName}
+                                </span>
+                                {capiChip ? (
+                                  <span className={`rt-lead-event rt-lead-event--${capiChip.delivery}`} title={capiChip.title}>
+                                    {capiChip.label}
+                                  </span>
+                                ) : null}
+                                {googleChip ? (
+                                  <span
+                                    className="ml-1 inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-medium"
+                                    title="Conversão enviada ao Google Ads"
+                                  >
+                                    Google
+                                  </span>
+                                ) : null}
                                 {isLeadOnly && (
-                                  <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-xs font-medium">Lead (sem contato)</span>
+                                  <span className="ml-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-[10px] font-medium">Lead (sem contato)</span>
                                 )}
+                                </div>
                               </div>
                             </td>
                             <td className="py-3 px-4 text-muted-foreground font-mono text-xs">
                               {c.phone || c.from_jid || '—'}
                             </td>
                             <td className="py-3 px-4">
-                              <span
-                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                                  rowIsMetaAds
+                              {(() => {
+                                const badge = originBadgeForContact(c, rowIsMetaAds);
+                                const toneClass =
+                                  badge.tone === 'meta'
                                     ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                                    : 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
-                                }`}
-                              >
-                                {rowIsMetaAds ? (
-                                  <>
-                                    <Infinity className="h-3.5 w-3.5 shrink-0" />
-                                    Meta Ads
-                                    {c.utm_campaign && <span className="opacity-90"> · Via Campanha</span>}
-                                  </>
-                                ) : (
-                                  <>
-                                    <UserX className="h-3.5 w-3.5 shrink-0" />
-                                    Não rastreada
-                                  </>
-                                )}
-                              </span>
+                                    : badge.tone === 'google'
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                      : badge.tone === 'site'
+                                        ? 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
+                                        : 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300';
+                                return (
+                                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${toneClass}`}>
+                                    {badge.tone === 'meta' ? <Infinity className="h-3.5 w-3.5 shrink-0" /> : null}
+                                    {badge.tone === 'off' ? <UserX className="h-3.5 w-3.5 shrink-0" /> : null}
+                                    {badge.label}
+                                  </span>
+                                );
+                              })()}
                             </td>
-                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name ?? undefined}>
-                              {c.tracking_data?.meta_ad_details?.ad?.campaign?.name ?? c.tracking_data?.campaign_name ?? '—'}
-                            </td>
-                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.adset?.name ?? undefined}>
-                              {c.tracking_data?.meta_ad_details?.ad?.adset?.name ?? '—'}
-                            </td>
-                            <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={c.tracking_data?.meta_ad_details?.ad?.name ?? c.tracking_data?.ad_name ?? undefined}>
-                              {c.tracking_data?.meta_ad_details?.ad?.name ?? c.tracking_data?.ad_name ?? '—'}
-                            </td>
+                            {standaloneTracking ? (
+                              <td className="py-3 px-4 text-xs">
+                                {campaignName || adSetName || adName ? (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <Button type="button" variant="outline" size="sm" className="h-8 gap-2 rounded-lg border-[#e0d9ee] bg-[#f7f4fd] px-2.5 text-xs text-[#7447ad] whitespace-nowrap shadow-none hover:border-[#cbb7e8] hover:bg-[#eee7fb] hover:text-[#7447ad]" aria-label={`Ver dados da campanha de ${displayName}`}>
+                                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0">
+                                          <rect x="3" y="4" width="18" height="16" rx="3" />
+                                          <path d="M8 4v16M3 10h18M3 15h18" />
+                                        </svg>
+                                        Ver dados <ChevronDown className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="start" collisionPadding={12} className="w-80 max-w-[calc(100vw-2rem)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-xl shadow-lg" aria-label={`Dados da campanha de ${displayName}`}>
+                                      <h3 className="mb-3 text-sm font-semibold">Dados da campanha</h3>
+                                      <dl className="space-y-3 text-xs">
+                                        {[
+                                          ['Campanha', campaignName],
+                                          ['Conjunto de anúncios', adSetName],
+                                          ['Anúncio', adName],
+                                        ].map(([label, value]) => (
+                                          <div key={label}>
+                                            <dt className="mb-1 text-muted-foreground">{label}</dt>
+                                            <dd className="whitespace-normal break-words [overflow-wrap:anywhere]">{value || 'Não informado'}</dd>
+                                          </div>
+                                        ))}
+                                      </dl>
+                                    </PopoverContent>
+                                  </Popover>
+                                ) : <span className="text-muted-foreground">—</span>}
+                              </td>
+                            ) : (
+                              <>
+                                <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={campaignName ?? undefined}>
+                                  {campaignName ?? '—'}
+                                </td>
+                                <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={adSetName ?? undefined}>
+                                  {adSetName ?? '—'}
+                                </td>
+                                <td className="py-3 px-4 text-muted-foreground text-xs hidden md:table-cell truncate max-w-[140px]" title={adName ?? undefined}>
+                                  {adName ?? '—'}
+                                </td>
+                              </>
+                            )}
                             <td className="py-3 px-4 text-muted-foreground text-xs hidden sm:table-cell">
                               {formatDate(c.first_seen_at)}
                             </td>
                             <td className="py-3 px-4 text-muted-foreground text-xs">
                               {formatDate(c.last_message_at)}
                             </td>
+                            {canLoadAllClients && (
+                              <td className="py-3 px-4 hidden sm:table-cell text-muted-foreground text-xs font-medium">
+                                {clienteEmpresaById.get(c.cliente_id) || '—'}
+                              </td>
+                            )}
                             <td className="py-3 px-4 hidden sm:table-cell text-muted-foreground text-xs">
                               {c.instance_name?.trim() || '—'}
                             </td>
-                            <td className="py-3 px-4 text-muted-foreground text-xs align-top">
-                              {funnelInfo ? (
-                                <span className="inline-flex flex-col gap-0.5">
-                                  <span>{funnelInfo.pipelineNome || '—'}</span>
-                                  <span className="text-muted-foreground/80">{funnelInfo.stageNome || '—'}</span>
-                                </span>
-                              ) : (
-                                '—'
-                              )}
+                            {!standaloneTracking && (
+                              <td className="py-3 px-4 text-muted-foreground text-xs align-top">
+                                {funnelInfo ? (
+                                  <span className="inline-flex flex-col gap-0.5">
+                                    <span>{funnelInfo.pipelineNome || '—'}</span>
+                                    <span className="text-muted-foreground/80">{funnelInfo.stageNome || '—'}</span>
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                            )}
+                            <td className="py-3 px-3 align-top">
+                              <LeadComercialInline
+                                field="qualificado"
+                                clienteId={effectiveClienteId}
+                                lead={linkedLead}
+                                contact={isLeadOnly ? null : c}
+                                compact
+                                disabled={!effectiveClienteId}
+                                onSaved={refreshComercialData}
+                              />
+                            </td>
+                            <td className="py-3 px-3 align-top">
+                              <LeadComercialInline
+                                field="comprou"
+                                clienteId={effectiveClienteId}
+                                lead={linkedLead}
+                                contact={isLeadOnly ? null : c}
+                                compact
+                                disabled={!effectiveClienteId}
+                                onSaved={refreshComercialData}
+                              />
+                            </td>
+                            <td className="py-3 px-3 align-top">
+                              <LeadComercialInline
+                                field="valor"
+                                clienteId={effectiveClienteId}
+                                lead={linkedLead}
+                                contact={isLeadOnly ? null : c}
+                                compact
+                                disabled={!effectiveClienteId}
+                                onSaved={refreshComercialData}
+                              />
                             </td>
                             <td className="py-3 px-4 text-xs align-top">
-                              {c.crm_apice_lead_status ? (
-                                <Badge
-                                  variant="outline"
-                                  title={
-                                    c.crm_apice_lead_status_at
-                                      ? `CRM-Apice · atualizado em ${formatDate(c.crm_apice_lead_status_at)}`
-                                      : 'Status recebido do CRM-Apice'
-                                  }
-                                  className="text-[10px] font-medium border-violet-300 bg-violet-50 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200 dark:border-violet-800"
-                                >
-                                  CRM-Apice: {c.crm_apice_lead_status}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
+                              <LeadAnalysisLabels
+                                clienteId={effectiveClienteId}
+                                contact={isLeadOnly ? null : c}
+                                lead={linkedLead}
+                                catalog={analysisCatalog}
+                                disabled={!effectiveClienteId}
+                                apiceStatus={c.crm_apice_lead_status || ''}
+                                onSaved={(next) => onAnalysisLabelsSaved(c, next)}
+                              />
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-0.5">
+                                {standaloneTracking && isLeadOnly ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => setLeadFichaContact(c)}
+                                    title="Ver atribuição, criativo e jornada"
+                                  >
+                                    <Eye className="h-4 w-4 text-muted-foreground" />
+                                  </Button>
+                                ) : null}
                                 {!isLeadOnly && (
                                   <>
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8"
-                                      onClick={() => setContactEventsViewing(c)}
-                                      title="Ver eventos deste contato"
+                                      onClick={() => (standaloneTracking ? setLeadFichaContact(c) : setContactEventsViewing(c))}
+                                      title={standaloneTracking ? 'Ver atribuição, criativo e jornada' : 'Ver eventos deste contato'}
                                     >
                                       <Eye className="h-4 w-4 text-muted-foreground" />
                                     </Button>
@@ -2382,6 +3525,8 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
                     <SelectContent>
                       <SelectItem value={ORIGIN_FILTER_ALL}>Todos</SelectItem>
                       <SelectItem value={ORIGIN_FILTER_META}>Meta Ads</SelectItem>
+                      <SelectItem value={ORIGIN_FILTER_GOOGLE}>Google Ads</SelectItem>
+                      <SelectItem value={ORIGIN_FILTER_SITE}>Site</SelectItem>
                       <SelectItem value={ORIGIN_FILTER_NAO_IDENT}>Não identificado</SelectItem>
                     </SelectContent>
                   </Select>
@@ -2475,6 +3620,20 @@ const ContatosPage = ({ embeddedInCrm, onOpenConversation, onNovoLead, allClient
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RastreamentoLeadFicha
+        className={gestorTracking ? 'rt-lead-ficha--gestor' : undefined}
+        open={Boolean(leadFichaContact)}
+        onOpenChange={(open) => {
+          if (!open) setLeadFichaContact(null);
+        }}
+        clienteId={effectiveClienteId}
+        contact={leadFichaContact && !leadFichaContact._fromLead ? leadFichaContact : null}
+        lead={leadFichaContact ? getLinkedLeadForRow(leadFichaContact) : null}
+        analysisCatalog={analysisCatalog}
+        onAnalysisLabelsSaved={(next) => leadFichaContact && onAnalysisLabelsSaved(leadFichaContact, next)}
+        onComercialSaved={refreshComercialData}
+      />
 
       <ImportFacebookLeadsModal
         isOpen={importFacebookLeadsOpen}

@@ -1,10 +1,12 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutGrid, BarChart3, Settings, Radio, Inbox, MessageSquare, Bot, Users, Link2, Zap, Star, Bell, RefreshCw, HelpCircle, ChevronDown, Megaphone } from 'lucide-react';
+import { LayoutGrid, BarChart3, Settings, Radio, Inbox, MessageSquare, Bot, Users, Link2, Zap, Star, Bell, RefreshCw, HelpCircle, ChevronDown, Megaphone, Headphones } from 'lucide-react';
+import { CONVERSAS_CONFIG_PATH, CONVERSAS_DEFAULT_PATH, canManageConversasConfig, isConversasPath } from '@/lib/conversasRoutes';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useCrmRefresh } from '@/contexts/CrmRefreshContext';
+import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const CRM_TAB_LEADS = 'leads';
 const CRM_TAB_VISAO_GERAL = 'visao-geral';
@@ -16,6 +18,8 @@ const CRM_TAB_API = 'api';
 const CRM_TAB_APICEBOT = 'apicebot';
 const CRM_TAB_AUTOMACOES = 'automacoes';
 const CRM_TAB_CANAIS = 'canais';
+const CRM_TAB_ATENDIMENTO = 'atendimento';
+const CRM_TAB_ATENDIMENTO_CONFIG = 'atendimento-config';
 const HIDE_INBOX_AND_WHATSAPP_TABS = true;
 
 function getActiveTabFromPath(pathname) {
@@ -31,6 +35,9 @@ export default function CrmHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const { refresh } = useCrmRefresh() || {};
+  const { profile } = useAuth();
+  const isInternalTeam = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role);
+  const canConfigAtendimento = canManageConversasConfig(profile?.role);
   const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : location.pathname.startsWith('/crm') ? '/crm' : '/cliente';
   const activeTab = getActiveTabFromPath(location.pathname);
 
@@ -109,7 +116,8 @@ export default function CrmHeader() {
               title="Ajustes – Funil, Usuários, API e Apicebot"
               className={cn(
                 'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
-                [CRM_TAB_AJUSTES_FUNIL, CRM_TAB_AJUSTES_USUARIOS, CRM_TAB_API, CRM_TAB_APICEBOT, CRM_TAB_AUTOMACOES].includes(activeTab)
+                [CRM_TAB_AJUSTES_FUNIL, CRM_TAB_AJUSTES_USUARIOS, CRM_TAB_API, CRM_TAB_APICEBOT, CRM_TAB_AUTOMACOES].includes(activeTab) ||
+                  (isConversasPath(location.pathname) && location.pathname.includes('/config'))
                   ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
               )}
@@ -140,6 +148,12 @@ export default function CrmHeader() {
               <Zap className={cn('h-5 w-5 shrink-0', activeTab === CRM_TAB_AUTOMACOES ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
               Automações
             </DropdownMenuItem>
+            {canConfigAtendimento && (
+              <DropdownMenuItem onClick={() => navigate(CONVERSAS_CONFIG_PATH)} className={cn('flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer font-semibold mx-1.5 my-0.5 focus:bg-transparent', isConversasPath(location.pathname) && location.pathname.includes('/config') ? 'text-violet-600 dark:text-violet-400 bg-violet-50/80 dark:bg-violet-950/40' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60')}>
+                <Headphones className={cn('h-5 w-5 shrink-0', isConversasPath(location.pathname) && location.pathname.includes('/config') ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400')} />
+                Filas de atendimento
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <button
@@ -154,6 +168,22 @@ export default function CrmHeader() {
           <Radio className="h-4 w-4 shrink-0" />
           <span className="hidden sm:inline">Canais</span>
         </button>
+        {isInternalTeam && (
+          <button
+            type="button"
+            onClick={() => navigate(CONVERSAS_DEFAULT_PATH)}
+            className={cn(
+              'flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 transition-colors',
+              isConversasPath(location.pathname)
+                ? 'font-semibold text-slate-900 dark:text-slate-100 bg-slate-200 dark:bg-slate-600'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50'
+            )}
+            title="Inbox WhatsApp — Conversas"
+          >
+            <MessageSquare className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Conversas</span>
+          </button>
+        )}
         {!HIDE_INBOX_AND_WHATSAPP_TABS && (
           <>
             <button type="button" onClick={() => navigateTo('caixa-entrada')} className="flex items-center gap-2 text-base rounded-lg px-4 py-2.5 min-w-0 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/50 font-semibold">

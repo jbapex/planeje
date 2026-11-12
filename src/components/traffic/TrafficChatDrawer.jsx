@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageSquare, Send, X, Loader2, Settings2, Search, Globe, Maximize2, Minimize2, History, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/customSupabaseClient';
@@ -7,19 +8,28 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { getDefaultModelCached, getAvailableModelsCached } from '@/lib/assistantProjectConfig';
 import ModelSelector from '@/components/chat/ModelSelector';
+import { getAvailableModels, getDefaultModel } from '@/lib/assistantProjectConfig';
 import { searchGoogle, formatSearchResults } from '@/lib/googleSearch';
 import { marked } from 'marked';
+import {
+  getMetaAdAccountsErrorMessage,
+  isMetaNoAdAccountsError,
+  isMetaNoAdAccountsResponse,
+} from '@/lib/metaAdAccountsResponse';
+import { loadRoutineBrief, routineBriefPrompt, routineSearchRange, routineWeekRange } from '@/lib/routineAssistantBrief';
+import RastreamentoLeadFicha from '@/components/crm/RastreamentoLeadFicha';
+import { displayDate } from '@/lib/trafficWeeklyReview';
+import { DayField } from '@/components/pages/MiniCrmFollowUp';
 
-const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionStatus = 'disconnected', conversationId: initialConversationId = null }) => {
+const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionStatus = 'disconnected', conversationId: initialConversationId = null, routineContext = null }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [workNote, setWorkNote] = useState('');
   const [currentAIMessage, setCurrentAIMessage] = useState('');
   const [selectedModel, setSelectedModel] = useState('deepseek/deepseek-r1-0528');
   const [availableModels, setAvailableModels] = useState(['deepseek/deepseek-r1-0528']);
@@ -43,6 +53,36 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [leadFicha, setLeadFicha] = useState(null);
+  const [searchSince, setSearchSince] = useState('');
+  const [searchUntil, setSearchUntil] = useState('');
+  const [searchScope, setSearchScope] = useState('sheet');
+
+  const openLeadConversation = useCallback(async (lead) => {
+    const clienteId = routineContext?.clientId;
+    if (!lead?.id || !clienteId) {
+      if (lead?.href) navigate(lead.href);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('cliente_whatsapp_contact')
+      .select('id, phone, from_jid, sender_name, first_seen_at, last_message_at, tracking_data, utm_campaign, utm_medium, utm_content, qualificado, comprou, valor_venda, mini_crm')
+      .eq('id', lead.id)
+      .eq('cliente_id', clienteId)
+      .maybeSingle();
+    if (error || !data) {
+      if (lead?.href) navigate(lead.href);
+      return;
+    }
+    setLeadFicha(data);
+  }, [navigate, routineContext?.clientId]);
+
+  useEffect(() => {
+    const week = routineWeekRange(routineContext?.weekStart);
+    setSearchSince(week?.since || '');
+    setSearchUntil(week?.until || '');
+    setSearchScope('sheet');
+  }, [routineContext?.clientId, routineContext?.weekStart]);
 
   // Configurar marked
   useEffect(() => {
@@ -231,22 +271,45 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
     }
   }, [user, currentConversationId, navigate]);
 
-  // Carregar modelo padrão e modelos disponíveis
+  const [openRouterReady, setOpenRouterReady] = useState(false);
+  const modelPickedRef = useRef(false);
+
   useEffect(() => {
-    const loadModel = async () => {
-      const [defaultModel, models] = await Promise.all([
-        getDefaultModelCached(),
-        getAvailableModelsCached(),
-      ]);
-      if (defaultModel) {
-        setSelectedModel(defaultModel);
+    if (!open) return undefined;
+    let cancel = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('openrouter-chat', { body: { probe: true } });
+        if (cancel) return;
+        if (!error && data?.ready && data?.provider === 'openrouter') {
+          const [models, defaultModel] = await Promise.all([
+            getAvailableModels(),
+            getDefaultModel(),
+          ]);
+          if (cancel) return;
+          const list = Array.isArray(models) && models.length > 0 ? models : ['openai/gpt-4o-mini'];
+          setAvailableModels(list);
+          setSelectedModel((current) => {
+            if (modelPickedRef.current && list.includes(current)) return current;
+            modelPickedRef.current = true;
+            return list.includes(defaultModel) ? defaultModel : list[0];
+          });
+          setOpenRouterReady(true);
+          return;
+        }
+      } catch (err) {
+        console.warn('OpenRouter indisponível para a lista de modelos', err);
       }
-      if (models && models.length > 0) {
-        setAvailableModels(models);
-      }
-    };
-    loadModel();
-  }, []);
+      if (cancel) return;
+      setSelectedModel('openai/gpt-4o-mini');
+      setAvailableModels(['openai/gpt-4o-mini']);
+      setOpenRouterReady(false);
+    })();
+    return () => { cancel = true; };
+  }, [open]);
+
+  const lastDrawerAccountsErrorRef = useRef(null);
+  const emptyDrawerMetaAccountsToastShownRef = useRef(false);
 
   // Buscar contas do Meta quando o drawer abrir e Meta estiver conectado
   useEffect(() => {
@@ -265,16 +328,34 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
         if (error) throw error;
         
         if (data?.error) {
-          const errorMessage = typeof data.error === 'string' 
-            ? data.error 
-            : data.error?.message || JSON.stringify(data.error);
+          if (isMetaNoAdAccountsResponse(data)) {
+            lastDrawerAccountsErrorRef.current = null;
+            setMetaAccounts([]);
+            if (!emptyDrawerMetaAccountsToastShownRef.current) {
+              emptyDrawerMetaAccountsToastShownRef.current = true;
+              console.warn(
+                '[TrafficChatDrawer] Sem contas de anúncio no Meta:',
+                getMetaAdAccountsErrorMessage(data)
+              );
+              toast({
+                title: 'Nenhuma conta de anúncio no Meta',
+                description:
+                  'O System User precisa de acesso a contas act_… no Business Manager (ou ajuste META_BUSINESS_ID).',
+                variant: 'default',
+              });
+            }
+            return;
+          }
+          const errorMessage = getMetaAdAccountsErrorMessage(data);
           throw new Error(errorMessage);
         }
-        
+
         if (data?.adAccounts && Array.isArray(data.adAccounts)) {
+          lastDrawerAccountsErrorRef.current = null;
+          emptyDrawerMetaAccountsToastShownRef.current = false;
           // Usa o mesmo formato que MetaInsights (id e name diretamente)
           setMetaAccounts(data.adAccounts);
-          
+
           // Se não há conta selecionada e há contas disponíveis, mantém "all"
           // O usuário pode escolher depois
         } else {
@@ -283,20 +364,39 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
         }
       } catch (error) {
         const errorMessage = error?.message || error?.error?.message || 'Erro desconhecido ao buscar contas';
-        console.error('Erro ao buscar contas do Meta:', error);
-        toast({
-          title: 'Erro ao buscar contas',
-          description: errorMessage,
-          variant: 'destructive',
-        });
-        setMetaAccounts([]);
+        if (isMetaNoAdAccountsError(error)) {
+          lastDrawerAccountsErrorRef.current = null;
+          setMetaAccounts([]);
+          if (!emptyDrawerMetaAccountsToastShownRef.current) {
+            emptyDrawerMetaAccountsToastShownRef.current = true;
+            console.warn('[TrafficChatDrawer] Sem contas de anúncio no Meta:', errorMessage);
+            toast({
+              title: 'Nenhuma conta de anúncio no Meta',
+              description:
+                'O System User precisa de acesso a contas act_… no Business Manager (ou ajuste META_BUSINESS_ID).',
+              variant: 'default',
+            });
+          }
+        } else {
+          console.error('Erro ao buscar contas do Meta:', error);
+          if (lastDrawerAccountsErrorRef.current !== errorMessage) {
+            lastDrawerAccountsErrorRef.current = errorMessage;
+            toast({
+              title: 'Erro ao buscar contas',
+              description: errorMessage,
+              variant: 'destructive',
+            });
+          }
+          setMetaAccounts([]);
+        }
       } finally {
         setLoadingAccounts(false);
       }
     };
 
     fetchAccounts();
-  }, [open, metaConnectionStatus, toast]);
+    // toast omitido: evita novo fetch quando a referência do hook muda
+  }, [open, metaConnectionStatus]);
 
   // Buscar cliente vinculado e documentos quando conta é selecionada
   useEffect(() => {
@@ -379,31 +479,20 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
     }
-  }, [messages, currentAIMessage]);
+  }, [messages, currentAIMessage, workNote]);
 
   // Construir contexto sobre tráfego pago
   const buildTrafficContext = useCallback(() => {
     const context = {
       metaConnectionStatus,
-      totalCampaigns: campaigns.length,
-      campaigns: campaigns.map(campaign => ({
-        id: campaign.id,
-        name: campaign.name || campaign.campaign_name,
-        status: campaign.status,
-        client: campaign.clientes?.empresa || 'N/A',
-        assignee: campaign.profiles?.full_name || 'N/A',
-        budget: campaign.budget,
-        objective: campaign.objective,
-        created_at: campaign.created_at,
-      })),
-      campaignsByStatus: campaigns.reduce((acc, camp) => {
-        acc[camp.status] = (acc[camp.status] || 0) + 1;
-        return acc;
-      }, {}),
+      note: 'A fila do gestor está na aba Hoje (Fazer agora). Solicitações não são a fila do dia. O Painel mostra uma conta Meta por vez.',
+      totalCampaigns: 0,
+      campaigns: [],
+      campaignsByStatus: {},
     };
 
     return JSON.stringify(context, null, 2);
-  }, [campaigns, metaConnectionStatus]);
+  }, [metaConnectionStatus]);
 
   // Função para fazer pesquisa no Google
   const handleDeepResearch = useCallback(async () => {
@@ -441,10 +530,9 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
   }, [input, isSearching, toast]);
 
   // Enviar mensagem
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isGenerating) return;
-
-    const userMessage = input.trim();
+  const handleSend = useCallback(async (preset) => {
+    const userMessage = (typeof preset === 'string' ? preset : input).trim();
+    if (!userMessage || isGenerating) return;
     setInput('');
     setCurrentAIMessage('');
     
@@ -466,6 +554,38 @@ const TrafficChatDrawer = ({ open, onOpenChange, campaigns = [], metaConnectionS
     saveConversation(updatedMessages);
 
     setIsGenerating(true);
+    setWorkNote(routineContext?.clientId ? 'Lendo as conversas do período…' : 'Pensando na resposta…');
+
+    let routineBrief = null;
+    let routinePrompt = '';
+    try {
+      const searchRange = routineSearchRange(searchSince, searchUntil);
+      if (routineContext?.clientId && !searchRange) {
+        routineBrief = { error: 'Escolha a data inicial e a final da pesquisa.' };
+      } else if (routineContext?.clientId && searchRange) {
+        routineBrief = await loadRoutineBrief(supabase, {
+          ...routineContext,
+          since: searchRange.since,
+          until: searchRange.until,
+          scope: searchScope,
+        });
+        routinePrompt = routineBrief && !routineBrief.error ? routineBriefPrompt(routineBrief) : '';
+        if (routineBrief && !routineBrief.error && Array.isArray(routineBrief.leads)) {
+          const strip = (lead) => {
+            const { thread, ...card } = lead;
+            return card;
+          };
+          routineBrief = {
+            ...routineBrief,
+            leads: routineBrief.leads.map(strip),
+            groups: (routineBrief.groups || []).map((group) => ({ ...group, leads: (group.leads || []).map(strip) })),
+          };
+        }
+      }
+    } catch (briefError) {
+      routineBrief = { error: briefError.message || 'Não foi possível ler o Rastreamento.' };
+    }
+    if (routineContext?.clientId) setWorkNote('Pensando na resposta…');
 
     try {
       // Busca dados da conta selecionada se houver
@@ -575,7 +695,11 @@ ${clientContext}
 
 ⚠️ REGRA DE OURO: 
 Quando dados da API do Meta forem fornecidos na seção "DADOS CONSULTADOS EM TEMPO REAL", 
-use APENAS esses dados. Ignore qualquer informação anterior ou em cache.`;
+use APENAS esses dados. Ignore qualquer informação anterior ou em cache.
+
+${routinePrompt}
+${routineBrief?.error ? `RASTREAMENTO: ${routineBrief.error}` : ''}
+${routineContext?.clientName ? `A Rotina aberta é de ${routineContext.clientName}. A pesquisa pedida é ${searchScope === 'all' ? 'de todo o Rastreamento' : 'só das campanhas da tela'}, de ${searchSince || routineContext.weekStart} a ${searchUntil || ''}. Use esse período, não outro.` : 'Se não houver cliente da Rotina no contexto, peça para abrir a ficha do cliente na Rotina semanal.'}`;
 
       // SEMPRE fazer consulta em tempo real à API do Meta quando houver conta selecionada
       // A API do Meta é a base de consulta principal
@@ -583,7 +707,7 @@ use APENAS esses dados. Ignore qualquer informação anterior ou em cache.`;
       let shouldQueryMeta = false;
       
       // Se tiver conta selecionada e Meta conectado, SEMPRE consultar em tempo real
-      if (selectedAccount && selectedAccount !== 'all' && metaConnectionStatus === 'connected') {
+      if (selectedAccount && selectedAccount !== 'all' && metaConnectionStatus === 'connected' && !routineBrief) {
         shouldQueryMeta = true;
         
         // Adicionar instrução para usar dados em tempo real
@@ -594,6 +718,7 @@ use APENAS esses dados. Ignore qualquer informação anterior ou em cache.`;
       // A API do Meta é a BASE DE CONSULTA PRINCIPAL
       let realTimeDataContext = '';
       if (shouldQueryMeta && selectedAccount && selectedAccount !== 'all') {
+        setWorkNote('Consultando a conta na Meta…');
         try {
           // Buscar dados atualizados em tempo real da API do Meta
           // Esta é a fonte principal de dados, não o contexto estático
@@ -652,6 +777,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
           console.warn('Erro ao consultar API em tempo real:', queryError);
           realTimeDataContext = '\n\n[⚠️ AVISO: Não foi possível consultar dados em tempo real da API do Meta. Tente novamente ou use os dados do contexto disponível.]';
         }
+        setWorkNote('Pensando na resposta…');
       }
 
       // Adicionar resultados da pesquisa do Google se houver
@@ -703,6 +829,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                   const aiMessage = {
                     role: 'assistant',
                     content: fullResponse,
+                    brief: routineBrief && !routineBrief.error ? routineBrief : null,
                   timestamp: new Date().toISOString(),
                 };
                 const finalMessages = [...messages, newUserMessage, aiMessage];
@@ -719,6 +846,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                 const chunk = JSON.parse(jsonStr);
                 if (chunk.choices?.[0]?.delta?.content) {
                   fullResponse += chunk.choices[0].delta.content;
+                  setWorkNote('Escrevendo a resposta…');
                   setCurrentAIMessage(fullResponse);
                 }
               } catch (e) {
@@ -732,6 +860,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
         const aiMessage = {
           role: 'assistant',
           content: data.content,
+          brief: routineBrief && !routineBrief.error ? routineBrief : null,
           timestamp: new Date().toISOString(),
         };
         const finalMessages = [...messages, newUserMessage, aiMessage];
@@ -742,15 +871,25 @@ A API do Meta é a ÚNICA fonte confiável de dados.
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
+      if (routineBrief && !routineBrief.error) {
+        const aiMessage = {
+          role: 'assistant',
+          content: 'O modelo não respondeu. Os números do Rastreamento estão abaixo. Escolha outro modelo no topo e pergunte de novo se quiser o texto.',
+          brief: routineBrief,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages([...messages, newUserMessage, aiMessage]);
+      }
       toast({
         title: 'Erro',
         description: error.message || 'Não foi possível enviar a mensagem',
         variant: 'destructive',
       });
     } finally {
+      setWorkNote('');
       setIsGenerating(false);
     }
-  }, [input, isGenerating, messages, selectedModel, selectedAccount, metaAccounts, linkedClient, clientDocuments, isDeepResearch, searchResults, buildTrafficContext, metaConnectionStatus, toast, saveConversation]);
+  }, [input, isGenerating, messages, selectedModel, selectedAccount, metaAccounts, linkedClient, clientDocuments, isDeepResearch, searchResults, buildTrafficContext, metaConnectionStatus, toast, saveConversation, routineContext, searchSince, searchUntil, searchScope]);
 
   // Enter para enviar (Shift+Enter para nova linha)
   const handleKeyDown = (e) => {
@@ -773,9 +912,19 @@ A API do Meta é a ÚNICA fonte confiável de dados.
     }
   }, [open, initialConversationId]);
 
-  // Se expandido, renderizar como modal fixo centralizado
+  const leadFichaDialog = (
+    <RastreamentoLeadFicha
+      open={Boolean(leadFicha)}
+      onOpenChange={(next) => { if (!next) setLeadFicha(null); }}
+      clienteId={routineContext?.clientId || ''}
+      contact={leadFicha}
+      lead={null}
+    />
+  );
+
+  // Se expandido, renderizar como modal fixo centralizado (fora do workbench)
   if (isExpanded && open) {
-    return (
+    const expandedUi = (
       <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
         <div className="w-full h-full max-w-7xl mx-auto bg-background border shadow-lg flex flex-col">
           {/* Header */}
@@ -787,7 +936,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                   Assistente de Tráfego
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Análise e recomendações sobre suas campanhas
+                  Análise da fila do Hoje e da conta no Painel
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -835,9 +984,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
               <Badge variant={metaConnectionStatus === 'connected' ? 'default' : 'secondary'}>
                 Meta: {metaConnectionStatus === 'connected' ? 'Conectado' : 'Desconectado'}
               </Badge>
-              <Badge variant="outline">
-                {campaigns.length} campanha{campaigns.length !== 1 ? 's' : ''}
-              </Badge>
+              <Badge variant="outline">Fila do dia: aba Hoje</Badge>
             </div>
 
             {/* Histórico de Conversas (modo expandido) */}
@@ -909,7 +1056,8 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                   <ModelSelector
                     selectedModel={selectedModel}
                     availableModels={availableModels}
-                    onModelChange={setSelectedModel}
+                    onModelChange={(id) => { modelPickedRef.current = true; setSelectedModel(id); }}
+                    compact
                     className="w-full"
                   />
                 </div>
@@ -992,10 +1140,10 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                     Olá! Sou seu assistente de tráfego pago.
                   </p>
                   <p className="text-sm mt-2">
-                    Posso analisar suas campanhas, fornecer insights e recomendações.
+                    Posso olhar a fila do Hoje, o Painel da conta e o que a Meta está mostrando.
                   </p>
                   <p className="text-xs mt-4 text-muted-foreground">
-                    Exemplos: "Analise minhas campanhas", "Como melhorar o ROI?", "Quais campanhas precisam de atenção?"
+                    Exemplos: "O que fazer agora?", "Quem está acima do teto?", "Como vincular a Meta?"
                   </p>
                 </div>
               )}
@@ -1026,6 +1174,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                 </div>
               ))}
 
+              {isGenerating ? <ChatWorkStatus note={workNote || 'Pensando na resposta…'} /> : null}
               {isGenerating && currentAIMessage && (
                 <div className="flex justify-start">
                   <div className="max-w-[80%] rounded-lg p-4 bg-muted">
@@ -1035,7 +1184,6 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                         __html: marked.parse(currentAIMessage),
                       }}
                     />
-                    <Loader2 className="h-4 w-4 animate-spin mt-2 inline-block" />
                   </div>
                 </div>
               )}
@@ -1134,22 +1282,38 @@ A API do Meta é a ÚNICA fonte confiável de dados.
         </div>
       </div>
     );
+    return (
+      <>
+        <aside className="planeje-trafego-assistant-dock" aria-hidden style={{ visibility: 'hidden', pointerEvents: 'none' }} />
+        {typeof document !== 'undefined' ? createPortal(expandedUi, document.body) : null}
+        {leadFichaDialog}
+      </>
+    );
   }
 
-  // Drawer normal (lateral) - divide a tela como TaskDetail
+  if (!open) return null;
+
+  const screenWeek = routineWeekRange(routineContext?.weekStart);
+  const periodMatchesScreen = Boolean(screenWeek && searchSince === screenWeek.since && searchUntil === screenWeek.until);
+
+  // Terceiro quadro ao lado do conteúdo (sem overlay)
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction="right">
-      <DrawerContent className="w-full sm:max-w-2xl ml-auto h-full">
-        <DrawerHeader className="border-b">
+    <>
+    <aside
+      className="planeje-trafego-assistant-dock bg-background border-border"
+      role="complementary"
+      aria-label="Assistente de Tráfego"
+    >
+      <div className="planeje-trafego-assistant-dock-header border-b">
           <div className="flex items-center justify-between">
             <div>
-              <DrawerTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5" />
+              <h2 className="font-semibold leading-none tracking-tight flex items-center gap-2">
+                <MessageSquare className="h-4 w-4" />
                 Assistente de Tráfego
-              </DrawerTitle>
-              <DrawerDescription className="mt-1">
-                Análise e recomendações sobre suas campanhas
-              </DrawerDescription>
+              </h2>
+              <p className="planeje-trafego-assistant-dock-sub text-sm text-muted-foreground mt-1">
+                Análise da fila do Hoje e da conta no Painel
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -1160,15 +1324,6 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                 title="Histórico de conversas"
               >
                 <History className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsExpanded(true)}
-                className="h-8 w-8"
-                title="Expandir para tela inteira"
-              >
-                <Maximize2 className="h-4 w-4" />
               </Button>
               <Button
                 variant="ghost"
@@ -1184,19 +1339,57 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                 size="icon"
                 onClick={() => onOpenChange(false)}
                 className="h-8 w-8"
+                title="Fechar"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-2">
+          <div className="mt-2">
+            <ModelSelector
+              selectedModel={selectedModel}
+              availableModels={availableModels}
+              onModelChange={(id) => { modelPickedRef.current = true; setSelectedModel(id); }}
+              compact
+              className="w-full"
+            />
+            {openRouterReady ? null : (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Claude e os outros modelos entram quando a chave do OpenRouter estiver em Configurações → Integrações.
+              </p>
+            )}
+          </div>
+          {routineContext?.clientId ? (
+            <div className="routine-search">
+              <div className="routine-search-dates">
+                <label>De
+                  <DayField value={searchSince} onChange={setSearchSince} ariaLabel="Data inicial, dia mês ano" />
+                </label>
+                <label>Até
+                  <DayField value={searchUntil} onChange={setSearchUntil} ariaLabel="Data final, dia mês ano" />
+                </label>
+              </div>
+              <div className="routine-search-scope" role="group" aria-label="O que pesquisar">
+                <button type="button" className={searchScope === 'sheet' ? 'is-on' : ''} onClick={() => setSearchScope('sheet')}>Só o que está na tela</button>
+                <button type="button" className={searchScope === 'all' ? 'is-on' : ''} onClick={() => setSearchScope('all')}>Pesquisar tudo</button>
+              </div>
+              {periodMatchesScreen ? (
+                <p>Semana que está na tela.</p>
+              ) : (
+                <button type="button" className="routine-search-reset" onClick={() => { setSearchSince(screenWeek?.since || ''); setSearchUntil(screenWeek?.until || ''); }}>
+                  Usar a semana da tela{screenWeek ? ` (${screenWeek.label})` : ''}
+                </button>
+              )}
+            </div>
+          ) : null}
+          {routineContext?.clientId ? null : (
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             <Badge variant={metaConnectionStatus === 'connected' ? 'default' : 'secondary'}>
               Meta: {metaConnectionStatus === 'connected' ? 'Conectado' : 'Desconectado'}
             </Badge>
-            <Badge variant="outline">
-              {campaigns.length} campanha{campaigns.length !== 1 ? 's' : ''}
-            </Badge>
+            <Badge variant="outline">Fila do dia: aba Hoje</Badge>
           </div>
+          )}
 
           {/* Histórico de Conversas */}
           {showHistory && (
@@ -1267,7 +1460,8 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                 <ModelSelector
                   selectedModel={selectedModel}
                   availableModels={availableModels}
-                  onModelChange={setSelectedModel}
+                  onModelChange={(id) => { modelPickedRef.current = true; setSelectedModel(id); }}
+              compact
                   className="w-full"
                 />
               </div>
@@ -1338,22 +1532,36 @@ A API do Meta é a ÚNICA fonte confiável de dados.
               )}
             </div>
           )}
-        </DrawerHeader>
+      </div>
 
-        <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
-          <div className="space-y-4">
+        <ScrollArea ref={scrollAreaRef} className="planeje-trafego-assistant-dock-scroll flex-1 min-h-0 p-3">
+          <div className="space-y-3">
             {messages.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <div className={routineContext?.clientId ? 'routine-empty' : 'text-center py-4 text-muted-foreground'}>
+                {routineContext?.clientId ? null : <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-50" />}
                 <p className="text-sm">
                   Olá! Sou seu assistente de tráfego pago.
                 </p>
                 <p className="text-sm mt-2">
-                  Posso analisar suas campanhas, fornecer insights e recomendações.
+                  {routineContext?.clientName
+                    ? `Estou na Rotina de ${routineContext.clientName}. A pesquisa usa ${searchSince && searchUntil ? `${displayDate(searchSince)} a ${displayDate(searchUntil)}` : 'o período escolhido acima'}${searchScope === 'all' ? ', em todo o Rastreamento' : ', só nas campanhas da tela'}.`
+                    : 'Abra um cliente na Rotina semanal para eu ler agendamentos, mensagens e vendas.'}
                 </p>
-                <p className="text-xs mt-4 text-muted-foreground">
-                  Exemplos: "Analise minhas campanhas", "Como melhorar o ROI?", "Quais campanhas precisam de atenção?"
-                </p>
+                {routineContext?.clientId ? (
+                  <div className="mt-3 flex flex-col gap-1.5">
+                    {['Quantos agendamentos teve neste período?', 'Quem agendou, em que data, e quem comprou?', 'Quantas mensagens por campanha e conjunto?'].map((hint) => (
+                      <button
+                        key={hint}
+                        type="button"
+                        className="routine-hint"
+                        disabled={isGenerating}
+                        onClick={() => handleSend(hint)}
+                      >
+                        {hint}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -1367,15 +1575,26 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                     msg.role === 'user'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted'
-                  }`}
+                  } ${msg.brief ? 'routine-brief-bubble' : ''}`}
                 >
                   {msg.role === 'assistant' ? (
+                    <>
+                    {msg.brief && msg.content ? (
+                    <div
+                      className="routine-brief-read prose prose-sm dark:prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
+                    />
+                    ) : null}
+                    {msg.brief ? null : (
                     <div
                       className="prose prose-sm dark:prose-invert max-w-none"
                       dangerouslySetInnerHTML={{
                         __html: marked.parse(msg.content),
                       }}
                     />
+                    )}
+                    {msg.brief ? <RoutineBriefCards brief={msg.brief} onOpenLead={openLeadConversation} /> : null}
+                    </>
                   ) : (
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   )}
@@ -1383,6 +1602,7 @@ A API do Meta é a ÚNICA fonte confiável de dados.
               </div>
             ))}
 
+            {isGenerating ? <ChatWorkStatus note={workNote || 'Pensando na resposta…'} /> : null}
             {isGenerating && currentAIMessage && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-lg p-3 bg-muted">
@@ -1392,20 +1612,19 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                       __html: marked.parse(currentAIMessage),
                     }}
                   />
-                  <Loader2 className="h-4 w-4 animate-spin mt-2 inline-block" />
                 </div>
               </div>
             )}
           </div>
         </ScrollArea>
 
-        <div className="border-t p-4">
+        <div className="border-t px-3 py-2.5 flex-shrink-0">
           {isDeepResearch && searchResults.length > 0 && (
-            <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center gap-2 mb-1">
                 <Globe className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  Deep Research Ativo ({searchResults.length} resultados)
+                <span className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                  Deep Research ({searchResults.length})
                 </span>
                 <Button
                   variant="ghost"
@@ -1419,38 +1638,27 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                   <X className="h-3 w-3" />
                 </Button>
               </div>
-              <div className="text-xs text-blue-700 dark:text-blue-300 max-h-20 overflow-y-auto">
-                {searchResults.slice(0, 3).map((result, idx) => (
-                  <div key={idx} className="truncate">
-                    • {result.title}
-                  </div>
-                ))}
-                {searchResults.length > 3 && (
-                  <div className="text-blue-600 dark:text-blue-400">
-                    +{searchResults.length - 3} mais resultados...
-                  </div>
-                )}
-              </div>
             </div>
           )}
-          <div className="flex gap-2">
-            <div className="flex-1 flex flex-col gap-2">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 flex flex-col gap-1.5 min-w-0">
               <Textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Digite sua pergunta sobre tráfego pago..."
-                className="min-h-[60px] resize-none"
+                placeholder={routineContext?.clientId ? 'Pergunte sobre este período…' : 'Digite sua pergunta sobre tráfego pago...'}
+                className="min-h-[44px] max-h-[88px] resize-none"
                 disabled={isGenerating || isSearching}
               />
+              {routineContext?.clientId ? null : (
               <div className="flex items-center gap-2">
                 <Button
                   onClick={handleDeepResearch}
                   disabled={!input.trim() || isSearching || isGenerating}
                   variant="outline"
                   size="sm"
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-1.5 h-7 text-xs"
                 >
                   {isSearching ? (
                     <>
@@ -1470,12 +1678,13 @@ A API do Meta é a ÚNICA fonte confiável de dados.
                   </Badge>
                 )}
               </div>
+              )}
             </div>
             <Button
               onClick={handleSend}
               disabled={!input.trim() || isGenerating}
               size="icon"
-              className="h-[60px] w-[60px]"
+              className="h-11 w-11 shrink-0"
             >
               {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1485,9 +1694,84 @@ A API do Meta é a ÚNICA fonte confiável de dados.
             </Button>
           </div>
         </div>
-      </DrawerContent>
-    </Drawer>
+    </aside>
+    {leadFichaDialog}
+    </>
   );
 };
+
+function ChatWorkStatus({ note }) {
+  return (
+    <div className="routine-work" role="status" aria-live="polite">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+      <span>{note}</span>
+    </div>
+  );
+}
+
+function RoutineBriefCards({ brief, onOpenLead }) {
+  if (!brief?.found && brief?.found !== 0) return null;
+  const fill = brief.fillCount ?? brief.scheduled ?? 0;
+  const apply = () => {
+    window.dispatchEvent(new CustomEvent('planeje-routine-apply-results', {
+      detail: {
+        clientId: brief.clientId,
+        weekStart: brief.since,
+        results: String(fill),
+        contacts: String(brief.found),
+      },
+    }));
+  };
+  const groups = brief.groups || [];
+  return (
+    <div className="routine-brief">
+      <p className="routine-brief-totals">{brief.weekLabel ? `${brief.weekLabel}. ` : ''}{brief.summary || `${brief.found} contatos`}</p>
+      {brief.canApply ? (
+        <button type="button" className="routine-brief-apply" onClick={apply}>
+          Colocar {fill} em {brief.resultLabel || 'Agendamentos'}
+        </button>
+      ) : null}
+      {groups.map((group) => {
+        const booked = (group.leads || []).filter((lead) => lead.scheduled || lead.bookedInChat);
+        const shown = group.onSheet === false ? [] : booked.slice(0, 20);
+        const rest = group.onSheet === false ? 0 : booked.length - shown.length;
+        const unread = (group.leads || []).length - booked.length;
+        return (
+          <section key={`${group.campaign}-${group.adset}`} className="routine-brief-group">
+            <p className="routine-brief-title">
+              <strong>{group.campaign}</strong>
+              {group.adset ? ` / ${group.adset}` : ''}
+              {group.spend !== '' && group.spend != null ? ` · gasto ${group.spend}` : ''}
+            </p>
+            <p className="routine-brief-meta">
+              {group.onSheet === false
+                ? `${group.recognized} contatos sem campanha na ficha. Não entram no número.`
+                : `${group.recognized} mensagens reconhecidas · ${group.appointments} agendaram`}
+            </p>
+            {group.appointments === 0 ? <p className="routine-brief-set">Não teve agendamento.</p> : null}
+            <ul className="routine-brief-leads">
+              {shown.filter((lead) => group.onSheet === false ? false : (lead.scheduled || lead.bookedInChat)).map((lead) => (
+                <li key={lead.id || lead.phone}>
+                  <strong className="routine-brief-name">{lead.name}</strong>
+                  <span className="routine-brief-phone">{lead.phone || 'sem telefone'}</span>
+                  <span className="routine-brief-mark">
+                    {lead.scheduled ? `Agendado no CRM${lead.appointmentDate ? ` ${displayDate(lead.appointmentDate)}` : ''}` : (lead.bookedInChat ? 'Agendou na conversa' : 'Não agendou')}
+                    {lead.sold ? ' · Venda' : ''}
+                  </span>
+                  {lead.snippets?.[0] ? <em className="routine-brief-quote">{lead.snippets[0]}</em> : null}
+                  {lead.id || lead.href ? (
+                    <button type="button" className="routine-brief-open" onClick={() => onOpenLead(lead)}>Abrir conversa</button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {rest > 0 ? <p className="routine-brief-set">E mais {rest} que agendaram neste conjunto.</p> : null}
+            {group.onSheet === false ? null : (unread > 0 ? <p className="routine-brief-set">{unread} conversas lidas não marcaram horário.</p> : null)}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
 
 export default TrafficChatDrawer;

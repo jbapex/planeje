@@ -5,7 +5,11 @@ import React from 'react';
     import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
     import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
     import { Badge } from '@/components/ui/badge';
-    import { Card, CardHeader, CardContent } from "@/components/ui/card";
+    import { Card, CardHeader } from "@/components/ui/card";
+    import { getTaskDueState } from '@/lib/taskUrgency';
+    import { getTaskClientName } from '@/lib/taskRelations';
+    import { TaskDueLabel, TaskPriorityBadge } from '@/components/tasks/TaskUrgencyBadges';
+    import TaskChannelBadges from '@/components/tasks/TaskChannelBadges';
 
     const getTextColor = (hexcolor) => {
         if (!hexcolor) return '#000000';
@@ -18,7 +22,7 @@ import React from 'react';
     };
 
 
-    const ListView = ({ tasks, onOpenTask, onDelete, statusOptions, userRole, users, isMobile }) => {
+    const ListView = ({ tasks, onOpenTask, onDelete, statusOptions, userRole, users, isMobile, clients = [] }) => {
       
       const getAssignees = (assigneeIds) => {
         if (!assigneeIds || assigneeIds.length === 0) return [];
@@ -33,11 +37,12 @@ import React from 'react';
                     const assignees = getAssignees(task.assignee_ids);
                     const statusColor = statusInfo.color || '#6B7280'; // Fallback para cinza se não tiver cor
                     const textColor = getTextColor(statusColor);
+                    const due = getTaskDueState(task, { statusOptions });
 
                     const statusBadge = (
                         <Badge
-                            style={{ backgroundColor: statusColor, color: textColor }}
-                            className="whitespace-nowrap border-transparent text-xs"
+                            style={{ '--status-color': statusColor, backgroundColor: statusColor, color: textColor }}
+                            className="tasks-status-badge whitespace-nowrap border-transparent text-xs"
                         >
                             {statusInfo.label || task.status}
                         </Badge>
@@ -50,22 +55,28 @@ import React from 'react';
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                         >
-                            <Card className="dark:bg-gray-800 dark:border-gray-700 cursor-pointer" onClick={() => onOpenTask(task)}>
+                            <Card
+                                className="tasks-list-card dark:bg-gray-800 dark:border-gray-700 cursor-pointer border-l-4"
+                                style={{ borderLeftColor: due.color || undefined }}
+                                onClick={() => onOpenTask(task)}
+                            >
                                 <CardHeader className="flex flex-row items-start justify-between p-3 pb-2">
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <p className="font-semibold text-sm dark:text-white line-clamp-2">{task.title}</p>
                                         <div className="flex items-center gap-2 flex-wrap">
                                             {statusBadge}
+                                            <TaskPriorityBadge priority={task.priority} />
                                             <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
                                                 <Folder className="h-3 w-3" />
-                                                <span className="truncate">{task.clientes?.empresa || 'Sem cliente'}</span>
+                                                <span className="truncate">{getTaskClientName(task, clients)}</span>
                                             </div>
                                             {task.projetos?.name && <Badge variant="secondary" className="text-xs">{task.projetos.name}</Badge>}
                                         </div>
-                                        {task.due_date && (
-                                            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                        <TaskChannelBadges publications={task._channel_publications} compact />
+                                        {due.label && (
+                                            <div className="flex items-center gap-1.5 text-xs">
                                                 <Calendar className="h-3 w-3" />
-                                                <span>Vence: {new Date(task.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
+                                                <TaskDueLabel task={task} statusOptions={statusOptions} />
                                             </div>
                                         )}
                                     </div>
@@ -88,16 +99,17 @@ import React from 'react';
       }
 
       return (
-        <div className="space-y-2">
+        <div className="tasks-list-container space-y-2">
             {tasks.map(task => {
               const statusInfo = statusOptions.find(s => s.value === task.status) || {};
               const assignees = getAssignees(task.assignee_ids);
               const statusColor = statusInfo.color || '#6B7280'; // Fallback para cinza se não tiver cor
+              const due = getTaskDueState(task, { statusOptions });
               
               const statusBadge = (
                 <Badge 
-                  style={{ backgroundColor: statusColor, color: getTextColor(statusColor) }} 
-                  className="whitespace-nowrap border-transparent text-xs"
+                  style={{ '--status-color': statusColor, backgroundColor: statusColor, color: getTextColor(statusColor) }} 
+                  className="tasks-status-badge whitespace-nowrap border-transparent text-xs"
                 >
                   {statusInfo.label || task.status}
                 </Badge>
@@ -111,18 +123,26 @@ import React from 'react';
                   animate={{ opacity: 1 }} 
                 >
                   <div 
-                    className="flex bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm items-center justify-between border-l-4"
-                    style={{ borderColor: statusColor || 'transparent' }}
+                    className="tasks-list-row flex bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm items-center justify-between border border-l-4"
+                    style={{
+                      '--status-color': statusColor,
+                      '--due-tone-color': due.color || statusColor,
+                      borderLeftColor: due.color || statusColor || undefined,
+                    }}
                   >
-                    <div className="flex items-center gap-3 flex-grow cursor-pointer" onClick={() => onOpenTask(task)}>
+                    <div className="flex items-center gap-3 flex-grow cursor-pointer min-w-0" onClick={() => onOpenTask(task)}>
                        {statusBadge}
                        <div className="flex-grow min-w-0">
                           <p className="font-medium text-sm dark:text-white truncate">{task.title}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            <span className="truncate">{task.clientes?.empresa || 'Sem cliente'}</span>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex-wrap">
+                            <span className="truncate">{getTaskClientName(task, clients)}</span>
                             {task.projetos?.name && <Badge variant="secondary" className="text-xs">{task.projetos.name}</Badge>}
-                            {task.due_date && <span className="whitespace-nowrap">Vence: {new Date(task.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>}
+                            <TaskPriorityBadge priority={task.priority} />
+                            {due.label && (
+                              <TaskDueLabel task={task} statusOptions={statusOptions} />
+                            )}
                           </div>
+                          <TaskChannelBadges publications={task._channel_publications} compact />
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-3 flex-shrink-0">

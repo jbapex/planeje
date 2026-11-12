@@ -8,7 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { motion } from 'framer-motion';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { supabase } from '@/lib/customSupabaseClient';
+import { supabase, supabaseUrl } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const DashboardAssistant = ({ overdueTasks, todayTasks, upcomingTasks, alerts, suggestions, stats }) => {
@@ -246,7 +246,7 @@ ${getDateTimeContext()}
         
         try {
           // Tenta com streaming
-          const edgeBaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const edgeBaseUrl = supabaseUrl;
           if (!edgeBaseUrl) {
             throw new Error('URL do Supabase não configurada');
           }
@@ -412,12 +412,17 @@ ${getDateTimeContext()}
 
 
   return (
-    <Card className={`bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all ${isExpanded ? 'fixed inset-4 z-50' : ''}`}>
-      <CardContent className={`p-4 ${isExpanded ? 'h-[calc(100vh-3rem)] flex flex-col' : ''}`}>
+    <Card className={`planeje-dashboard-assistant-card border-0 shadow-none bg-transparent ${isExpanded ? 'fixed inset-4 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-2xl rounded-2xl' : ''}`}>
+      <CardContent className={`p-5 ${isExpanded ? 'h-[calc(100vh-3rem)] flex flex-col' : ''}`}>
         <div className={`relative ${isExpanded ? 'flex-1 flex flex-col min-h-0' : ''}`}>
-          <div className="flex items-center gap-2 mb-3 flex-shrink-0">
-            <Bot className="h-5 w-5 text-orange-500" />
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Assistente ApexIA</h3>
+          <div className="flex items-center gap-2.5 mb-4 flex-shrink-0 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="w-9 h-9 rounded-xl jb-gradient-bg flex items-center justify-center shadow-sm">
+              <Bot className="h-4.5 w-4.5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Assistente ApexIA</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Resumo inteligente do seu dia</p>
+            </div>
             <div className="ml-auto flex items-center gap-1">
               <Button
                 variant="ghost"

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:4401; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>CRM IA · Prévia isolada Planeje</title>
+    <style>body{margin:0;background:#eef0f4}iframe{display:block;margin:auto;border:0;height:100dvh}</style>
+  </head>
+  <body><div id="root"></div>
+    <script type="module">
+      const preview = new URL(location.href);
+      const width = preview.searchParams.get('largura');
+      if (['320', '390', '600', '768', '1024', '1280'].includes(width)) {
+        preview.searchParams.delete('largura');
+        const frame = document.createElement('iframe');
+        frame.title = 'CRM IA em tela estreita';
+        frame.src = preview.href;
+        frame.style.width = width + 'px';
+        if (Number(width) >= 768) frame.style.height = '800px';
+        document.getElementById('root').append(frame);
+      } else {
+        import('/main.jsx');
+      }
+    </script>
+  </body>
+</html>

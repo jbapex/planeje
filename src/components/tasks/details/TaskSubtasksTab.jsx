@@ -7,13 +7,15 @@ import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { Textarea } from '@/components/ui/textarea';
 
-const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subtasks: initialSubtasks, isNewTask }) => {
+const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subtasks: initialSubtasks, isNewTask, deferRequiredSubtasks = false }) => {
   const [subtasks, setSubtasks] = useState(initialSubtasks || []);
   const [newSubtask, setNewSubtask] = useState('');
+  const [requiredPending, setRequiredPending] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const { toast } = useToast();
   const isFetching = useRef(false);
 
-  const fetchSubtasksAndRules = useCallback(async () => {
+  const fetchSubtasksAndRules = useCallback(async (materialize = !deferRequiredSubtasks) => {
     if (!taskId || isNewTask || isFetching.current) {
       if (isNewTask) {
         setSubtasks([]);
@@ -66,12 +68,14 @@ const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subta
           is_completed: false,
         }));
 
-      if (stepsToCreate.length > 0) {
+      setRequiredPending(deferRequiredSubtasks && stepsToCreate.length > 0);
+      if (stepsToCreate.length > 0 && materialize) {
         const { data: insertedData, error: insertError } = await supabase.from('task_subtasks').insert(stepsToCreate).select();
         if (insertError) {
           toast({ title: "Erro ao criar subtarefas obrigatórias", description: insertError.message, variant: "destructive" });
         } else {
           const allSubtasks = [...currentSubtasks, ...insertedData].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          setRequiredPending(false);
           setSubtasks(allSubtasks);
           onSubtasksChange(allSubtasks);
         }
@@ -82,11 +86,17 @@ const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subta
     } finally {
       isFetching.current = false;
     }
-  }, [taskId, taskType, taskStatus, toast, onSubtasksChange, isNewTask]);
+  }, [taskId, taskType, taskStatus, toast, onSubtasksChange, isNewTask, deferRequiredSubtasks]);
 
   useEffect(() => {
     fetchSubtasksAndRules();
   }, [fetchSubtasksAndRules]);
+
+  const prepareRequired = async () => {
+    setPreparing(true);
+    try { await fetchSubtasksAndRules(true); }
+    finally { setPreparing(false); }
+  };
 
   const handleAddSubtask = async () => {
     if (!newSubtask.trim() || isNewTask) return;
@@ -129,6 +139,9 @@ const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subta
 
   return (
     <div className="space-y-4">
+      {requiredPending && <Button type="button" size="sm" variant="outline" onClick={prepareRequired} disabled={preparing}>
+        {preparing ? 'Preparando…' : 'Preparar subtarefas obrigatórias'}
+      </Button>}
       <div className="flex gap-2">
         <Input value={newSubtask} onChange={e => setNewSubtask(e.target.value)} placeholder="Adicionar subtarefa rápida..." onKeyPress={e => e.key === 'Enter' && handleAddSubtask()} className="dark:bg-gray-700 dark:text-white dark:border-gray-600 text-sm" disabled={isNewTask} />
         <Button onClick={handleAddSubtask} disabled={isNewTask} size="icon"><PlusCircle size={16} /></Button>
@@ -141,6 +154,7 @@ const TaskSubtasksTab = ({ taskId, taskType, taskStatus, onSubtasksChange, subta
                 {subtask.type === 'check' && (
                   <Checkbox 
                     className="mt-1"
+                    aria-label={`Concluir ${subtask.title}`}
                     checked={subtask.is_completed} 
                     onCheckedChange={() => updateSubtask(subtask.id, { is_completed: !subtask.is_completed })} 
                   />

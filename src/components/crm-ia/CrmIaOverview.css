@@ -1,0 +1,127 @@
+.crm-ia-content .crm-ia-overview { gap:16px; min-width:0; }
+.crm-ia-content .crm-ia-overview h2 { font-size:13px; line-height:1.45; font-weight:600; letter-spacing:-.015em; }
+.crm-ia-content .crm-ia-overview :is(a,summary):focus-visible { outline:2px solid var(--crm-blue); outline-offset:3px; border-radius:6px; }
+.crm-ia-content .crm-ia-overview svg { flex:none; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-toolbar,.crm-ia-content .crm-ia-overview .crm-ia-overview-period-controls,.crm-ia-content .crm-ia-overview .crm-ia-overview-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-toolbar { justify-content:space-between; }
+.crm-ia-content .crm-ia-overview .crm-ia-segments { gap:2px; padding:3px; border-radius:999px; }
+.crm-ia-content .crm-ia-overview .crm-ia-segments button { min-height:28px; padding:4px 11px; border-radius:999px; font-size:11.5px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-actions { margin-left:auto; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-actions button { min-height:34px; font-size:12px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-actions .crm-ia-overview-refresh { width:34px; padding:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-period { position:relative; max-width:100%; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-period > summary { display:flex; align-items:center; gap:7px; min-height:34px; max-width:100%; padding:6px 10px; border:1px solid var(--crm-line); border-radius:8px; background:#fafbfa; color:var(--crm-muted); font-size:11.5px; cursor:pointer; list-style:none; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-period > summary::-webkit-details-marker { display:none; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-period[open] > summary { border-color:#bfcac4; background:#f3f5f4; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-date-fields { position:absolute; z-index:10; right:0; top:calc(100% + 7px); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; width:340px; max-width:calc(100vw - 48px); padding:14px; border:1px solid var(--crm-line); border-radius:12px; background:#fff; box-shadow:0 8px 24px #17241b12; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-date-fields .crm-ia-field input { max-width:100%; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); overflow:hidden; border:1px solid var(--crm-line); border-radius:14px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a { display:flex; flex-direction:column; align-items:flex-start; gap:5px; min-width:0; padding:17px 19px; border-right:1px solid var(--crm-line); overflow-wrap:anywhere; transition:background .15s; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a:last-child { border-right:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a:hover { background:#fafbfa; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a:focus-visible { outline-offset:-3px; border-radius:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis span { font-size:12px; color:var(--crm-muted); }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis strong { font-size:28px; line-height:1.2; font-weight:550; letter-spacing:-.045em; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-kpis small { color:#657068; font-size:10.5px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panels { display:grid; grid-template-columns:1.08fr 1.08fr 1fr 1fr; gap:14px; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panel { display:flex; flex-direction:column; min-height:365px; padding:18px; border-color:#edf0ed; border-radius:14px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panel > header { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:12px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panel > header h2 { min-width:0; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-caption { font-size:11.5px; color:var(--crm-muted); line-height:1.6; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting-count { flex:none; color:#8a6c30; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting,.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution,.crm-ia-content .crm-ia-overview .crm-ia-overview-origins { list-style:none; margin:0; padding:0; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting { max-height:290px; margin-top:12px; overflow:auto; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting li + li { border-top:1px solid #f1f3f1; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting a { display:flex; align-items:center; gap:9px; padding:11px 0; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting a:hover .crm-ia-overview-contact strong { color:var(--crm-blue); }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting a > svg { color:#8b948e; margin-left:auto; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-avatar { display:grid; place-items:center; flex:none; width:29px; height:29px; border-radius:50%; background:#ece8f5; color:#7664a7; font-size:10px; font-weight:600; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-waiting li:nth-child(even) .crm-ia-overview-avatar { background:#e9efdf; color:#748b46; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-contact { min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-contact strong { display:block; font-size:12px; line-height:1.45; font-weight:600; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-contact small { display:block; margin-top:3px; color:var(--crm-muted); font-size:10px; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-empty { margin:auto 0; padding:24px 0; color:var(--crm-muted); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-footer-link { display:flex; align-items:center; gap:10px; width:fit-content; max-width:100%; margin-top:auto; padding-top:20px; color:#59635d; font-size:11.5px; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-footer-link:hover { color:var(--crm-blue); }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-daily { min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-plot { display:grid; grid-template-columns:30px minmax(0,1fr); gap:7px; margin-top:18px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart { display:block; width:100%; height:170px; overflow:visible; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-y { position:relative; min-width:0; color:#657068; font-size:10.5px; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-y span { position:absolute; right:0; transform:translateY(50%); }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-x { grid-column:2; display:flex; justify-content:space-between; gap:7px; color:#657068; font-size:10.5px; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-x span:only-child { margin:auto; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart line { stroke:#edf0ee; stroke-width:1; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-area { fill:#eff4ff; stroke:none; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-line { fill:none; stroke:#527ee2; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart circle { fill:#527ee2; stroke:#fff; stroke-width:1.5; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values { margin-top:15px; color:var(--crm-muted); font-size:10.5px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values summary { width:fit-content; padding:3px 0; cursor:pointer; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values > div { max-height:210px; overflow:auto; margin-top:8px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values table { width:100%; border-collapse:collapse; text-align:left; font-size:11px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values caption { padding-bottom:7px; text-align:left; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values :is(th,td) { padding:5px 3px; border-bottom:1px solid var(--crm-line); font-weight:400; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-chart-values :is(td,th:last-child) { text-align:right; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution li + li { margin-top:11px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution a { display:block; border-radius:3px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution-label { display:flex; justify-content:space-between; align-items:baseline; gap:10px; min-width:0; font-size:11.5px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution-label > span { min-width:0; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution strong,.crm-ia-content .crm-ia-overview .crm-ia-overview-origins strong { flex:none; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-bar { display:block; height:3px; margin-top:7px; overflow:hidden; border-radius:3px; background:#f1f3f1; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-bar-fill { display:block; height:100%; min-width:0; border-radius:inherit; background:#527ee2; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-distribution small { display:block; margin-top:3px; color:#657068; font-size:10px; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origins li + li { margin-top:13px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origins a { display:grid; grid-template-columns:18px minmax(0,1fr) auto 32px; align-items:center; gap:7px; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origin-icon { display:flex; color:#76ad7f; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origin-name { min-width:0; font-size:11.5px; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origins small { color:#657068; font-size:10px; text-align:right; font-variant-numeric:tabular-nums; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origins .crm-ia-overview-bar { grid-column:2/-1; width:100%; height:2px; margin-top:0; background:#f5f7f5; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-origins .crm-ia-overview-bar-fill { background:#a9c8b1; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panel-note { margin-top:auto; padding-top:22px; color:#657068; font-size:11px; line-height:1.6; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-panel-note + .crm-ia-overview-footer-link { margin-top:0; padding-top:10px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summaries { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary { padding:16px 17px; border-color:#edf0ed; border-radius:14px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary > header { display:flex; align-items:center; gap:10px; min-width:0; padding-bottom:13px; border-bottom:1px solid #f1f3f1; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary > header > div { min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary header h2 { overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary header p { margin-top:3px; color:#657068; font-size:10.5px; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-icon { display:grid; place-items:center; width:34px; height:34px; flex:none; border-radius:7px; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-icon.is-ai { color:#527ee2; background:#edf2fc; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-icon.is-human { color:#967944; background:#f5f0e5; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-icon.is-agents { color:#6d9375; background:#edf4ee; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-link { display:grid; place-items:center; width:28px; min-height:28px; flex:none; margin-left:auto; color:#657068; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary dl { display:flex; flex-wrap:wrap; gap:14px; margin:12px 0 0; padding:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary dl > div { display:flex; flex-direction:column; flex:1; min-width:0; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary dd { order:1; margin:0; color:#202722; font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary dt { order:2; margin-top:2px; color:#657068; font-size:10px; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary-note { margin-top:10px; color:#657068; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary .crm-ia-state { padding:15px 0; text-align:left; }
+.crm-ia-content .crm-ia-overview .crm-ia-overview-summary .crm-ia-error { font-size:11px; }
+@media(max-width:1150px) {
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-panels { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-panel { min-height:315px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a { padding:15px; }
+}
+@media(max-width:720px) {
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-toolbar { align-items:flex-start; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-period-controls { flex:1 1 100%; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-actions { margin-left:0; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-date-fields { position:static; margin-top:8px; width:100%; max-width:100%; box-shadow:none; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-period[open] { flex:1 1 100%; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a { padding:14px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a:nth-child(2) { border-right:0; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a:nth-child(-n+2) { border-bottom:1px solid var(--crm-line); }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis strong { font-size:26px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-summaries { grid-template-columns:1fr; }
+}
+@media(max-width:540px) {
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-panels { grid-template-columns:1fr; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-panel { min-height:260px; padding:17px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-date-fields { grid-template-columns:1fr; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a { gap:6px; padding:13px 11px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis span { font-size:11px; }
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-summary dl { gap:10px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .crm-ia-content .crm-ia-overview .crm-ia-overview-kpis > a { transition:none; }
+}

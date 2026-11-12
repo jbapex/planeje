@@ -66,7 +66,7 @@ const PGMPanel = () => {
   const [sortDirection, setSortDirection] = useState('desc');
   const [funnelStep2Name, setFunnelStep2Name] = useState('Etapa 2');
   const [funnelStep3Name, setFunnelStep3Name] = useState('Etapa 3');
-  const [abaAtiva, setAbaAtiva] = useState('cadastro');
+  const [abaAtiva, setAbaAtiva] = useState('trafego');
   const [dateRange, setDateRange] = useState({ from: null, to: null });
   const [showDatePicker, setShowDatePicker] = useState(false);
   
@@ -1584,13 +1584,7 @@ const PGMPanel = () => {
               </div>
             ) : (
               <Tabs value={abaAtiva} onValueChange={setAbaAtiva} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-6 bg-slate-100 rounded-xl p-1">
-                  <TabsTrigger 
-                    value="cadastro" 
-                    className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-slate-900 text-slate-600 font-medium"
-                  >
-                    Cadastro Diário
-                  </TabsTrigger>
+                <TabsList className="grid w-full grid-cols-1 mb-6 bg-slate-100 rounded-xl p-1">
                   <TabsTrigger 
                     value="trafego" 
                     className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-slate-900 text-slate-600 font-medium"

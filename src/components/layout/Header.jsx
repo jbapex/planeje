@@ -1,63 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Circle, Bot } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { RefreshCw } from 'lucide-react';
+import PlanejeLogo from '@/components/brand/PlanejeLogo';
+import WorkspaceHeaderTools from '@/components/layout/WorkspaceHeaderTools';
+import { reloadCurrentPage } from '@/lib/teamNav';
 
 const Header = () => {
-  const { profile } = useAuth();
-  const navigate = useNavigate();
-  const isClient = profile?.role === 'cliente' && profile?.cliente_id;
-  const [theme, setTheme] = useState(() => {
-    if (localStorage.getItem('theme')) {
-      return localStorage.getItem('theme');
-    }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
-
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
-
   return (
-    <header className="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-950 md:px-6">
-      <div className="flex items-center justify-between w-full">
-        <div className="md:hidden">
-            <h1 className="text-xl font-bold gradient-text">JB APEX</h1>
+    <header className="planeje-header sticky top-0 z-10 shrink-0 px-3 py-1.5 md:hidden">
+      <div className="flex items-center justify-between w-full gap-3">
+        <div className="md:hidden flex items-center gap-2.5 min-w-0">
+          <div className="planeje-sidebar-logo planeje-sidebar-logo--mark h-8 w-8 shrink-0">
+            <PlanejeLogo variant="mark" className="planeje-sidebar-logo-mark-img" />
+          </div>
+          <h1 className="truncate text-base font-bold gradient-text">Planeje</h1>
         </div>
-        <div className="flex items-center gap-2 md:gap-3 ml-auto">
-          {isClient && (
-            <Button 
-              onClick={() => navigate('/apexia')} 
-              className="bg-purple-600 hover:bg-purple-700 text-white"
-              size="sm"
-            >
-              <Bot className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Acessar ApexIA</span>
-              <span className="sm:hidden">ApexIA</span>
-            </Button>
-          )}
-          <Button variant="ghost" size="icon" onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-purple-600" />}
-          </Button>
-          {profile && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2">
-                <Circle className="h-2 w-2 fill-green-500 text-green-500" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {profile.full_name || profile.email || 'Usuário'}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">Online</span>
-              </div>
-            </div>
-          )}
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={reloadCurrentPage}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label="Atualizar a página"
+            title="Atualizar a página"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <WorkspaceHeaderTools />
         </div>
       </div>
     </header>

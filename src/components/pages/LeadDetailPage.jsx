@@ -10,6 +10,7 @@ import { useCrmPipeline } from '@/hooks/useCrmPipeline';
 import { useClientMembers } from '@/hooks/useClientMembers';
 import LeadDetailContent from '@/components/crm/LeadDetailContent';
 import EditLeadModal from '@/components/crm/EditLeadModal';
+import { applyEtiquetaConversionRules } from '@/lib/applyRastreamentoConversionRules';
 
 const LeadDetailPage = () => {
   const { leadId } = useParams();
@@ -60,6 +61,11 @@ const LeadDetailPage = () => {
   }, [setRefreshFn, fetchLead]);
 
   const handleUpdateLead = async (id, payload) => {
+    let previousEtiquetas = null;
+    if (Object.prototype.hasOwnProperty.call(payload || {}, 'etiquetas')) {
+      const { data: previous } = await supabase.from('leads').select('etiquetas').eq('id', id).maybeSingle();
+      previousEtiquetas = previous?.etiquetas;
+    }
     const { data, error } = await supabase
       .from('leads')
       .update(payload)
@@ -72,6 +78,15 @@ const LeadDetailPage = () => {
     }
     setLead(data);
     toast({ title: 'Lead atualizado', description: 'As informações foram salvas.' });
+    if (previousEtiquetas != null && data?.cliente_id) {
+      void applyEtiquetaConversionRules({
+        clienteId: data.cliente_id,
+        lead: data,
+        previousEtiquetas,
+        nextEtiquetas: data.etiquetas,
+        showToast: toast,
+      });
+    }
     return { data, error: null };
   };
 

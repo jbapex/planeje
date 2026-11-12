@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+    import { Helmet } from 'react-helmet';
     import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, Search, Download } from 'lucide-react';
-    import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, List, Kanban, Users as UsersIcon, X, Search, Download, ArrowUpDown, RotateCcw, PieChart, Check } from 'lucide-react';
+    import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
@@ -10,14 +11,25 @@ import { Plus, List, LayoutGrid, Filter, Users as UsersIcon, X, Search, Download
     import ClientForm from '@/components/forms/ClientForm';
     import ClientProgress from '@/components/clients/ClientProgress';
     import ClientesLista from '@/components/clients/ClientesLista';
-    import ClientesCards from '@/components/clients/ClientesCards';
+    import ClientesKanban from '@/components/clients/ClientesKanban';
+    import ClientesVisaoGeral from '@/components/clients/ClientesVisaoGeral';
     import ProjectDocuments from '@/components/projects/ProjectDocuments';
 import ClientUserManager from '@/components/admin/ClientUserManager';
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
     import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
-    import { Input } from "@/components/ui/input";
     import { useDataCache } from '@/hooks/useDataCache';
+    import { useAgencyPulse } from '@/hooks/useAgencyPulse';
+    import {
+      clientMatchesCarteiraFocus,
+      computeCarteiraKpis,
+      formatCompactMoney,
+    } from '@/lib/carteiraClientes';
+    import { saveClienteForm, saveClienteToast } from '@/lib/clienteSave';
+import { fetchEtiquetaRows, mergeEtiquetaCatalog, saveEtiqueta } from '@/lib/clienteEtiquetas';
+import { EtiquetaCreateRow, EtiquetaDot } from '@/components/clients/ClienteEtiquetas';
+import '@/components/clients/Clients.css';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
 
     const ETAPAS = [
       { value: 'prospect', label: 'Prospect', color: 'bg-gray-400' },
@@ -28,14 +40,29 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
       { value: 'lost', label: 'Perdido', color: 'bg-red-500' }
     ];
 
-    const ETIQUETAS = [
-      { value: 'vip', label: 'VIP', color: 'bg-purple-500' },
-      { value: 'inativo', label: 'Inativo', color: 'bg-gray-600' },
-      { value: 'novo', label: 'Novo', color: 'bg-cyan-500' },
-    ];
+    function matchesClientSearch(client, term) {
+      if (!term) return true;
+      const query = term.toLowerCase();
+      const haystack = [
+        client.empresa,
+        client.nome_contato,
+        client.email,
+        client.cidade,
+        client.estado,
+        client.cnpj_cpf,
+      ].join(' ').toLowerCase();
+      if (haystack.includes(query)) return true;
+      const queryDigits = term.replace(/\D/g, '');
+      const docDigits = String(client.cnpj_cpf || '').replace(/\D/g, '');
+      return queryDigits.length >= 3 && docDigits.includes(queryDigits);
+    }
 
     const Clients = () => {
-      const [viewMode, setViewMode] = useState('list');
+      const [viewMode, setViewMode] = useState(() => {
+        const saved = localStorage.getItem('planeje_clients_view') || 'overview';
+        return saved === 'cards' ? 'kanban' : saved;
+      });
+      const [sortBy, setSortBy] = useState('empresa');
       const [editingClient, setEditingClient] = useState(null);
       const [showProgress, setShowProgress] = useState(false);
       const [selectedClientForProgress, setSelectedClientForProgress] = useState(null);
@@ -45,16 +72,57 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
       const [selectedClientForUser, setSelectedClientForUser] = useState(null);
       const [etapaFilter, setEtapaFilter] = useState('all');
       const [etiquetaFilter, setEtiquetaFilter] = useState([]);
+      const [etiquetaRows, setEtiquetaRows] = useState([]);
       const [selectedClients, setSelectedClients] = useState([]);
       const [searchTerm, setSearchTerm] = useState('');
+      const [carteiraFocus, setCarteiraFocus] = useState('all');
       const { toast } = useToast();
-      const { user, profile, loading: authLoading } = useAuth();
-      const { moduleAccess } = useModuleSettings();
-      const { id: clientIdFromUrl } = useParams();
+      const { user, profile, loading: authLoading, canViewField } = useAuth();
+      const { moduleAccess, moduleSettings } = useModuleSettings();
       const navigate = useNavigate();
+      const location = useLocation();
+      const [searchParams, setSearchParams] = useSearchParams();
+      const clientIdFromUrl = searchParams.get('editar');
+      const isNewForm = location.pathname === '/clients/new';
+      const isEditForm = !isNewForm && Boolean(clientIdFromUrl);
       
       const userRole = profile?.role;
       const clientsAccessLevel = moduleAccess.clients || 'all';
+      const canManageClients = userRole === 'superadmin' || userRole === 'admin';
+      const csPortfolioSearch = location.state?.csPortfolioSearch;
+      const fromCsPortfolio = isNewForm && canManageClients && profile?.status === 'active' && moduleSettings?.atendimento === true &&
+        typeof csPortfolioSearch === 'string';
+      const pendingCsCreate = useRef(false);
+      const csDraftId = useRef(null);
+      const pulse = useAgencyPulse();
+      const atRiskIds = useMemo(
+        () => new Set((pulse.summary.atRisk || []).map((a) => a.id)),
+        [pulse.summary.atRisk]
+      );
+      const pulseById = useMemo(() => {
+        const map = new Map();
+        (pulse.accounts || []).forEach((account) => map.set(account.id, account));
+        return map;
+      }, [pulse.accounts]);
+
+      const toggleCarteiraFocus = (focus) => {
+        setCarteiraFocus((prev) => {
+          if (prev === focus) {
+            setEtapaFilter('all');
+            return 'all';
+          }
+          if (focus === 'ativos') setEtapaFilter('closed');
+          else if (focus === 'perdidos') setEtapaFilter('lost');
+          else setEtapaFilter('all');
+          return focus;
+        });
+        if (viewMode === 'overview') setViewModePersist('list');
+      };
+
+      const setViewModePersist = (mode) => {
+        setViewMode(mode);
+        localStorage.setItem('planeje_clients_view', mode);
+      };
       
       // Hook de cache com chave única por usuário e role
       const cacheKey = `clients_${user?.id}_${userRole}_${clientsAccessLevel}`;
@@ -71,7 +139,8 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
       // Inicializa estados - verifica cache imediatamente para evitar "Carregando"
       const [clients, setClients] = useState(() => hasValidCache ? (cachedData?.clients || []) : []);
       const [users, setUsers] = useState(() => hasValidCache ? (cachedData?.users || []) : []);
-      const [loading, setLoading] = useState(() => !hasValidCache); // false se tem cache, true se não tem
+      const [loading, setLoading] = useState(() => !hasValidCache);
+      const etiquetaCatalog = useMemo(() => mergeEtiquetaCatalog(etiquetaRows, clients), [etiquetaRows, clients]);
       
       const fetchClients = useCallback(async () => {
         if (!user) return;
@@ -105,6 +174,28 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
         setLoading(false);
       }, [toast, user, userRole, clientsAccessLevel, setCachedData]);
 
+      const loadEtiquetas = useCallback(async () => {
+        const { rows, error } = await fetchEtiquetaRows(supabase);
+        if (!error) setEtiquetaRows(rows);
+      }, []);
+
+      const createEtiqueta = useCallback(async (nome) => {
+        const result = await saveEtiqueta(supabase, nome, etiquetaCatalog, user?.id);
+        if (!result.ok) {
+          toast({ title: 'Não foi possível criar a etiqueta', description: result.error, variant: 'destructive' });
+          return null;
+        }
+        if (!result.existing) {
+          setEtiquetaRows((prev) => [...prev, { chave: result.etiqueta.chave, nome: result.etiqueta.nome }]);
+          toast({ title: 'Etiqueta criada', description: result.etiqueta.nome });
+        }
+        return result.etiqueta;
+      }, [etiquetaCatalog, toast, user?.id]);
+
+      useEffect(() => {
+        if (user) loadEtiquetas();
+      }, [user, loadEtiquetas]);
+
       useEffect(() => {
         if (authLoading || !user) return;
         
@@ -136,75 +227,91 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
       }, [authLoading, user]); // Apenas authLoading e user - evita re-execução
 
       useEffect(() => {
-        if (clientIdFromUrl) {
-          if (clientIdFromUrl === 'new') {
-            setEditingClient(null);
-          } else if (clients.length > 0) {
+        if (isNewForm) {
+          setEditingClient(null);
+          return;
+        }
+        if (isEditForm) {
+          if (clients.length > 0) {
             const client = clients.find(c => c.id === clientIdFromUrl);
             if (client) {
               setEditingClient(client);
             } else {
               toast({ title: "Cliente não encontrado", variant: "destructive" });
-              navigate('/clients');
+              closeEditParam();
             }
           }
-        } else {
-          setEditingClient(null);
+          return;
         }
-      }, [clientIdFromUrl, clients, navigate, toast]);
+        setEditingClient(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [isNewForm, isEditForm, clientIdFromUrl, clients, toast]);
+
+      function closeEditParam() {
+        const params = new URLSearchParams(searchParams);
+        params.delete('editar');
+        setSearchParams(params, { replace: true });
+      }
 
       const handleSaveClient = async (clientData, isNew) => {
-        const dataToSave = {
-          ...clientData,
-          owner_id: user.id,
-          vencimento: clientData.vencimento || null,
-          valor: clientData.valor || null,
-          objetivo_meta: clientData.objetivo_meta || null,
-          meta_custo_mensagem: clientData.meta_custo_mensagem || null,
-          meta_custo_compra: clientData.meta_custo_compra || null,
-          roas_alvo: clientData.roas_alvo || null,
-        };
-        console.log('💾 Salvando cliente (dataToSave):', dataToSave);
-        
-        if (isNew) {
-          dataToSave.client_document = '<p>Este é o documento do seu novo cliente. Adicione aqui senhas, links importantes, e-mails e qualquer outra informação relevante.</p>';
+        if (pendingCsCreate.current) return;
+        pendingCsCreate.current = fromCsPortfolio && isNew;
+        if (pendingCsCreate.current && !csDraftId.current) csDraftId.current = crypto.randomUUID();
+        let result;
+        try {
+          result = await saveClienteForm({ clientData, isNew, editingClient, userId: user.id,
+            csDraftId: pendingCsCreate.current ? csDraftId.current : undefined });
+        } finally {
+          pendingCsCreate.current = false;
         }
-
-        if (isNew) {
-          const { error } = await supabase.from('clientes').insert(dataToSave);
-          if (error) toast({ title: "Erro ao criar cliente", description: error.message, variant: "destructive" });
-          else toast({ title: "Cliente criado com sucesso!" });
-        } else {
-          const { error } = await supabase.from('clientes').update(dataToSave).eq('id', editingClient.id);
-          if (error) toast({ title: "Erro ao atualizar cliente", description: error.message, variant: "destructive" });
-          else toast({ title: "Cliente atualizado com sucesso!" });
-        }
-        setCachedData(null); // Limpa cache para forçar refresh
+        toast(result.replayed ? { title: 'Cadastro confirmado', description: 'A ficha mostra os dados gravados na primeira tentativa.' }
+          : saveClienteToast({ isNew, ...result }));
+        if (result.error) return;
+        setCachedData(null);
         fetchClients();
-        navigate('/clients');
+        if (fromCsPortfolio && isNew && result.savedId && (result.savedStage ?? clientData.etapa) === 'closed') {
+          navigate(`/cs-ia/clientes/${encodeURIComponent(result.savedId)}`, { replace: true, state: { csPortfolioSearch } });
+        } else if (isNew) navigate(result.savedId ? `/clients/${result.savedId}` : '/clients');
+        else closeEditParam();
       };
 
       const handleUpdateClientField = async (clientId, field, value) => {
-        const { error } = await supabase.from('clientes').update({ [field]: value || null }).eq('id', clientId);
+        const stored = field === 'etiquetas' ? (Array.isArray(value) ? value : []) : (value || null);
+        const { error } = await supabase.from('clientes').update({ [field]: stored }).eq('id', clientId);
         if (error) {
           toast({ title: `Erro ao atualizar ${field}`, description: error.message, variant: "destructive" });
-        } else {
-          toast({ title: "Cliente atualizado!" });
-          setCachedData(null); // Limpa cache para forçar refresh
-          fetchClients();
+          return;
         }
+        if (field === 'etiquetas') {
+          const patch = (list) => (list || []).map((client) => (client.id === clientId ? { ...client, etiquetas: stored } : client));
+          setClients(patch);
+          setCachedData((prev) => (prev ? { ...prev, clients: patch(prev.clients) } : prev));
+          return;
+        }
+        toast({ title: "Cliente atualizado!" });
+        setCachedData(null);
+        fetchClients();
       };
 
       const handleOpenForm = (client = null) => {
         if (client) {
-          navigate(`/clients/${client.id}`);
+          const params = new URLSearchParams(searchParams);
+          params.set('editar', client.id);
+          setSearchParams(params);
         } else {
           navigate('/clients/new');
         }
       };
+
+      const handleOpenHub = (client) => {
+        if (client?.id) navigate(`/clients/${client.id}`);
+      };
       
       const handleCloseForm = () => {
-        navigate('/clients');
+        if (pendingCsCreate.current) return;
+        if (fromCsPortfolio) navigate({ pathname: '/cs-ia/carteira', search: csPortfolioSearch }, { replace: true });
+        else if (isNewForm) navigate('/clients');
+        else closeEditParam();
       };
 
       const handleOpenProgress = (client) => {
@@ -227,15 +334,76 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
           const etapaMatch = etapaFilter === 'all' || client.etapa === etapaFilter;
           const etiquetaMatch = etiquetaFilter.length === 0 || etiquetaFilter.every(tag => client.etiquetas?.includes(tag));
           
-          // Busca por nome da empresa, nome do contato ou email
-          const searchMatch = searchTerm === '' || 
-            (client.empresa?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             client.nome_contato?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             client.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+          const searchMatch = matchesClientSearch(client, searchTerm);
+
+          const carteiraMatch = clientMatchesCarteiraFocus(client, carteiraFocus, { atRiskIds });
           
-          return etapaMatch && etiquetaMatch && searchMatch;
+          return etapaMatch && etiquetaMatch && searchMatch && carteiraMatch;
         });
-      }, [clients, etapaFilter, etiquetaFilter, searchTerm]);
+      }, [clients, etapaFilter, etiquetaFilter, searchTerm, carteiraFocus, atRiskIds]);
+
+      const clientsForPipelineCounts = useMemo(() => {
+        return clients.filter((client) => {
+          const etiquetaMatch =
+            etiquetaFilter.length === 0 ||
+            etiquetaFilter.every((tag) => client.etiquetas?.includes(tag));
+          const searchMatch = matchesClientSearch(client, searchTerm);
+          return etiquetaMatch && searchMatch;
+        });
+      }, [clients, etiquetaFilter, searchTerm]);
+
+      const pipelineCounts = useMemo(() => {
+        const counts = { all: clientsForPipelineCounts.length };
+        ETAPAS.forEach((e) => {
+          counts[e.value] = clientsForPipelineCounts.filter((c) => c.etapa === e.value).length;
+        });
+        return counts;
+      }, [clientsForPipelineCounts]);
+
+      const sortedFilteredClients = useMemo(() => {
+        const list = [...filteredClients];
+        list.sort((a, b) => {
+          if (carteiraFocus === 'risco') {
+            const sa = pulseById.get(a.id)?.score ?? 101;
+            const sb = pulseById.get(b.id)?.score ?? 101;
+            if (sa !== sb) return sa - sb;
+          }
+          if (sortBy === 'valor') {
+            return (parseFloat(b.valor) || 0) - (parseFloat(a.valor) || 0);
+          }
+          if (sortBy === 'vencimento') {
+            if (!a.vencimento) return 1;
+            if (!b.vencimento) return -1;
+            return new Date(a.vencimento) - new Date(b.vencimento);
+          }
+          if (sortBy === 'created_at') {
+            return new Date(b.created_at) - new Date(a.created_at);
+          }
+          return (a.empresa || '').localeCompare(b.empresa || '', 'pt-BR');
+        });
+        return list;
+      }, [filteredClients, sortBy, carteiraFocus, pulseById]);
+
+      const clientsForKanban = useMemo(() => {
+        return clients.filter((client) => {
+          const etiquetaMatch =
+            etiquetaFilter.length === 0 ||
+            etiquetaFilter.every((tag) => client.etiquetas?.includes(tag));
+          const searchMatch = matchesClientSearch(client, searchTerm);
+          const carteiraMatch = clientMatchesCarteiraFocus(client, carteiraFocus, { atRiskIds });
+          return etiquetaMatch && searchMatch && carteiraMatch;
+        });
+      }, [clients, etiquetaFilter, searchTerm, carteiraFocus, atRiskIds]);
+
+      const hasActiveFilters =
+        etapaFilter !== 'all' || etiquetaFilter.length > 0 || searchTerm.trim() !== '' || carteiraFocus !== 'all';
+
+      const clearFilters = () => {
+        setEtapaFilter('all');
+        setEtiquetaFilter([]);
+        setSearchTerm('');
+        setCarteiraFocus('all');
+      };
 
       const escapeCsv = (value) => {
         if (value === null || value === undefined) return '';
@@ -269,6 +437,9 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
           'Contato',
           'Email',
           'Telefone',
+          'CNPJ/CPF',
+          'Cidade',
+          'Estado',
           'Etapa',
           'Etiquetas',
           'Valor',
@@ -284,6 +455,9 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
           client.nome_contato,
           client.email,
           client.telefone,
+          client.cnpj_cpf,
+          client.cidade,
+          client.estado,
           client.etapa,
           Array.isArray(client.etiquetas) ? client.etiquetas.join(' | ') : '',
           client.valor,
@@ -315,144 +489,264 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
         });
       };
 
-      // Calcula estatísticas dos clientes filtrados (apenas para super admin)
-      const stats = useMemo(() => {
-        if (userRole !== 'superadmin') {
-          return { totalValue: 0, ativos: 0, perdidos: 0, negociacao: 0 };
-        }
-        
-        const totalValue = filteredClients.reduce((sum, client) => {
-          const valor = parseFloat(client.valor) || 0;
-          return sum + valor;
-        }, 0);
-        
-        const ativos = filteredClients.filter(c => c.etapa === 'closed').length;
-        const perdidos = filteredClients.filter(c => c.etapa === 'lost').length;
-        const negociacao = filteredClients.filter(c => c.etapa === 'negotiation').length;
-        
-        return { totalValue, ativos, perdidos, negociacao };
-      }, [filteredClients, userRole]);
+      const carteira = useMemo(
+        () => computeCarteiraKpis(clients, { atRiskIds }),
+        [clients, atRiskIds]
+      );
 
-      const isFormOpen = !!clientIdFromUrl;
+      const isFormOpen = isNewForm || isEditForm;
 
       return (
-        <div className="space-y-6">
-          <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Gestão de Clientes</h1>
-            <div className="flex items-center gap-2">
-              {(userRole === 'superadmin' || userRole === 'admin') && (
-                <Button onClick={() => handleOpenForm()} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
-                  <Plus size={16} className="mr-2" />Novo Cliente
+        <div className="planeje-clients">
+          <Helmet>
+            <title>Clientes — Planeje</title>
+          </Helmet>
+
+          <WorkspacePageHeader
+            title={viewMode === 'overview' ? 'Visão geral da carteira' : 'Gestão de clientes'}
+            label="Clientes"
+            help={viewMode === 'overview'
+              ? 'Acompanhe contratos ativos, receita, risco, vencimentos, entrada e perda de clientes. Use os modos ao lado para abrir a operação em lista ou Kanban.'
+              : `${filteredClients.length} ${filteredClients.length === 1 ? 'cliente encontrado' : 'clientes encontrados'}. Use a busca, os filtros e os modos de visualização para organizar a carteira.`}
+            actions={<>
+              <div className="flex h-9 items-center rounded-xl bg-slate-100 p-0.5 dark:bg-white/[0.05]" role="group" aria-label="Modo de visualização dos clientes">
+                {[
+                  ['overview', PieChart, 'Visão geral'],
+                  ['list', List, 'Lista'],
+                  ['kanban', Kanban, 'Kanban'],
+                ].map(([mode, Icon, label]) => (
+                  <Button key={mode} type="button" variant={viewMode === mode ? 'secondary' : 'ghost'} size="icon" className="h-8 w-8 rounded-lg" onClick={() => setViewModePersist(mode)} aria-label={label} title={label}><Icon className="h-4 w-4" /></Button>
+                ))}
+              </div>
+              {canManageClients && <Button type="button" size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={() => handleOpenForm()}><Plus className="mr-1.5 h-3.5 w-3.5" />Novo cliente</Button>}
+            </>}
+          />
+
+          <div className="planeje-clients-stats">
+            <button
+              type="button"
+              className={`planeje-clients-stat planeje-clients-stat--active${carteiraFocus === 'ativos' ? ' is-active' : ''}`}
+              onClick={() => toggleCarteiraFocus('ativos')}
+            >
+              <p className="planeje-clients-stat-label">Ativos</p>
+              <p className="planeje-clients-stat-value">{carteira.ativos}</p>
+              <p className="planeje-clients-stat-sub">{carteira.novos ? `${carteira.novos} novo${carteira.novos > 1 ? 's' : ''} no mês` : 'Contratos fechados'}</p>
+            </button>
+            {canViewField('valor') && (
+              <button
+                type="button"
+                className={`planeje-clients-stat planeje-clients-stat--value${carteiraFocus === 'ativos' ? ' is-active' : ''}`}
+                onClick={() => toggleCarteiraFocus('ativos')}
+              >
+                <p className="planeje-clients-stat-label">MRR</p>
+                <p className="planeje-clients-stat-value text-lg md:text-2xl">{formatCompactMoney(carteira.mrr)}</p>
+                <p className="planeje-clients-stat-sub">Receita dos ativos</p>
+              </button>
+            )}
+            {canViewField('valor') && (
+              <div className="planeje-clients-stat planeje-clients-stat--ticket">
+                <p className="planeje-clients-stat-label">Ticket médio</p>
+                <p className="planeje-clients-stat-value text-lg md:text-2xl">{formatCompactMoney(carteira.ticket)}</p>
+                <p className="planeje-clients-stat-sub">Por cliente ativo</p>
+              </div>
+            )}
+            <button
+              type="button"
+              className={`planeje-clients-stat planeje-clients-stat--risk${carteiraFocus === 'risco' ? ' is-active' : ''}`}
+              onClick={() => toggleCarteiraFocus('risco')}
+            >
+              <p className="planeje-clients-stat-label">Em risco</p>
+              <p className="planeje-clients-stat-value">{pulse.loading ? '—' : carteira.risco}</p>
+              <p className="planeje-clients-stat-sub">Cobertura, atraso ou inbox</p>
+            </button>
+            {canViewField('vencimento') && (
+              <button
+                type="button"
+                className={`planeje-clients-stat planeje-clients-stat--due${carteiraFocus === 'vencendo' ? ' is-active' : ''}`}
+                onClick={() => toggleCarteiraFocus('vencendo')}
+              >
+                <p className="planeje-clients-stat-label">Vencendo</p>
+                <p className="planeje-clients-stat-value">{carteira.vencendo}</p>
+                <p className="planeje-clients-stat-sub">Próximos 30 dias</p>
+              </button>
+            )}
+            {canViewField('vencimento') && (
+              <button
+                type="button"
+                className={`planeje-clients-stat planeje-clients-stat--overdue${carteiraFocus === 'vencidos' ? ' is-active' : ''}`}
+                onClick={() => toggleCarteiraFocus('vencidos')}
+              >
+                <p className="planeje-clients-stat-label">Vencidos</p>
+                <p className="planeje-clients-stat-value">{carteira.vencidos}</p>
+                <p className="planeje-clients-stat-sub">Contrato atrasado</p>
+              </button>
+            )}
+          </div>
+
+          {viewMode !== 'overview' && (
+          <div className="planeje-clients-toolbar">
+            <div className="planeje-clients-search">
+              <Search className="planeje-clients-search-icon w-4 h-4" />
+              <input
+                type="search"
+                placeholder="Buscar por empresa, contato, cidade ou UF…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="planeje-clients-toolbar-actions">
+              {viewMode !== 'overview' && (
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-[160px] h-[42px]">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+                  <SelectValue placeholder="Ordenar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="empresa">Nome A–Z</SelectItem>
+                  <SelectItem value="valor">Maior valor</SelectItem>
+                  <SelectItem value="vencimento">Vencimento</SelectItem>
+                  <SelectItem value="created_at">Mais recentes</SelectItem>
+                </SelectContent>
+              </Select>
+              )}
+              {viewMode !== 'overview' && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-[42px]">
+                    Etiquetas {etiquetaFilter.length > 0 && `(${etiquetaFilter.length})`}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[240px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar etiquetas…" />
+                    <CommandEmpty>Nenhuma etiqueta.</CommandEmpty>
+                    <CommandGroup>
+                      {etiquetaCatalog.map((option) => {
+                        const selected = etiquetaFilter.includes(option.chave);
+                        return (
+                          <CommandItem
+                            key={option.chave}
+                            value={option.nome}
+                            onSelect={() => {
+                              setEtiquetaFilter((prev) =>
+                                prev.includes(option.chave)
+                                  ? prev.filter((value) => value !== option.chave)
+                                  : [...prev, option.chave]
+                              );
+                            }}
+                          >
+                            <EtiquetaDot chave={option.chave} catalog={etiquetaCatalog} />
+                            <span className="min-w-0 flex-1 truncate">{option.nome}</span>
+                            {selected && <Check className="h-3.5 w-3.5 text-primary" />}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </Command>
+                  <EtiquetaCreateRow onCreate={async (nome) => {
+                    const created = await createEtiqueta(nome);
+                    if (created) setEtiquetaFilter((prev) => (prev.includes(created.chave) ? prev : [...prev, created.chave]));
+                    return created;
+                  }} />
+                </PopoverContent>
+              </Popover>
+              )}
+              {hasActiveFilters && (
+                <Button variant="outline" className="h-[42px]" onClick={clearFilters}>
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Limpar
                 </Button>
               )}
-              <div className="flex items-center rounded-md bg-gray-200 dark:bg-gray-700 p-1">
-                <Button size="sm" variant={viewMode === 'list' ? 'primary' : 'ghost'} onClick={() => setViewMode('list')} className={`px-3 py-1 h-auto ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                  <List size={16} />
-                </Button>
-                <Button size="sm" variant={viewMode === 'cards' ? 'primary' : 'ghost'} onClick={() => setViewMode('cards')} className={`px-3 py-1 h-auto ${viewMode === 'cards' ? 'bg-white dark:bg-gray-600 shadow-sm' : ''}`}>
-                  <LayoutGrid size={16} />
-                </Button>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
-                <Input
-                  type="search"
-                  placeholder="Buscar cliente..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400"
-                />
-              </div>
+              <Button variant="outline" className="h-[42px]" onClick={exportClientsToCsv}>
+                <Download size={16} className="mr-2" />
+                CSV
+              </Button>
             </div>
           </div>
-
-          {userRole === 'superadmin' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-sm p-4 text-white">
-                <p className="text-sm opacity-90">Valor Total Mensal</p>
-                <p className="text-2xl font-bold">
-                  R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs opacity-75 mt-1">
-                  {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'} {filteredClients.length !== clients.length && `(de ${clients.length} total)`}
-                </p>
-              </div>
-              
-              <div className="bg-gradient-to-r from-blue-500 to-cyan-600 rounded-lg shadow-sm p-4 text-white">
-                <p className="text-sm opacity-90">Clientes Ativos</p>
-                <p className="text-2xl font-bold">{stats.ativos}</p>
-                <p className="text-xs opacity-75 mt-1">Fechados</p>
-              </div>
-              
-              <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-lg shadow-sm p-4 text-white">
-                <p className="text-sm opacity-90">Em Negociação</p>
-                <p className="text-2xl font-bold">{stats.negociacao}</p>
-                <p className="text-xs opacity-75 mt-1">Em andamento</p>
-              </div>
-              
-              <div className="bg-gradient-to-r from-red-500 to-rose-600 rounded-lg shadow-sm p-4 text-white">
-                <p className="text-sm opacity-90">Clientes Perdidos</p>
-                <p className="text-2xl font-bold">{stats.perdidos}</p>
-                <p className="text-xs opacity-75 mt-1">Não fechados</p>
-              </div>
-            </div>
           )}
 
-          <div className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-            <Filter className="text-gray-500 dark:text-gray-400" />
-            <Select value={etapaFilter} onValueChange={setEtapaFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por etapa" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Etapas</SelectItem>
-                {ETAPAS.map(e => <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-[180px] justify-start">
-                  Etiquetas {etiquetaFilter.length > 0 && `(${etiquetaFilter.length})`}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[200px] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Buscar etiquetas..." />
-                  <CommandEmpty>Nenhuma etiqueta encontrada.</CommandEmpty>
-                  <CommandGroup>
-                    {ETIQUETAS.map(option => (
-                      <CommandItem key={option.value} onSelect={() => {
-                        setEtiquetaFilter(prev => prev.includes(option.value) ? prev.filter(v => v !== option.value) : [...prev, option.value]);
-                      }}>
-                        <div className={`mr-2 h-2 w-2 rounded-full ${option.color}`} />
-                        <span>{option.label}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <Button variant="outline" onClick={exportClientsToCsv}>
-              <Download size={16} className="mr-2" />Exportar CSV
-            </Button>
+          {viewMode !== 'kanban' && viewMode !== 'overview' && (
+          <div className="planeje-clients-pipeline">
+            <button
+              type="button"
+              className={`planeje-clients-pipeline-chip${etapaFilter === 'all' ? ' is-active' : ''}`}
+              onClick={() => setEtapaFilter('all')}
+            >
+              Todos
+              <span className="planeje-clients-pipeline-count">{pipelineCounts.all}</span>
+            </button>
+            {ETAPAS.map((etapa) => (
+              <button
+                key={etapa.value}
+                type="button"
+                className={`planeje-clients-pipeline-chip${etapaFilter === etapa.value ? ' is-active' : ''}`}
+                onClick={() => setEtapaFilter(etapa.value)}
+              >
+                <span className={`planeje-clients-pipeline-dot ${etapa.color}`} />
+                {etapa.label}
+                <span className="planeje-clients-pipeline-count">{pipelineCounts[etapa.value] || 0}</span>
+              </button>
+            ))}
           </div>
+          )}
 
           <div key={viewMode}>
-            {loading || authLoading ? <p className="text-center py-10 text-gray-700 dark:text-gray-300">Carregando clientes...</p> : 
-             filteredClients.length === 0 ? (
-              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                <UsersIcon className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={48} />
-                <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-300 mb-2">Nenhum cliente encontrado</h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-6">{userRole === 'colaborador' ? 'Você ainda não é responsável por nenhum cliente.' : 'Tente ajustar os filtros ou adicione um novo cliente.'}</p>
+            {loading || authLoading ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="planeje-clients-skeleton" />
+                ))}
               </div>
-             ) :
-             viewMode === 'list' ? (
-              <ClientesLista 
-                clients={filteredClients}
+            ) : viewMode === 'overview' ? (
+              <ClientesVisaoGeral
+                clients={clients}
                 users={users}
-                onEdit={handleOpenForm} 
+                pulse={pulse}
+                canViewField={canViewField}
+                onOpenClient={handleOpenHub}
+                onFilterSearch={(term) => {
+                  setSearchTerm(term || '');
+                  setViewModePersist('list');
+                }}
+              />
+            ) : (viewMode === 'kanban' ? clientsForKanban : sortedFilteredClients).length === 0 ? (
+              <div className="planeje-clients-empty">
+                <div className="planeje-clients-empty-icon">
+                  <UsersIcon className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Nenhum cliente encontrado</h3>
+                <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
+                  {userRole === 'colaborador'
+                    ? 'Você ainda não é responsável por nenhum cliente.'
+                    : 'Ajuste os filtros ou cadastre um novo cliente.'}
+                </p>
+                {canManageClients && (
+                  <Button className="mt-4 jb-gradient-bg text-white border-0" onClick={() => handleOpenForm()}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Novo cliente
+                  </Button>
+                )}
+              </div>
+            ) : viewMode === 'kanban' ? (
+              <ClientesKanban
+                clients={clientsForKanban}
+                onOpen={handleOpenHub}
+                onEdit={handleOpenForm}
+                onUpdateField={handleUpdateClientField}
+                onProgress={handleOpenProgress}
+                onOpenDocument={handleOpenDocument}
+                onOpenUserManager={handleOpenUserManager}
+                fetchClients={fetchClients}
+                userRole={userRole}
+                pulseById={pulseById}
+                etiquetaCatalog={etiquetaCatalog}
+              />
+            ) : (
+              <ClientesLista
+                clients={sortedFilteredClients}
+                users={users}
+                onOpen={handleOpenHub}
+                onEdit={handleOpenForm}
                 onUpdateField={handleUpdateClientField}
                 onAddClient={() => handleOpenForm()}
                 onOpenDocument={handleOpenDocument}
@@ -461,22 +755,16 @@ import ClientUserManager from '@/components/admin/ClientUserManager';
                 setSelectedClients={setSelectedClients}
                 fetchClients={fetchClients}
                 userRole={userRole}
-              />
-            ) : (
-              <ClientesCards 
-                clients={filteredClients} 
-                onEdit={handleOpenForm} 
-                onProgress={handleOpenProgress}
-                onOpenDocument={handleOpenDocument}
-                onOpenUserManager={handleOpenUserManager}
-                fetchClients={fetchClients}
-                userRole={userRole}
+                pulseById={pulseById}
+                etiquetaCatalog={etiquetaCatalog}
+                onCreateEtiqueta={createEtiqueta}
               />
             )}
           </div>
 
           <AnimatePresence>
-            {isFormOpen && <ClientForm client={editingClient} users={users} onSave={handleSaveClient} onClose={handleCloseForm} />}
+            {isFormOpen && <ClientForm client={editingClient} users={users} etiquetaCatalog={etiquetaCatalog} onCreateEtiqueta={createEtiqueta}
+              onSave={handleSaveClient} onClose={handleCloseForm} initialStage={fromCsPortfolio ? 'closed' : undefined} />}
           </AnimatePresence>
           <AnimatePresence>
             {showProgress && selectedClientForProgress && <ClientProgress client={selectedClientForProgress} onClose={() => { setShowProgress(false); setSelectedClientForProgress(null); }} />}

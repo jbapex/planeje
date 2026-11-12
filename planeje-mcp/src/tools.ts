@@ -1,3 +1,8 @@
+import { installToolAuthorization } from './toolAuthorization.js';
+import { registerResearchTools } from './researchTools.js';
+import { loadClientesLista } from './clienteDossie.js';
+import { registerMetaTrafficTools } from './metaTrafficTools.js';
+import { requireTraffic, ymd } from './metaTraffic.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
@@ -6,6 +11,18 @@ import {
   introspectColumns,
   pickExistingColumns,
 } from './introspect.js';
+import { registerAtendimentoTools } from './atendimentoTools.js';
+import { registerHubTools } from './hubTools.js';
+import { registerMetaTools } from './metaTools.js';
+import { computeCoberturaFromRows, monthBounds } from './coberturaMensal.js';
+import {
+  emptyRespostas,
+  mergeRespostas,
+  newBriefingToken,
+  normalizePerguntasInput,
+  publicBriefingUrl,
+  validatePerguntas,
+} from './briefingCliente.js';
 
 function jsonText(data: unknown) {
   return {
@@ -142,11 +159,696 @@ const solicitacaoStatusSchema = z
 
 const membroStatusSchema = z.enum(['ativo', 'inativo']).optional();
 
+const EQUIPE_ROLES = ['admin', 'colaborador', 'superadmin'] as const;
+
+export type PlanejeToolsActor =
+  | { type: 'user'; user_id: string; role: string }
+  | { type: 'admin_key' }
+  | { type: 'anon' };
+
+/** Data civil de hoje em America/Sao_Paulo (YYYY-MM-DD). */
+function todayYmdSaoPaulo(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+}
+
+/** Dias de atraso: 0 se due_date >= hoje; null se sem data. */
+function diasAtraso(dueDate: unknown, today = todayYmdSaoPaulo()): number | null {
+  if (typeof dueDate !== 'string' || !dueDate.trim()) return null;
+  const d = dueDate.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  if (d >= today) return 0;
+  const t0 = Date.parse(`${d}T12:00:00Z`);
+  const t1 = Date.parse(`${today}T12:00:00Z`);
+  if (Number.isNaN(t0) || Number.isNaN(t1)) return null;
+  return Math.max(0, Math.round((t1 - t0) / 86_400_000));
+}
+
+function briefingFilaFromClienteStatus(status: unknown): string {
+  const s = String(status ?? 'rascunho').toLowerCase();
+  if (s === 'enviado') return 'aguardando_cliente';
+  if (s === 'completo') return 'completo';
+  return 'aguardando_equipe';
+}
+
+async function loadEmpresaByClientIds(
+  supabase: SupabaseClient,
+  clientIds: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const ids = [...new Set(clientIds.filter(Boolean))];
+  if (ids.length === 0) return map;
+  const { data } = await supabase.from('clientes').select('id,empresa').in('id', ids);
+  for (const c of data ?? []) {
+    const rec = c as { id?: string; empresa?: string | null };
+    if (rec.id) map.set(rec.id, rec.empresa ?? '');
+  }
+  return map;
+}
+
+async function loadPeopleByIds(
+  supabase: SupabaseClient,
+  columns: TableColumnMap,
+  ids: string[]
+): Promise<Map<string, { id: string; full_name: string; role: string | null }>> {
+  const map = new Map<string, { id: string; full_name: string; role: string | null }>();
+  const uniq = [...new Set(ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+  if (uniq.length === 0) return map;
+
+  const profileCols = pickExistingColumns('profiles', columns, ['id', 'full_name', 'role', 'nome', 'name']);
+  if (profileCols.includes('id')) {
+    const selectStr = profileCols.join(',');
+    const { data } = await supabase.from('profiles').select(selectStr).in('id', uniq);
+    for (const p of data ?? []) {
+      const rec = p as unknown as Record<string, unknown>;
+      const id = String(rec.id ?? '');
+      if (!id) continue;
+      const full_name = String(rec.full_name ?? rec.nome ?? rec.name ?? id);
+      const role = typeof rec.role === 'string' ? rec.role : null;
+      map.set(id, { id, full_name, role });
+    }
+  }
+
+  const missing = uniq.filter((id) => !map.has(id));
+  const teamCols = columns.team_members ?? [];
+  if (missing.length && teamCols.length) {
+    const idCol = teamCols.includes('id') ? 'id' : teamCols.includes('user_id') ? 'user_id' : 'id';
+    const namePick = pickExistingColumns('team_members', columns, ['full_name', 'nome', 'name']);
+    const nameCol = namePick[0] ?? 'full_name';
+    const { data } = await supabase.from('team_members').select('*').in(idCol, missing);
+    for (const m of data ?? []) {
+      const rec = m as Record<string, unknown>;
+      const id = String(rec[idCol] ?? '');
+      if (!id || map.has(id)) continue;
+      map.set(id, {
+        id,
+        full_name: String(rec[nameCol] ?? id),
+        role: typeof rec.role === 'string' ? rec.role : null,
+      });
+    }
+  }
+
+  return map;
+}
+
+async function enrichTarefasRows(
+  supabase: SupabaseClient,
+  columns: TableColumnMap,
+  rows: Record<string, unknown>[],
+  today = todayYmdSaoPaulo()
+): Promise<Record<string, unknown>[]> {
+  const clientIds = rows
+    .map((r) => (typeof r.client_id === 'string' ? r.client_id : ''))
+    .filter(Boolean);
+  const assigneeIds: string[] = [];
+  for (const r of rows) {
+    const aids = r.assignee_ids;
+    if (Array.isArray(aids)) {
+      for (const a of aids) if (typeof a === 'string') assigneeIds.push(a);
+    }
+    if (typeof r.owner_id === 'string') assigneeIds.push(r.owner_id);
+  }
+
+  const [empresas, people] = await Promise.all([
+    loadEmpresaByClientIds(supabase, clientIds),
+    loadPeopleByIds(supabase, columns, assigneeIds),
+  ]);
+
+  return rows.map((r) => {
+    const aids = Array.isArray(r.assignee_ids)
+      ? r.assignee_ids.filter((x): x is string => typeof x === 'string')
+      : [];
+    const assignee_names = aids.map((id) => people.get(id)?.full_name ?? id);
+    const clientId = typeof r.client_id === 'string' ? r.client_id : null;
+    return {
+      ...r,
+      empresa: clientId ? (empresas.get(clientId) ?? null) : null,
+      assignee_names,
+      dias_atraso: diasAtraso(r.due_date, today),
+    };
+  });
+}
+
+/** Briefing de cliente (`cliente_briefings`) — registrado primeiro para o ChatGPT não descartar no limite de tools. */
+function registerBriefingClienteTools(
+  mcp: McpServer,
+  supabase: SupabaseClient,
+  columns: TableColumnMap,
+  actor?: PlanejeToolsActor
+): void {
+  mcp.registerTool(
+    'listar_briefings',
+    {
+      title: 'Listar briefings de cliente',
+      description:
+        'Lista questionários em cliente_briefings (aba Briefing do cadastro). Não é briefing de tarefa. Fila: aguardando_equipe (rascunho), aguardando_cliente (enviado), completo.',
+      inputSchema: z.object({
+        fila: z.enum(['aguardando_equipe', 'aguardando_cliente', 'completo', 'todos']).optional(),
+        cliente_id: z.string().optional(),
+        limite: z.number().int().positive().max(300).optional(),
+      }),
+    },
+    async ({ fila, cliente_id, limite }) => {
+      try {
+        const n = limite ?? 100;
+        const filtroFila = fila ?? 'todos';
+        const statusMap: Record<string, string | null> = {
+          aguardando_equipe: 'rascunho',
+          aguardando_cliente: 'enviado',
+          completo: 'completo',
+          todos: null,
+        };
+        const statusDb = statusMap[filtroFila];
+
+        let q = supabase
+          .from('cliente_briefings')
+          .select('id, cliente_id, owner_id, status, titulo, token, perguntas, created_at, updated_at, clientes(empresa)')
+          .order('updated_at', { ascending: false })
+          .limit(n);
+        if (cliente_id) q = q.eq('cliente_id', cliente_id);
+        if (statusDb) q = q.eq('status', statusDb);
+
+        const { data, error } = await q;
+        if (error) throw new Error(`Supabase (listar_briefings): ${error.message}`);
+
+        const ownerIds = (data ?? [])
+          .map((b) => (b as { owner_id?: string }).owner_id)
+          .filter((id): id is string => typeof id === 'string');
+        const people = await loadPeopleByIds(supabase, columns, ownerIds);
+
+        const briefings = (data ?? []).map((raw) => {
+          const b = raw as Record<string, unknown>;
+          const status = b.status;
+          const ownerId = typeof b.owner_id === 'string' ? b.owner_id : null;
+          const clientes = b.clientes as { empresa?: string } | null;
+          return {
+            id: b.id,
+            cliente_id: b.cliente_id,
+            empresa: clientes?.empresa ?? null,
+            titulo: b.titulo,
+            status,
+            fila: briefingFilaFromClienteStatus(status),
+            token: b.token,
+            link_publico: typeof b.token === 'string' ? publicBriefingUrl(b.token) : null,
+            qtd_perguntas: Array.isArray(b.perguntas) ? b.perguntas.length : 0,
+            owner_id: ownerId,
+            owner_name: ownerId ? (people.get(ownerId)?.full_name ?? null) : null,
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+          };
+        });
+
+        const contagem = {
+          aguardando_equipe: briefings.filter((b) => b.fila === 'aguardando_equipe').length,
+          aguardando_cliente: briefings.filter((b) => b.fila === 'aguardando_cliente').length,
+          completo: briefings.filter((b) => b.fila === 'completo').length,
+        };
+
+        return jsonText({
+          filtro_fila: filtroFila,
+          total: briefings.length,
+          contagem,
+          mapa_status: {
+            rascunho: 'aguardando_equipe',
+            enviado: 'aguardando_cliente',
+            completo: 'completo',
+          },
+          briefings,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'criar_briefing',
+    {
+      title: 'Criar briefing do cliente',
+      description:
+        'Cria o questionário na aba Briefing do cadastro (cliente_briefings). NÃO cria tarefa. cliente_id obrigatório. Sem perguntas_json usa o modelo padrão de 12 perguntas. status inicial rascunho. Devolve link /#/b/{token}.',
+      inputSchema: z.object({
+        cliente_id: z.string().min(1).describe('UUID do cliente'),
+        titulo: z.string().optional(),
+        perguntas_json: z
+          .string()
+          .optional()
+          .describe('JSON opcional: array de {texto, categoria?, tipo?}. Vazio = 12 perguntas padrão.'),
+        owner_id: z.string().optional(),
+      }),
+    },
+    async ({ cliente_id, titulo, perguntas_json, owner_id }) => {
+      try {
+        const { data: cliente, error: clienteError } = await supabase
+          .from('clientes')
+          .select('id, empresa')
+          .eq('id', cliente_id)
+          .maybeSingle();
+        if (clienteError) throw new Error(`Supabase (criar_briefing): ${clienteError.message}`);
+        if (!cliente) throw new Error('criar_briefing: cliente_id não encontrado.');
+
+        let perguntasRaw: unknown;
+        if (perguntas_json?.trim()) {
+          try {
+            perguntasRaw = JSON.parse(perguntas_json);
+          } catch {
+            throw new Error('criar_briefing: perguntas_json não é um JSON válido.');
+          }
+        }
+        const perguntasNorm = normalizePerguntasInput(perguntasRaw);
+        const valid = validatePerguntas(perguntasNorm);
+        if (!valid.ok) throw new Error(`criar_briefing: ${valid.reason ?? 'perguntas inválidas'}`);
+
+        const ownerId =
+          owner_id
+          ?? (actor?.type === 'user' ? actor.user_id : null)
+          ?? JOSIAS_USER_ID;
+        const token = newBriefingToken();
+        const base: Record<string, unknown> = {
+          cliente_id,
+          owner_id: ownerId,
+          titulo: (titulo ?? 'Briefing').trim() || 'Briefing',
+          status: 'rascunho',
+          perguntas: perguntasNorm,
+          respostas: emptyRespostas(perguntasNorm),
+          token,
+        };
+        const row = buildInsertRow(columns, 'cliente_briefings', base);
+        const { data, error } = await supabase
+          .from('cliente_briefings')
+          .insert(row)
+          .select()
+          .single();
+        if (error) throw new Error(`Supabase (criar_briefing): ${error.message}`);
+
+        return jsonText({
+          briefing: data,
+          empresa: cliente.empresa ?? null,
+          fila: 'aguardando_equipe',
+          personalizado: Boolean(perguntasRaw),
+          qtd_perguntas: perguntasNorm.length,
+          link_publico: publicBriefingUrl(token),
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'atualizar_briefing',
+    {
+      title: 'Atualizar briefing do cliente',
+      description:
+        'Atualiza um briefing em cliente_briefings (não é tarefa). id obrigatório. status: rascunho|enviado|completo. perguntas_json substitui o questionário; respostas_json só das perguntas atuais.',
+      inputSchema: z.object({
+        id: z.string().min(1).describe('UUID do briefing'),
+        titulo: z.string().optional(),
+        perguntas_json: z.string().optional().describe('JSON array de {texto, categoria?, tipo?}'),
+        respostas_json: z.string().optional().describe('JSON objeto id_pergunta → resposta'),
+        status: z.enum(['rascunho', 'enviado', 'completo']).optional(),
+      }),
+    },
+    async ({ id, titulo, perguntas_json, respostas_json, status }) => {
+      try {
+        const { data: atual, error: loadError } = await supabase
+          .from('cliente_briefings')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+        if (loadError) throw new Error(`Supabase (atualizar_briefing): ${loadError.message}`);
+        if (!atual) throw new Error('atualizar_briefing: briefing não encontrado.');
+
+        let perguntasIncoming: unknown;
+        if (perguntas_json?.trim()) {
+          try {
+            perguntasIncoming = JSON.parse(perguntas_json);
+          } catch {
+            throw new Error('atualizar_briefing: perguntas_json não é um JSON válido.');
+          }
+        }
+        let respostasIncoming: Record<string, unknown> | null = null;
+        if (respostas_json?.trim()) {
+          try {
+            const parsed = JSON.parse(respostas_json);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              throw new Error('atualizar_briefing: respostas_json deve ser um objeto JSON.');
+            }
+            respostasIncoming = parsed as Record<string, unknown>;
+          } catch (e) {
+            if (e instanceof Error && e.message.startsWith('atualizar_briefing:')) throw e;
+            throw new Error('atualizar_briefing: respostas_json não é um JSON válido.');
+          }
+        }
+
+        const perguntasNorm = perguntasIncoming
+          ? normalizePerguntasInput(perguntasIncoming)
+          : normalizePerguntasInput(atual.perguntas);
+        const valid = validatePerguntas(perguntasNorm);
+        if (!valid.ok) throw new Error(`atualizar_briefing: ${valid.reason ?? 'perguntas inválidas'}`);
+
+        const patch: Record<string, unknown> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (titulo !== undefined) patch.titulo = titulo.trim() || 'Briefing';
+        if (status !== undefined) patch.status = status;
+        if (perguntasIncoming) patch.perguntas = perguntasNorm;
+        if (perguntasIncoming || respostasIncoming) {
+          patch.respostas = mergeRespostas(
+            perguntasNorm,
+            (respostasIncoming ?? (atual.respostas as Record<string, unknown> | null)) as Record<string, unknown>
+          );
+        }
+
+        const row = buildInsertRow(columns, 'cliente_briefings', patch);
+        const { data, error } = await supabase
+          .from('cliente_briefings')
+          .update(row)
+          .eq('id', id)
+          .select()
+          .single();
+        if (error) throw new Error(`Supabase (atualizar_briefing): ${error.message}`);
+
+        const token = typeof data?.token === 'string' ? data.token : null;
+        return jsonText({
+          briefing: data,
+          fila: briefingFilaFromClienteStatus(data?.status),
+          qtd_perguntas: perguntasNorm.length,
+          link_publico: token ? publicBriefingUrl(token) : null,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+}
+
+/** Caixa + Caixa Dot — registrado cedo para o ChatGPT não descartar no limite de ~55 tools. */
+function registerCaixaDotTools(
+  mcp: McpServer,
+  supabase: SupabaseClient,
+  actor?: PlanejeToolsActor
+): void {
+  mcp.registerTool(
+    'listar_caixa',
+    {
+      title: 'Listar Minha caixa',
+      description:
+        'Lista as três filas da Caixa: pedidos_internos, cliente_sem_resposta e respondido_hoje. Só profile status=active entra; pending devolve vazio. Título de grupo = display_name; empresa = cliente representado (nunca JB APEX). Arquivada/expirada ficam fora do badge. Pedido explícito de cliente não some em 7 dias. Em sessão pessoal usa o autenticado; admin/superadmin pode informar pessoa_id.',
+      inputSchema: z.object({
+        pessoa_id: z.string().uuid().optional(),
+      }),
+    },
+    async ({ pessoa_id }) => {
+      try {
+        const actorId = actor?.type === 'user' ? actor.user_id : null;
+        const actorRole = actor?.type === 'user' ? actor.role : null;
+        const target = pessoa_id ?? actorId;
+
+        if (!target) {
+          throw new Error('listar_caixa: informe pessoa_id ao usar autenticação administrativa.');
+        }
+        if (
+          actor?.type === 'user'
+          && target !== actorId
+          && !['admin', 'superadmin'].includes(actorRole ?? '')
+        ) {
+          throw new Error('listar_caixa: colaborador só pode consultar a própria caixa.');
+        }
+
+        const { data, error } = await supabase.rpc('listar_pendencias_caixa', {
+          p_pessoa_id: target,
+        });
+        if (error) throw new Error(`Supabase (listar_caixa): ${error.message}`);
+        return jsonText(data);
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'agir_pendencia_caixa',
+    {
+      title: 'Agir em pendência da caixa',
+      description:
+        'Executa estou_nisso, feito, nao_e_comigo ou arquivar em um item da Caixa. arquivar some da fila aberta e não muda atendimento_conversas.status. feito encerra a conversa. nao_e_comigo desatribui.',
+      inputSchema: z.object({
+        id: z.string().uuid(),
+        acao: z.enum(['estou_nisso', 'feito', 'nao_e_comigo', 'arquivar']),
+        actor_id: z.string().uuid().optional(),
+      }),
+    },
+    async ({ id, acao, actor_id }) => {
+      try {
+        const sessionActorId = actor?.type === 'user' ? actor.user_id : null;
+        const effectiveActorId = sessionActorId ?? actor_id;
+        if (!effectiveActorId) {
+          throw new Error(
+            'agir_pendencia_caixa: actor_id é obrigatório ao usar autenticação administrativa.'
+          );
+        }
+        if (actor?.type === 'user' && actor_id && actor_id !== sessionActorId) {
+          throw new Error('agir_pendencia_caixa: actor_id deve ser o usuário autenticado.');
+        }
+
+        const { data, error } = await supabase.rpc('agir_pendencia_caixa', {
+          p_id: id,
+          p_acao: acao,
+          p_actor_id: effectiveActorId,
+        });
+        if (error) throw new Error(`Supabase (agir_pendencia_caixa): ${error.message}`);
+        return jsonText(data);
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'criar_demanda_caixa',
+    {
+      title: 'Criar demanda na Caixa Dot',
+      description:
+        'Cria um tópico Demanda na Minha caixa (#/caixa → Dot) para um colaborador. Informe profile_id OU nome (full_name). Campos: titulo, corpo, prioridade opcional (baixa|normal|alta), cliente_id, task_id, href. Não envia WhatsApp nem chama IA. O histórico fica no Planeje.',
+      inputSchema: z.object({
+        titulo: z.string().min(1).max(200),
+        corpo: z.string().min(1).max(8000),
+        profile_id: z.string().uuid().optional(),
+        nome: z.string().min(1).max(120).optional(),
+        prioridade: z.enum(['baixa', 'normal', 'alta']).optional(),
+        cliente_id: z.string().uuid().optional(),
+        task_id: z.string().uuid().optional(),
+        href: z.string().max(500).optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        if (!args.profile_id && !args.nome) {
+          return toolError('Informe profile_id ou nome do destinatário.');
+        }
+
+        let ownerId = args.profile_id ?? null;
+        let ownerName: string | null = null;
+        if (ownerId) {
+          const { data: person, error: personError } = await supabase
+            .from('profiles')
+            .select('id, full_name, role, status')
+            .eq('id', ownerId)
+            .maybeSingle();
+          if (personError) throw new Error(personError.message);
+          if (!person) return toolError('profile_id não encontrado.');
+          if (!['superadmin', 'admin', 'colaborador'].includes(String(person.role || ''))) {
+            return toolError('Destinatário precisa ser da equipe interna.');
+          }
+          ownerName = person.full_name || null;
+        } else {
+          const nome = String(args.nome || '').trim();
+          const { data: matches, error: matchError } = await supabase
+            .from('profiles')
+            .select('id, full_name, role, status')
+            .ilike('full_name', nome)
+            .in('role', ['superadmin', 'admin', 'colaborador'])
+            .limit(5);
+          if (matchError) throw new Error(matchError.message);
+          const rows = matches || [];
+          if (rows.length === 0) {
+            const { data: soft, error: softError } = await supabase
+              .from('profiles')
+              .select('id, full_name, role, status')
+              .ilike('full_name', `%${nome}%`)
+              .in('role', ['superadmin', 'admin', 'colaborador'])
+              .limit(5);
+            if (softError) throw new Error(softError.message);
+            const [person] = soft ?? [];
+            if (!person) return toolError(`Nenhuma pessoa da equipe com nome parecido com "${nome}".`);
+            if (soft.length > 1) {
+              return toolError(
+                `Várias pessoas batem com "${nome}": ${soft.map((p) => `${p.full_name} (${p.id})`).join('; ')}. Use profile_id.`
+              );
+            }
+            ownerId = person.id;
+            ownerName = person.full_name || null;
+          } else if (rows.length > 1) {
+            return toolError(
+              `Várias pessoas com esse nome: ${rows.map((p) => `${p.full_name} (${p.id})`).join('; ')}. Use profile_id.`
+            );
+          } else {
+            const [person] = rows;
+            if (!person) return toolError(`Nenhuma pessoa da equipe com nome parecido com "${nome}".`);
+            ownerId = person.id;
+            ownerName = person.full_name || null;
+          }
+        }
+
+        const actorLabel =
+          actor?.type === 'user'
+            ? actor.user_id
+            : actor?.type === 'admin_key'
+              ? 'admin_key'
+              : 'mcp';
+        const createdById = actor?.type === 'user' ? actor.user_id : null;
+        const title = String(args.titulo).replace(/\s+/g, ' ').trim();
+        const body = String(args.corpo).trim();
+        const preview = body.length > 160 ? `${body.slice(0, 159)}…` : body;
+
+        const { data: thread, error: threadError } = await supabase
+          .from('caixa_dot_threads')
+          .insert({
+            owner_id: ownerId,
+            kind: 'demanda',
+            origin: 'mcp',
+            title,
+            status: 'aberta',
+            priority: args.prioridade || 'normal',
+            cliente_id: args.cliente_id || null,
+            task_id: args.task_id || null,
+            href: args.href || null,
+            created_by_kind: 'mcp',
+            created_by_id: createdById,
+            created_by_label: actorLabel,
+            last_message_preview: preview,
+            unread_for_owner: true,
+          })
+          .select('id, owner_id, title, status, priority, created_at')
+          .single();
+        if (threadError) throw new Error(`Supabase (caixa_dot_threads): ${threadError.message}`);
+
+        const { data: message, error: messageError } = await supabase
+          .from('caixa_dot_messages')
+          .insert({
+            thread_id: thread.id,
+            role: 'system',
+            body,
+            meta: { origem: 'mcp', criado_por: actorLabel },
+            created_by_id: createdById,
+          })
+          .select('id, created_at')
+          .single();
+        if (messageError) throw new Error(`Supabase (caixa_dot_messages): ${messageError.message}`);
+
+        return jsonText({
+          thread_id: thread.id,
+          message_id: message.id,
+          owner_id: ownerId,
+          owner_name: ownerName,
+          title: thread.title,
+          status: thread.status,
+          prioridade: thread.priority,
+          rota: '/caixa',
+          nota: 'Demanda criada na Caixa Dot. Sem WhatsApp. O Dot responde no app (#/caixa), não pelo ChatGPT.',
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_demandas_caixa',
+    {
+      title: 'Listar demandas da Caixa Dot',
+      description:
+        'Lista tópicos da Caixa Dot. Colaborador vê só os próprios. Admin/superadmin/admin_key vê a equipe (filtre com profile_id). Opcionais: status, limite (padrão 50, máx 200).',
+      inputSchema: z.object({
+        profile_id: z.string().uuid().optional(),
+        status: z
+          .enum(['aberta', 'aguardando_dot', 'respondido', 'feita', 'arquivada'])
+          .optional(),
+        limite: z.number().int().positive().max(200).optional(),
+      }),
+    },
+    async ({ profile_id, status, limite }) => {
+      try {
+        const actorId = actor?.type === 'user' ? actor.user_id : null;
+        const actorRole = actor?.type === 'user' ? actor.role : null;
+        const isAdmin =
+          actor?.type === 'admin_key' || ['admin', 'superadmin'].includes(actorRole ?? '');
+        const target = profile_id ?? (isAdmin ? null : actorId);
+
+        if (!isAdmin && profile_id && profile_id !== actorId) {
+          return toolError('Colaborador só lista a própria Caixa Dot.');
+        }
+        if (!isAdmin && !actorId) {
+          return toolError('Sessão sem usuário para listar a Caixa Dot.');
+        }
+
+        let q = supabase
+          .from('caixa_dot_threads')
+          .select(
+            'id, owner_id, kind, origin, title, status, priority, cliente_id, task_id, href, created_by_kind, created_by_label, last_message_at, last_message_preview, unread_for_owner, created_at'
+          )
+          .order('last_message_at', { ascending: false })
+          .limit(limite ?? 50);
+        if (target) q = q.eq('owner_id', target);
+        if (status) q = q.eq('status', status);
+        else q = q.in('status', ['aberta', 'aguardando_dot', 'respondido']);
+
+        const { data, error } = await q;
+        if (error) throw new Error(`Supabase (listar_demandas_caixa): ${error.message}`);
+
+        const ownerIds = [...new Set((data || []).map((row) => row.owner_id))];
+        const names = new Map<string, string>();
+        if (ownerIds.length) {
+          const { data: people } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', ownerIds);
+          for (const person of people || []) {
+            names.set(person.id, person.full_name || person.id);
+          }
+        }
+
+        const demandas = (data || []).map((row) => ({
+          ...row,
+          owner_name: names.get(row.owner_id) || null,
+        }));
+
+        return jsonText({
+          total: demandas.length,
+          filtro_owner: target,
+          demandas,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+}
+
 export function registerPlanejeTools(
   mcp: McpServer,
   supabase: SupabaseClient,
-  columns: TableColumnMap
+  columns: TableColumnMap,
+  actor?: PlanejeToolsActor
 ): void {
+  installToolAuthorization(mcp, supabase, actor);
+  registerResearchTools(mcp, supabase, actor);
+  registerBriefingClienteTools(mcp, supabase, columns, actor);
+  registerCaixaDotTools(mcp, supabase, actor);
+  registerHubTools(mcp, supabase, actor);
+  registerMetaTrafficTools(mcp, supabase, actor);
+
   mcp.registerTool(
     'listar_clientes',
     {
@@ -157,10 +859,12 @@ export function registerPlanejeTools(
       }),
     },
     async ({ limite }) => {
-      const n = limite ?? 200;
-      const { data, error } = await supabase.from('clientes').select('*').limit(n);
-      if (error) return toolError(`Supabase (listar_clientes): ${error.message}`);
-      return jsonText({ total: data?.length ?? 0, clientes: data });
+      try {
+        const result = await loadClientesLista(supabase, { limite: limite ?? 200 });
+        return jsonText({ ...result, total: result.clientes.length });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
     }
   );
 
@@ -332,7 +1036,7 @@ export function registerPlanejeTools(
     {
       title: 'Listar tarefas',
       description:
-        'Lista tarefas (colunas principais). Paginação: limit padrão 20. Sem status informado, exclui concluídas (status ≠ completed). Filtros: client_id, project_id, status, responsavel_id (assignee_ids), cursor_due_date (due_date > cursor para próxima página). Ordenação: due_date ascendente. next_cursor: due_date do último item se houver página cheia, senão null.',
+        'Lista tarefas enriquecidas: empresa (nome do cliente), assignee_names, dias_atraso. Paginação: limit padrão 20. Sem status informado, exclui concluídas (status ≠ completed). Filtros: client_id, project_id, status, responsavel_id (assignee_ids), cursor_due_date (due_date > cursor). Ordenação: due_date ascendente. Use listar_status_tarefas para values canônicos; listar_tarefas_atrasadas para só atrasadas.',
       inputSchema: z.object({
         client_id: z.string().uuid().optional(),
         project_id: z.string().uuid().optional(),
@@ -347,6 +1051,7 @@ export function registerPlanejeTools(
         const n = limit ?? 20;
         const statusExplicito = status != null && String(status).trim() !== '';
         const tCols = introspectColumns('tarefas', columns);
+        const today = todayYmdSaoPaulo();
 
         const taskCols = [
           'id',
@@ -362,6 +1067,8 @@ export function registerPlanejeTools(
           'assignee_ids',
           'post_date',
           'plataforma',
+          'briefing_estado',
+          'briefing_completo',
         ];
         const selectList = pickExistingColumns('tarefas', columns, taskCols);
         const selectStr = selectList.length > 0 ? selectList.join(',') : '*';
@@ -381,21 +1088,168 @@ export function registerPlanejeTools(
         const { data, error } = await q.order('due_date', { ascending: true }).limit(n);
         if (error) throw new Error(`Supabase (listar_tarefas): ${error.message}`);
 
-        const rows = data ?? [];
+        const raw = (data ?? []) as unknown as Record<string, unknown>[];
+        const rows = await enrichTarefasRows(supabase, columns, raw, today);
         let next_cursor: string | null = null;
         if (rows.length === n && rows.length > 0) {
-          const last = rows[rows.length - 1];
-          const rec = typeof last === 'object' && last !== null ? (last as Record<string, unknown>) : null;
-          const dd = rec?.due_date;
+          const dd = rows[rows.length - 1]?.due_date;
           next_cursor = typeof dd === 'string' && dd.length > 0 ? dd : null;
         }
 
         return jsonText({
           limite: n,
+          hoje: today,
           exclui_completed_padrao: !statusExplicito,
           total: rows.length,
           tarefas: rows,
           next_cursor,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_tarefas_atrasadas',
+    {
+      title: 'Listar tarefas atrasadas',
+      description:
+        'Tarefas com due_date < hoje (America/Sao_Paulo) e status ≠ completed. Mesmo enriquecimento de listar_tarefas (empresa, assignee_names, dias_atraso).',
+      inputSchema: z.object({
+        client_id: z.string().uuid().optional(),
+        responsavel_id: z.string().uuid().optional(),
+        limit: z.number().int().positive().max(500).optional(),
+      }),
+    },
+    async ({ client_id, responsavel_id, limit }) => {
+      try {
+        const n = limit ?? 50;
+        const today = todayYmdSaoPaulo();
+        const taskCols = [
+          'id',
+          'title',
+          'description',
+          'status',
+          'due_date',
+          'project_id',
+          'client_id',
+          'owner_id',
+          'type',
+          'priority',
+          'assignee_ids',
+          'post_date',
+          'plataforma',
+          'briefing_estado',
+          'briefing_completo',
+        ];
+        const selectList = pickExistingColumns('tarefas', columns, taskCols);
+        const selectStr = selectList.length > 0 ? selectList.join(',') : '*';
+
+        let q = supabase
+          .from('tarefas')
+          .select(selectStr)
+          .neq('status', 'completed')
+          .lt('due_date', today);
+        if (client_id) q = q.eq('client_id', client_id);
+        if (responsavel_id) q = q.contains('assignee_ids', [responsavel_id]);
+
+        const { data, error } = await q.order('due_date', { ascending: true }).limit(n);
+        if (error) throw new Error(`Supabase (listar_tarefas_atrasadas): ${error.message}`);
+
+        const raw = (data ?? []) as unknown as Record<string, unknown>[];
+        const rows = await enrichTarefasRows(supabase, columns, raw, today);
+        return jsonText({
+          hoje: today,
+          limite: n,
+          total: rows.length,
+          tarefas: rows,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_status_tarefas',
+    {
+      title: 'Listar status canônicos de tarefas',
+      description:
+        'Catálogo de task_statuses (value, label, color, sort_order). Use o campo value ao filtrar/atualizar tarefas — evita status inventados. Values “estranhos” (ex.: dezembro, uuid_scheduled) existem no banco e são canônicos neste ambiente.',
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const cols = pickExistingColumns('task_statuses', columns, [
+          'id',
+          'value',
+          'label',
+          'color',
+          'sort_order',
+        ]);
+        const selectStr = cols.length > 0 ? cols.join(',') : 'id,value,label,color,sort_order';
+        let q = supabase.from('task_statuses').select(selectStr);
+        if (cols.includes('sort_order')) q = q.order('sort_order', { ascending: true });
+        const { data, error } = await q;
+        if (error) throw new Error(`Supabase (listar_status_tarefas): ${error.message}`);
+        return jsonText({
+          total: data?.length ?? 0,
+          statuses: data ?? [],
+          nota: 'O value “completed” também é usado no histórico mesmo sem linha em task_statuses.',
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'resolver_pessoa',
+    {
+      title: 'Resolver pessoa por UUID',
+      description:
+        'Resolve um UUID órfão (assignee_ids, owner_id, etc.) para full_name + role em profiles (fallback team_members). Retorna encontrado=false se não existir.',
+      inputSchema: z.object({
+        id: z.string().uuid(),
+      }),
+    },
+    async ({ id }) => {
+      try {
+        const people = await loadPeopleByIds(supabase, columns, [id]);
+        const person = people.get(id);
+        if (!person) {
+          return jsonText({
+            encontrado: false,
+            id,
+            mensagem: 'UUID não encontrado em profiles nem team_members.',
+          });
+        }
+
+        const extraCols = pickExistingColumns('profiles', columns, [
+          'id',
+          'full_name',
+          'role',
+          'status',
+          'cliente_id',
+        ]);
+        let detalhe: Record<string, unknown> | null = null;
+        if (extraCols.includes('id')) {
+          const { data } = await supabase
+            .from('profiles')
+            .select(extraCols.join(','))
+            .eq('id', id)
+            .maybeSingle();
+          if (data) detalhe = data as unknown as Record<string, unknown>;
+        }
+
+        return jsonText({
+          encontrado: true,
+          id: person.id,
+          full_name: person.full_name,
+          role: person.role,
+          eh_equipe: person.role != null && (EQUIPE_ROLES as readonly string[]).includes(person.role),
+          profile: detalhe,
         });
       } catch (e) {
         return toolError(e instanceof Error ? e.message : String(e));
@@ -486,7 +1340,7 @@ export function registerPlanejeTools(
     {
       title: 'Resumo da agência (tarefas)',
       description:
-        'Contagem de tarefas por status e por responsável. Usa team_members se existir no schema; senão profiles.',
+        'Contagem de tarefas por status e por responsável. por_responsavel traz id, full_name, role e total (não só UUID). Use listar_status_tarefas para labels dos status.',
       inputSchema: z.object({
         max_linhas: z.number().int().positive().max(20000).optional(),
       }),
@@ -538,71 +1392,59 @@ export function registerPlanejeTools(
       }
 
       const uuidKeys = [...byAssignee.keys()].filter((k) => /^[0-9a-f-]{36}$/i.test(k));
-      const idToName = new Map<string, string>();
+      const people = await loadPeopleByIds(supabase, columns, uuidKeys);
 
-      const teamCols = columns.team_members ?? [];
-      const hasTeamMembers = teamCols.length > 0;
-
-      if (hasTeamMembers) {
-        const idCol = teamCols.includes('id')
-          ? 'id'
-          : teamCols.includes('user_id')
-            ? 'user_id'
-            : 'id';
-        const namePick = pickExistingColumns('team_members', columns, [
-          'full_name',
-          'nome',
-          'name',
-          'email',
-        ]);
-        const nameCol = namePick[0];
-        if (nameCol && uuidKeys.length) {
-          const { data: members, error: memErr } = await supabase
-            .from('team_members')
-            .select('*')
-            .in(idCol, uuidKeys);
-          if (memErr)
-            return toolError(`Supabase (resumo_agencia team_members): ${memErr.message}`);
-          for (const m of members ?? []) {
-            const rec = m as Record<string, unknown>;
-            const id = String(rec[idCol] ?? '');
-            const label = String(rec[nameCol] ?? id);
-            if (id) idToName.set(id, label);
-          }
-        }
-      } else {
-        const namePick = pickExistingColumns('profiles', columns, ['full_name', 'email']);
-        const nameCol = namePick[0] ?? 'full_name';
-        if (uuidKeys.length) {
-          const { data: profs, error: pErr } = await supabase
-            .from('profiles')
-            .select('*')
-            .in('id', uuidKeys);
-          if (pErr) return toolError(`Supabase (resumo_agencia profiles): ${pErr.message}`);
-          for (const p of profs ?? []) {
-            const rec = p as Record<string, unknown>;
-            const id = String(rec.id ?? '');
-            const label = String(rec[nameCol] ?? id);
-            if (id) idToName.set(id, label);
-          }
+      // Labels canônicos de status (task_statuses)
+      const statusLabel = new Map<string, string>();
+      {
+        const { data: sts } = await supabase
+          .from('task_statuses')
+          .select('value,label')
+          .limit(200);
+        for (const s of sts ?? []) {
+          const rec = s as { value?: string; label?: string };
+          if (rec.value) statusLabel.set(rec.value, rec.label || rec.value);
         }
       }
 
-      const porResponsavel: { chave: string; tarefas_como_responsavel: number }[] = [];
+      const porResponsavel: {
+        id: string | null;
+        full_name: string;
+        role: string | null;
+        tarefas_como_responsavel: number;
+      }[] = [];
       for (const [k, v] of byAssignee) {
-        const label = idToName.get(k) ?? k;
-        porResponsavel.push({ chave: label, tarefas_como_responsavel: v });
+        if (k === '(sem responsável)') {
+          porResponsavel.push({
+            id: null,
+            full_name: '(sem responsável)',
+            role: null,
+            tarefas_como_responsavel: v,
+          });
+          continue;
+        }
+        const person = people.get(k);
+        porResponsavel.push({
+          id: k,
+          full_name: person?.full_name ?? k,
+          role: person?.role ?? null,
+          tarefas_como_responsavel: v,
+        });
       }
       porResponsavel.sort((a, b) => b.tarefas_como_responsavel - a.tarefas_como_responsavel);
 
       const porStatus = [...byStatus.entries()]
-        .map(([status, count]) => ({ status, count }))
+        .map(([status, count]) => ({
+          status,
+          label: statusLabel.get(status) ?? status,
+          count,
+        }))
         .sort((a, b) => b.count - a.count);
 
       return jsonText({
         amostra_linhas: rows.length,
         truncado: rows.length >= cap,
-        fonte_membros: hasTeamMembers ? 'team_members' : 'profiles',
+        fonte_membros: 'profiles',
         por_status: porStatus,
         por_responsavel: porResponsavel,
       });
@@ -774,20 +1616,32 @@ export function registerPlanejeTools(
     {
       title: 'Listar equipe',
       description:
-        'Todos os registros de profiles com colunas id, full_name, role e status (intersecção com o schema introspectado). Sem filtros.',
-      inputSchema: z.object({}),
+        'Lista profiles. Padrão papel=equipe (admin|colaborador|superadmin) — não mistura usuários cliente. Use papel=cliente ou papel=todos para outros conjuntos.',
+      inputSchema: z.object({
+        papel: z.enum(['equipe', 'cliente', 'todos']).optional(),
+      }),
     },
-    async () => {
-      const wanted = ['id', 'full_name', 'role', 'status'] as const;
+    async ({ papel }) => {
+      const filtro = papel ?? 'equipe';
+      const wanted = ['id', 'full_name', 'role', 'status', 'cliente_id'] as const;
       const selectList = pickExistingColumns('profiles', columns, [...wanted]);
       const selectStr = selectList.length > 0 ? selectList.join(',') : 'id, full_name, role';
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(selectStr)
-        .order('full_name', { ascending: true });
+      let q = supabase.from('profiles').select(selectStr).order('full_name', { ascending: true });
+      if (filtro === 'equipe') {
+        q = q.in('role', [...EQUIPE_ROLES]);
+      } else if (filtro === 'cliente') {
+        q = q.eq('role', 'cliente');
+      }
+
+      const { data, error } = await q;
       if (error) return toolError(`Supabase (listar_equipe): ${error.message}`);
-      return jsonText({ total: data?.length ?? 0, membros: data });
+      return jsonText({
+        filtro_papel: filtro,
+        roles_equipe: [...EQUIPE_ROLES],
+        total: data?.length ?? 0,
+        membros: data,
+      });
     }
   );
 
@@ -1005,16 +1859,22 @@ export function registerPlanejeTools(
       title: 'Ver resultados diários do cliente',
       description:
         'SELECT em cliente_resultados_diarios. Obrigatório: cliente_id. Opcionais: data_inicio, data_fim (YYYY-MM-DD) com gte/lte em data_referencia; limit padrão 90 (máx. 500). Ordenação: data_referencia descendente.',
+      annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: z.object({
         cliente_id: z.string().uuid(),
         data_inicio: z.string().optional(),
         data_fim: z.string().optional(),
         limit: z.number().int().positive().max(500).optional(),
+        offset: z.number().int().min(0).default(0),
       }),
     },
-    async ({ cliente_id, data_inicio, data_fim, limit }) => {
+    async ({ cliente_id, data_inicio, data_fim, limit, offset }) => {
       try {
+        await requireTraffic(supabase, actor, 'clients');
         const n = limit ?? 90;
+        if (data_inicio) ymd(data_inicio);
+        if (data_fim) ymd(data_fim);
+        if (data_inicio && data_fim && data_inicio > data_fim) throw new Error('Período invertido.');
         const cols = [
           'id',
           'cliente_id',
@@ -1034,10 +1894,10 @@ export function registerPlanejeTools(
         const df = data_fim?.trim();
         if (di) q = q.gte('data_referencia', di);
         if (df) q = q.lte('data_referencia', df);
-        const { data, error } = await q.order('data_referencia', { ascending: false }).limit(n);
+        const { data, error } = await q.order('data_referencia', { ascending: false }).order('id').range(offset, offset + n);
         if (error) throw new Error(`Supabase (ver_resultados_cliente): ${error.message}`);
-        const rows = data ?? [];
-        return jsonText({ cliente_id, total: rows.length, resultados: rows });
+        const rows = (data ?? []).slice(0,n);
+        return jsonText({ cliente_id, origem: 'planeje.cliente_resultados_diarios', nota: 'Resultados comerciais registrados no Planeje; não são Insights Meta nem dados de CRM externo.', periodo: { inicio: data_inicio ?? null, fim: data_fim ?? null }, total: rows.length, paginacao: { offset, limit: n, tem_mais: (data?.length ?? 0) > n, proximo_offset: (data?.length ?? 0) > n ? offset + n : null }, resultados: rows });
       } catch (e) {
         return toolError(e instanceof Error ? e.message : String(e));
       }
@@ -1089,34 +1949,32 @@ export function registerPlanejeTools(
   mcp.registerTool(
     'ver_campanhas_pagas',
     {
-      title: 'Ver campanhas pagas',
+      title: 'Ver solicitações internas de campanhas pagas',
       description:
-        'Lista paid_campaigns com filtros opcionais client_id e status (até 300 linhas por segurança).',
+        'Solicitações internas do Planeje, não catálogo nem resultados Meta. Para Meta use consultar_trafego_meta. Lista paid_campaigns: *, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url). Filtros opcionais: client_id, status. Ordenação created_at desc, limite 300.',
+      annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: z.object({
         client_id: z.string().uuid().optional(),
         status: z.string().optional(),
+        limit: z.number().int().min(1).max(300).default(100),
+        offset: z.number().int().min(0).default(0),
       }),
     },
-    async ({ client_id, status }) => {
-      const cols = [
-        'id',
-        'client_id',
-        'name',
-        'description',
-        'status',
-        'budget',
-        'kpis',
-        'ad_sets',
-      ];
-      const selectStr = pickExistingColumns('paid_campaigns', columns, cols).join(',') || '*';
+    async ({ client_id, status, limit, offset }) => {
+      try {
+      await requireTraffic(supabase, actor);
+      const selectStr =
+        '*, clientes(id, empresa), profiles!assignee_id(id, full_name, avatar_url)';
       let q = supabase.from('paid_campaigns').select(selectStr);
+      if (actor?.type === 'user' && actor.role === 'colaborador') q = q.or(`owner_id.eq.${actor.user_id},assignee_id.eq.${actor.user_id}`);
       if (client_id) q = q.eq('client_id', client_id);
       if (status != null && String(status).trim() !== '') {
         q = q.eq('status', String(status).trim());
       }
-      const { data, error } = await q.order('created_at', { ascending: false }).limit(300);
+      const { data, error } = await q.order('created_at', { ascending: false }).order('id').range(offset, offset + limit);
       if (error) return toolError(`Supabase (ver_campanhas_pagas): ${error.message}`);
-      return jsonText({ total: data?.length ?? 0, campanhas: data });
+      return jsonText({ origem: 'planeje.paid_campaigns', total: Math.min(data?.length ?? 0,limit), campanhas: data?.slice(0,limit) ?? [], paginacao: { offset, limit, tem_mais: (data?.length ?? 0) > limit, proximo_offset: (data?.length ?? 0) > limit ? offset + limit : null } });
+      } catch (e) { return toolError(e instanceof Error ? e.message : 'Falha de permissão.'); }
     }
   );
 
@@ -1125,11 +1983,14 @@ export function registerPlanejeTools(
     {
       title: 'Criar campanha paga',
       description:
-        'INSERT em paid_campaigns. Obrigatórios: client_id, name. Opcionais: status (padrão ativa), objetivo (ou description se objetivo não existir), plataforma, orcamento (mapeia para budget/orcamento), data_inicio, data_fim, meta_id. Campos filtrados por introspectColumns(paid_campaigns).',
+        'INSERT em paid_campaigns. Obrigatórios: client_id, name. Opcionais: status (padrão ativa), assignee_id (uuid, FK profiles), ad_sets e kpis (JSON), objetivo/description, plataforma, orcamento/budget, data_inicio, data_fim, meta_id. Campos filtrados por introspectColumns + buildInsertRow.',
       inputSchema: z.object({
         client_id: z.string().uuid(),
         name: z.string().min(1),
         status: z.string().optional(),
+        assignee_id: z.string().uuid().optional(),
+        ad_sets: z.any().optional(),
+        kpis: z.any().optional(),
         objetivo: z.string().optional(),
         plataforma: z.string().optional(),
         orcamento: z.number().optional(),
@@ -1146,6 +2007,9 @@ export function registerPlanejeTools(
           name: args.name,
           status: args.status?.trim() || 'ativa',
         };
+        if (args.assignee_id !== undefined) src.assignee_id = args.assignee_id;
+        if (args.ad_sets !== undefined) src.ad_sets = args.ad_sets;
+        if (args.kpis !== undefined) src.kpis = args.kpis;
         if (args.objetivo !== undefined) src.objetivo = args.objetivo === '' ? null : args.objetivo;
         if (args.plataforma !== undefined) src.plataforma = args.plataforma === '' ? null : args.plataforma;
         if (args.orcamento !== undefined) src.orcamento = args.orcamento;
@@ -1170,12 +2034,15 @@ export function registerPlanejeTools(
     {
       title: 'Atualizar campanha paga',
       description:
-        'UPDATE em paid_campaigns por id. Mesmos campos opcionais de criar_campanha_paga + id obrigatório. objetivo/orcamento seguem o mesmo mapeamento para colunas do schema; updated_at se existir.',
+        'UPDATE em paid_campaigns por id. Mesmos campos opcionais de criar_campanha_paga (incl. assignee_id, ad_sets, kpis) + id obrigatório. objetivo/orcamento seguem o mesmo mapeamento; updated_at se existir.',
       inputSchema: z.object({
         id: z.string().uuid(),
         client_id: z.string().uuid().optional(),
         name: z.string().min(1).optional(),
         status: z.string().optional(),
+        assignee_id: z.string().uuid().nullable().optional(),
+        ad_sets: z.any().optional(),
+        kpis: z.any().optional(),
         objetivo: z.string().optional(),
         plataforma: z.string().optional(),
         orcamento: z.number().nullable().optional(),
@@ -1192,6 +2059,9 @@ export function registerPlanejeTools(
         if (rest.client_id !== undefined) src.client_id = rest.client_id;
         if (rest.name !== undefined) src.name = rest.name;
         if (rest.status !== undefined) src.status = rest.status;
+        if (rest.assignee_id !== undefined) src.assignee_id = rest.assignee_id;
+        if (rest.ad_sets !== undefined) src.ad_sets = rest.ad_sets;
+        if (rest.kpis !== undefined) src.kpis = rest.kpis;
         if (rest.objetivo !== undefined) src.objetivo = rest.objetivo === '' ? null : rest.objetivo;
         if (rest.plataforma !== undefined) src.plataforma = rest.plataforma === '' ? null : rest.plataforma;
         if (rest.orcamento !== undefined) src.orcamento = rest.orcamento;
@@ -1230,6 +2100,354 @@ export function registerPlanejeTools(
           );
         }
         return jsonText({ campanha: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'chamar_rpc_criar_campanha',
+    {
+      title: 'Chamar RPC create_ad_from_structure',
+      description:
+        'Invoca supabase.rpc("create_ad_from_structure", { form_data }). Obrigatório: form_data (objeto completo enviado à RPC). Retorno bruto da RPC.',
+      inputSchema: z.object({
+        form_data: z.any(),
+      }),
+    },
+    async ({ form_data }) => {
+      try {
+        const { data, error } = await supabase.rpc('create_ad_from_structure', {
+          form_data,
+        });
+        if (error) {
+          return toolError(`Supabase (chamar_rpc_criar_campanha): ${error.message}`);
+        }
+        return jsonText({ resultado: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_status_campanhas',
+    {
+      title: 'Listar status de campanhas pagas',
+      description: 'SELECT * em paid_campaign_statuses ordenado por sort_order ascendente.',
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const { data, error } = await supabase
+        .from('paid_campaign_statuses')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (error) return toolError(`Supabase (listar_status_campanhas): ${error.message}`);
+      return jsonText({ total: data?.length ?? 0, status: data });
+    }
+  );
+
+  mcp.registerTool(
+    'criar_status_campanha',
+    {
+      title: 'Criar status de campanha paga',
+      description:
+        'INSERT em paid_campaign_statuses. Obrigatórios: label, value (slug), color, sort_order. Campos filtrados por introspectColumns + buildInsertRow.',
+      inputSchema: z.object({
+        label: z.string().min(1),
+        value: z.string().min(1),
+        color: z.string().min(1),
+        sort_order: z.number().int(),
+      }),
+    },
+    async (args) => {
+      try {
+        const row = buildInsertRow(columns, 'paid_campaign_statuses', {
+          label: args.label,
+          value: args.value,
+          color: args.color,
+          sort_order: args.sort_order,
+        });
+        const { data, error } = await supabase
+          .from('paid_campaign_statuses')
+          .insert(row)
+          .select()
+          .maybeSingle();
+        if (error) throw new Error(`Supabase (criar_status_campanha): ${error.message}`);
+        if (!data) throw new Error('criar_status_campanha: insert sem retorno.');
+        return jsonText({ status: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'deletar_status_campanha',
+    {
+      title: 'Deletar status de campanha paga',
+      description: 'DELETE em paid_campaign_statuses por id.',
+      inputSchema: z.object({
+        id: z.string().uuid(),
+      }),
+    },
+    async ({ id }) => {
+      try {
+        const { error } = await supabase.from('paid_campaign_statuses').delete().eq('id', id);
+        if (error) throw new Error(`Supabase (deletar_status_campanha): ${error.message}`);
+        return jsonText({ deletado: id });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'ver_anexos_tarefa',
+    {
+      title: 'Ver anexos da tarefa',
+      description: 'SELECT name, url em task_attachments filtrado por task_id (obrigatório).',
+      inputSchema: z.object({
+        task_id: z.string().uuid(),
+      }),
+    },
+    async ({ task_id }) => {
+      try {
+        const wanted = ['name', 'url'];
+        const selectStr =
+          pickExistingColumns('task_attachments', columns, wanted).join(',') || 'name,url';
+        const { data, error } = await supabase
+          .from('task_attachments')
+          .select(selectStr)
+          .eq('task_id', task_id);
+        if (error) throw new Error(`Supabase (ver_anexos_tarefa): ${error.message}`);
+        return jsonText({ task_id, total: data?.length ?? 0, anexos: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_observacoes_cliente',
+    {
+      title: 'Listar observações Meta do cliente',
+      description:
+        'SELECT em cliente_meta_observations com join profiles(full_name, avatar_url), filtro cliente_id obrigatório, ordenação created_at descendente.',
+      inputSchema: z.object({
+        cliente_id: z.string().uuid(),
+      }),
+    },
+    async ({ cliente_id }) => {
+      try {
+        const selectStr = '*, profiles(full_name, avatar_url)';
+        const { data, error } = await supabase
+          .from('cliente_meta_observations')
+          .select(selectStr)
+          .eq('cliente_id', cliente_id)
+          .order('created_at', { ascending: false });
+        if (error) throw new Error(`Supabase (listar_observacoes_cliente): ${error.message}`);
+        return jsonText({ cliente_id, total: data?.length ?? 0, observacoes: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'criar_observacao_cliente',
+    {
+      title: 'Criar observação Meta do cliente',
+      description:
+        'INSERT em cliente_meta_observations. Obrigatórios: cliente_id, observation. user_id opcional (padrão JOSIAS_USER_ID).',
+      inputSchema: z.object({
+        cliente_id: z.string().uuid(),
+        observation: z.string().min(1),
+        user_id: z.string().uuid().optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        const row = buildInsertRow(columns, 'cliente_meta_observations', {
+          cliente_id: args.cliente_id,
+          observation: args.observation.trim(),
+          user_id: args.user_id ?? JOSIAS_USER_ID,
+        });
+        const { data, error } = await supabase
+          .from('cliente_meta_observations')
+          .insert(row)
+          .select()
+          .maybeSingle();
+        if (error) throw new Error(`Supabase (criar_observacao_cliente): ${error.message}`);
+        if (!data) throw new Error('criar_observacao_cliente: insert sem retorno.');
+        return jsonText({ observacao: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'listar_contas_meta_cliente',
+    {
+      title: 'Listar contas Meta vinculadas ao cliente',
+      description:
+        'SELECT em cliente_meta_accounts por cliente_id. Colunas: id, meta_account_id, meta_account_name, is_active, notes, created_at. Por padrão apenas is_active = true; use incluir_inativas true para listar todas.',
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      inputSchema: z.object({
+        cliente_id: z.string().uuid(),
+        incluir_inativas: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0),
+      }),
+    },
+    async ({ cliente_id, incluir_inativas, limit, offset }) => {
+      try {
+        await requireTraffic(supabase, actor);
+        const wanted = [
+          'id',
+          'meta_account_id',
+          'meta_account_name',
+          'is_active',
+          'notes',
+          'created_at',
+        ];
+        const selectStr =
+          pickExistingColumns('cliente_meta_accounts', columns, wanted).join(',') ||
+          'id, meta_account_id, meta_account_name, is_active, notes, created_at';
+        let q = supabase
+          .from('cliente_meta_accounts')
+          .select(selectStr)
+          .eq('cliente_id', cliente_id);
+        if (!incluir_inativas) {
+          q = q.eq('is_active', true);
+        }
+        const { data, error } = await q.order('created_at', { ascending: true }).order('id').range(offset, offset + limit);
+        if (error) throw new Error(`Supabase (listar_contas_meta_cliente): ${error.message}`);
+        return jsonText({ cliente_id, origem: 'planeje.cliente_meta_accounts', total: Math.min(data?.length ?? 0,limit), contas: data?.slice(0,limit) ?? [], paginacao: { offset, limit, tem_mais: (data?.length ?? 0) > limit, proximo_offset: (data?.length ?? 0) > limit ? offset + limit : null } });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'vincular_conta_meta',
+    {
+      title: 'Vincular conta Meta Ads ao cliente',
+      description:
+        'INSERT em cliente_meta_accounts. Obrigatórios: cliente_id, meta_account_id (ex. act_…), meta_account_name. Opcionais: notes, is_active (default true). Campos filtrados por buildInsertRow.',
+      inputSchema: z.object({
+        cliente_id: z.string().uuid(),
+        meta_account_id: z.string().min(1),
+        meta_account_name: z.string().min(1),
+        notes: z.string().optional(),
+        is_active: z.boolean().optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        const row = buildInsertRow(columns, 'cliente_meta_accounts', {
+          cliente_id: args.cliente_id,
+          meta_account_id: args.meta_account_id.trim(),
+          meta_account_name: args.meta_account_name.trim(),
+          notes: args.notes === undefined ? undefined : args.notes === '' ? null : args.notes,
+          is_active: args.is_active ?? true,
+        });
+        const { data, error } = await supabase
+          .from('cliente_meta_accounts')
+          .insert(row)
+          .select()
+          .maybeSingle();
+        if (error) throw new Error(`Supabase (vincular_conta_meta): ${error.message}`);
+        if (!data) throw new Error('vincular_conta_meta: insert sem retorno.');
+        return jsonText({ conta: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'atualizar_conta_meta',
+    {
+      title: 'Atualizar vínculo conta Meta do cliente',
+      description:
+        'UPDATE em cliente_meta_accounts por id. Opcionais: meta_account_name, is_active, notes. Campos filtrados por introspectColumns + buildInsertRow; updated_at se existir no schema.',
+      inputSchema: z.object({
+        id: z.string().uuid(),
+        meta_account_name: z.string().optional(),
+        is_active: z.boolean().optional(),
+        notes: z.string().nullable().optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        const { id, ...rest } = args;
+        const allowed = introspectColumns('cliente_meta_accounts', columns);
+        const src: Record<string, unknown> = {};
+        if (rest.meta_account_name !== undefined) {
+          src.meta_account_name =
+            rest.meta_account_name === '' ? null : rest.meta_account_name.trim();
+        }
+        if (rest.is_active !== undefined) src.is_active = rest.is_active;
+        if (rest.notes !== undefined) src.notes = rest.notes === '' ? null : rest.notes;
+
+        const patch = buildInsertRow(columns, 'cliente_meta_accounts', src);
+        if (allowed.has('updated_at')) {
+          patch.updated_at = new Date().toISOString();
+        }
+        const keys = Object.keys(patch).filter((k) => k !== 'updated_at');
+        if (keys.length === 0) {
+          throw new Error('atualizar_conta_meta: nenhum campo para atualizar.');
+        }
+
+        const { data, error } = await supabase
+          .from('cliente_meta_accounts')
+          .update(patch)
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+        if (error) throw new Error(`Supabase (atualizar_conta_meta): ${error.message}`);
+        if (!data) {
+          throw new Error('atualizar_conta_meta: registro não encontrado ou nada atualizado.');
+        }
+        return jsonText({ conta: data });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  mcp.registerTool(
+    'invocar_meta_ads_api',
+    {
+      title: 'Invocar Edge Function meta-ads-api',
+      description:
+        'supabase.functions.invoke("meta-ads-api", { body }). Body: { action, adAccountId: ad_account_id, ...params }. Obrigatórios: action, ad_account_id. Opcional: params (objeto com time_range, metrics, etc.).',
+      inputSchema: z.object({
+        action: z.string().min(1),
+        ad_account_id: z.string().min(1),
+        params: z.any().optional(),
+      }),
+    },
+    async ({ action, ad_account_id, params }) => {
+      try {
+        const extras =
+          params != null && typeof params === 'object' && !Array.isArray(params)
+            ? { ...(params as Record<string, unknown>) }
+            : {};
+        const body: Record<string, unknown> = {
+          action,
+          adAccountId: ad_account_id,
+          ...extras,
+        };
+        const { data, error } = await supabase.functions.invoke('meta-ads-api', { body });
+        if (error) {
+          return toolError(`Supabase (invocar_meta_ads_api): ${error.message}`);
+        }
+        return jsonText({ resultado: data });
       } catch (e) {
         return toolError(e instanceof Error ? e.message : String(e));
       }
@@ -1314,7 +2532,15 @@ export function registerPlanejeTools(
       }),
     },
     async ({ task_id }) => {
-      const cols = ['id', 'task_id', 'user_id', 'content', 'created_at'];
+      const cols = [
+        'id',
+        'task_id',
+        'user_id',
+        'content',
+        'created_at',
+        'pendencia_caixa',
+        'origem',
+      ];
       const selectStr = pickExistingColumns('task_comments', columns, cols).join(',') || '*';
       const { data, error } = await supabase
         .from('task_comments')
@@ -1433,22 +2659,54 @@ export function registerPlanejeTools(
     {
       title: 'Adicionar comentário em tarefa',
       description:
-        'INSERT em task_comments. Obrigatórios: task_id, content. user_id fixo (Josias). created_at pelo banco.',
+        'INSERT em task_comments. Obrigatórios: task_id, content. user_id fixo (Josias). Com pendencia_caixa=true, cria item só para assignees com profile status=active (nunca o UUID órfão a9b2a0f6-053d-44d2-b5b0-3c0d823c4e91). Sem parse do texto.',
       inputSchema: z.object({
         task_id: z.string().uuid(),
         content: z.string().min(1),
+        pendencia_caixa: z.boolean().optional(),
       }),
     },
-    async ({ task_id, content }) => {
+    async ({ task_id, content, pendencia_caixa }) => {
+      const taskCommentCols = introspectColumns('task_comments', columns);
+      if (pendencia_caixa && !taskCommentCols.has('pendencia_caixa')) {
+        return toolError(
+          'adicionar_comentario: migration da Caixa ainda não aplicada (coluna pendencia_caixa ausente).'
+        );
+      }
+
       const base: Record<string, unknown> = {
         task_id,
         user_id: JOSIAS_USER_ID,
         content,
       };
+      if (pendencia_caixa !== undefined) {
+        base.pendencia_caixa = pendencia_caixa;
+        base.origem = pendencia_caixa ? 'gestor' : 'comentario';
+      }
       const row = buildInsertRow(columns, 'task_comments', base);
       const { data, error } = await supabase.from('task_comments').insert(row).select().single();
       if (error) return toolError(`Supabase (adicionar_comentario): ${error.message}`);
-      return jsonText({ comentario: data });
+
+      let pendencias: unknown[] = [];
+      if (pendencia_caixa && data?.id) {
+        const { data: pendingRows, error: pendingError } = await supabase
+          .from('pendencias_caixa')
+          .select('id,pessoa_id,estado,created_at')
+          .eq('task_comment_id', data.id);
+        if (pendingError) {
+          return toolError(
+            `Comentário criado, mas não foi possível confirmar a Caixa: ${pendingError.message}`
+          );
+        }
+        pendencias = pendingRows ?? [];
+      }
+
+      return jsonText({
+        comentario: data,
+        pendencia_caixa: Boolean(pendencia_caixa),
+        pendencias_criadas: pendencias.length,
+        pendencias,
+      });
     }
   );
 
@@ -1535,6 +2793,110 @@ export function registerPlanejeTools(
         return jsonText({ ok: false, mensagem: 'Nenhuma linha encontrada com este id.', id });
       }
       return jsonText({ ok: true, id, removido: removidos[0] });
+    }
+  );
+
+  registerMetaTools(mcp);
+  registerAtendimentoTools(mcp, supabase, columns, actor);
+
+  mcp.registerTool(
+    'resumo_cobertura_mensal',
+    {
+      title: 'Resumo cobertura mensal',
+      description:
+        'Contratado (entregaveis) × planejado/entregue (tarefas) por cliente closed no mês. Use apenas_problemas para ver só 🔴/⚪/sem plano; somente_agregado para 1 linha de KPIs.',
+      inputSchema: z.object({
+        mes: z.string().optional().describe('YYYY-MM ou YYYY-MM-DD (default: mês atual)'),
+        apenas_problemas: z.boolean().optional(),
+        somente_agregado: z.boolean().optional(),
+        exigir_responsavel_ativo: z.boolean().optional(),
+      }),
+    },
+    async ({ mes, apenas_problemas, somente_agregado, exigir_responsavel_ativo }) => {
+      try {
+        const raw = (mes || new Date().toISOString().slice(0, 10)).trim();
+        const mesDate = /^\d{4}-\d{2}$/.test(raw) ? `${raw}-01` : raw;
+        const { inicio, fim, mesRef } = monthBounds(mesDate);
+        const exigir = exigir_responsavel_ativo === true;
+
+        // Tenta RPC
+        const { data: rpcRows, error: rpcErr } = await supabase.rpc('resumo_cobertura_mensal', {
+          p_mes: mesRef,
+          p_exigir_responsavel_ativo: exigir,
+        });
+
+        let rows: Record<string, unknown>[] = [];
+        let agregado: Record<string, unknown> | null = null;
+        let fonte = 'rpc';
+
+        if (!rpcErr && Array.isArray(rpcRows)) {
+          rows = rpcRows as Record<string, unknown>[];
+          const { data: agg } = await supabase.rpc('resumo_cobertura_agregado', {
+            p_mes: mesRef,
+            p_exigir_responsavel_ativo: exigir,
+          });
+          agregado = (Array.isArray(agg) ? agg[0] : agg) as Record<string, unknown> | null;
+        } else {
+          fonte = 'client';
+          const [{ data: clientes }, { data: tarefas }, { data: projetos }, { data: profiles }] =
+            await Promise.all([
+              supabase
+                .from('clientes')
+                .select('id, empresa, etapa, valor, tipo_servico, tipo_contrato, entregaveis, responsavel')
+                .eq('etapa', 'closed'),
+              supabase
+                .from('tarefas')
+                .select(
+                  'id, client_id, project_id, status, due_date, type, description, briefing_completo, briefing_legado, briefing_estado',
+                )
+                .gte('due_date', inicio)
+                .lte('due_date', fim)
+                .not('client_id', 'is', null),
+              supabase
+                .from('projetos')
+                .select('id, client_id, mes_referencia, status')
+                .not('mes_referencia', 'is', null)
+                .gte('mes_referencia', inicio)
+                .lte('mes_referencia', fim),
+              supabase
+                .from('profiles')
+                .select('id, full_name, role, status')
+                .in('role', ['superadmin', 'admin', 'colaborador']),
+            ]);
+
+          const computed = computeCoberturaFromRows({
+            clientes: clientes || [],
+            tarefas: tarefas || [],
+            projetos: projetos || [],
+            profiles: profiles || [],
+            mesRef,
+            exigirResponsavelAtivo: exigir,
+          });
+          rows = computed.rows as unknown as Record<string, unknown>[];
+          agregado = computed.agregado as unknown as Record<string, unknown>;
+        }
+
+        if (somente_agregado) {
+          return jsonText({ fonte, agregado });
+        }
+
+        let out = rows;
+        if (apenas_problemas) {
+          out = rows.filter((r) => {
+            const st = String(r.status_cobertura || '');
+            return st === 'descoberto' || st === 'sem_escopo' || (st !== 'nao_aplicavel' && !r.tem_plano_mes);
+          });
+        }
+
+        return jsonText({
+          fonte,
+          total: out.length,
+          agregado,
+          clientes: out,
+        });
+      } catch (e) {
+        return toolError(e instanceof Error ? e.message : String(e));
+      }
     }
   );
 }

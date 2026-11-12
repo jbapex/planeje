@@ -29,12 +29,15 @@ export const useDataCache = (cacheKey) => {
   /**
    * Salva dados no cache
    */
-  const setCachedData = useCallback((newData) => {
-    globalCache.set(cacheKey, {
-      data: newData,
-      timestamp: Date.now()
+  const setCachedData = useCallback((nextData) => {
+    setData((currentData) => {
+      const newData = typeof nextData === 'function' ? nextData(currentData) : nextData;
+      globalCache.set(cacheKey, {
+        data: newData,
+        timestamp: Date.now()
+      });
+      return newData;
     });
-    setData(newData);
   }, [cacheKey]);
 
   /**
@@ -94,3 +97,8 @@ export const clearAllDataCache = () => {
   globalCache.clear();
 };
 
+export const clearDataCacheByPrefix = (prefix) => {
+  [...globalCache.keys()].forEach((key) => {
+    if (key.startsWith(prefix)) globalCache.delete(key);
+  });
+};

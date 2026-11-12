@@ -1,0 +1,356 @@
+.ga-daily {
+  position: relative;
+  overflow: visible;
+  padding: 16px 20px 12px;
+}
+
+.ga-daily h3 {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.ga-daily p {
+  margin: 0 0 12px;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.ga-daily-bars {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 148px;
+  overflow: visible;
+}
+
+.ga-daily-col {
+  position: relative;
+  flex: 1;
+  min-width: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ga-daily-col:hover,
+.ga-daily-col.is-on,
+.ga-daily-col:focus-visible {
+  background: rgba(147, 51, 234, 0.08);
+  outline: none;
+}
+
+.ga-daily-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.ga-daily-bar {
+  width: 100%;
+  max-width: 18px;
+  min-height: 2px;
+  background: #9333ea;
+  border-radius: 3px 3px 0 0;
+}
+
+.ga-daily-col:hover .ga-daily-bar,
+.ga-daily-col.is-on .ga-daily-bar,
+.ga-daily-col:focus-visible .ga-daily-bar {
+  background: #6b21a8;
+}
+
+.ga-daily-balloon {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 18px);
+  z-index: 8;
+  min-width: 148px;
+  padding: 8px 10px 9px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.22);
+  transform: translate(-50%, -8px);
+  white-space: nowrap;
+}
+
+.ga-daily-col:hover .ga-daily-balloon,
+.ga-daily-col.is-on .ga-daily-balloon,
+.ga-daily-col:focus-visible .ga-daily-balloon {
+  display: block;
+}
+
+.ga-daily-col:first-child .ga-daily-balloon {
+  left: 0;
+  transform: translate(0, -8px);
+}
+
+.ga-daily-col:last-child .ga-daily-balloon {
+  left: auto;
+  right: 0;
+  transform: translate(0, -8px);
+}
+
+.ga-daily-balloon strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.78rem;
+}
+
+.ga-daily-balloon span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #cbd5e1;
+}
+
+.ga-daily-balloon span b {
+  color: #fff;
+  font-weight: 700;
+}
+
+.ga-daily-readout {
+  margin-top: 10px;
+  min-height: 2.2rem;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+}
+
+.ga-daily-readout strong {
+  font-size: 0.85rem;
+}
+
+.ga-daily-readout--idle {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.ga-daily-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.ga-daily-label--gap {
+  visibility: hidden;
+}
+
+.ga-daily--compact {
+  padding: 0 0 8px;
+}
+
+.ga-daily--compact .ga-daily-bars {
+  height: 88px;
+}
+
+.ga-daily--compact h3,
+.ga-daily--compact p {
+  display: none;
+}
+
+.ga-daily--compact .ga-daily-balloon {
+  bottom: calc(100% - 14px);
+}
+
+.ga-detail {
+  padding: 12px 16px 16px 48px;
+  background: hsl(var(--muted) / 0.35);
+}
+
+.ga-detail-block {
+  margin-top: 12px;
+}
+
+.ga-detail-block h4 {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ga-detail-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.ga-detail-table {
+  width: 100%;
+  font-size: 0.8rem;
+  border-collapse: collapse;
+}
+
+.ga-detail-table th,
+.ga-detail-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.ga-detail-table th:not(:first-child),
+.ga-detail-table td:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ga-open {
+  height: 28px;
+  width: 28px;
+  padding: 0;
+}
+
+.ga-trend-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ga-trend-input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  height: 2.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+}
+
+.ga-trend-table th:last-child,
+.ga-trend-table td:last-child {
+  text-align: left;
+  min-width: 9rem;
+}
+
+.ga-trend-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 8.5rem;
+  height: 2.1rem;
+}
+
+.ga-trend-col {
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: flex-end;
+  cursor: pointer;
+}
+
+.ga-trend-col span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: #9333ea;
+}
+
+.ga-trend-col.is-on span,
+.ga-trend-col:hover span {
+  background: #6b21a8;
+}
+
+.ga-trend-tip {
+  display: none;
+}
+
+.ga-trend-empty {
+  color: hsl(var(--muted-foreground));
+}
+
+.ga-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ga-source-tabs button {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.ga-source-tabs button[aria-selected="true"] {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
+
+.ga-board-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.ga-share {
+  height: 6px;
+  border-radius: 99px;
+  background: #ede9fe;
+  overflow: hidden;
+}
+
+.ga-share span {
+  display: block;
+  height: 100%;
+  background: #7c3aed;
+}
+
+.ga-type-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+
+@media (min-width: 720px) {
+  .ga-trend-spark {
+    position: relative;
+  }
+
+  .ga-trend-tip {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 2px);
+    font-size: 0.65rem;
+    color: hsl(var(--muted-foreground));
+    white-space: nowrap;
+  }
+
+  .ga-trend-tip.is-idle {
+    opacity: 0;
+  }
+}

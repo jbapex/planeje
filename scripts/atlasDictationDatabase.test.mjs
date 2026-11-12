@@ -1,0 +1,36 @@
+/** Full schema, no operational data; refuses any other database. */
+import assert from 'node:assert/strict';import {spawnSync,spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';
+const DB='atlas_dictation_test_20261015',args=['exec','-i','supabase-db','psql','-X','-q','-t','-A','-U','supabase_admin','-d',DB,'-v','ON_ERROR_STOP=1'];
+const raw=s=>{const r=spawnSync('docker',args,{input:s,encoding:'utf8',timeout:30000});if(r.status!==0)throw new Error(r.stderr||'SQL failed');return r.stdout.trim();},q=v=>"'"+String(v).replaceAll("'","''")+"'";
+const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',C='33333333-3333-4333-8333-333333333333',Q='44444444-4444-4444-8444-444444444444';
+const claims=(id=A,extra={})=>({sub:id,role:'authenticated',session_id:id,...extra});
+const wrap=(s,id=A,extra={},role='authenticated')=>`BEGIN;SET LOCAL ROLE ${role};SET LOCAL request.jwt.claims=${q(JSON.stringify(claims(id,extra)))};${s};COMMIT;`;
+const sql=(s,...a)=>raw(wrap(s,...a));let checks=0;const eq=(s,v,...a)=>{assert.equal(sql(s,...a),String(v));checks++;},fails=(s,...a)=>{assert.throws(()=>sql(s,...a));checks++;};
+const reserve=(id=randomUUID(),question=null,hash='a'.repeat(64))=>`SELECT atlas_dictation_reserve('${A}','${id}',${question?q(question):'NULL'},'${hash}',1000,2)`;
+const service=s=>sql(s,A,{},'service_role');
+const concurrent=s=>new Promise((resolve,reject)=>{const p=spawn('docker',args);let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',n=>n?reject(new Error(err)):resolve(out.trim()));p.stdin.end(wrap(s,A,{},'service_role'));});
+raw(`DO $$ BEGIN ASSERT current_database()='${DB}';ASSERT (SELECT count(*)=0 FROM clientes);END $$;
+INSERT INTO auth.users(id,email,raw_app_meta_data,raw_user_meta_data) VALUES('${A}','audio-owner@example.invalid','{}','{}'),('${B}','audio-other@example.invalid','{}','{}');
+UPDATE profiles SET status='active',role='superadmin' WHERE id='${A}';UPDATE profiles SET status='active',role='admin' WHERE id='${B}';
+INSERT INTO auth.sessions(id,user_id) VALUES('${A}','${A}'),('${B}','${B}');
+INSERT INTO clientes(id,empresa,owner_id,etapa) VALUES('${C}','Fictício áudio','${A}','closed');
+INSERT INTO atlas_settings(id,owner_id,enabled,monitor_enabled) VALUES('atlas','${A}',true,false);
+INSERT INTO atlas_office_config(id,owner_id,enabled) VALUES('atlas','${A}',true);
+INSERT INTO atlas_office_questions(id,owner_id,client_id,source_key,question) VALUES('${Q}','${A}','${C}','audio','Objetivo fictício?');`);
+fails(reserve());fails(reserve(),A,{},'anon');eq('SELECT count(*) FROM atlas_dictations',0);
+const id=randomUUID(),race=await Promise.all([concurrent(reserve(id,Q)),concurrent(reserve(id,Q))]);assert.equal(race.filter(x=>JSON.parse(x).fresh).length,1);checks++;
+eq('SELECT count(*) FROM atlas_dictations',1);eq('SELECT count(*) FROM atlas_dictations',0,B);eq('SELECT count(*) FROM atlas_dictations',0,A,{planeje_server_delegate:'atlas'});eq('SELECT count(*) FROM atlas_dictations',0,A,{session_id:null});eq('SELECT count(*) FROM atlas_dictations',0,A,{session_id:B});fails('SELECT * FROM atlas_dictations',A,{},'anon');
+fails("UPDATE atlas_dictations SET transcript='injetado'");fails('DELETE FROM atlas_dictations');fails(`INSERT INTO atlas_dictations(id,owner_id,content_hash,size_bytes,seconds) VALUES(gen_random_uuid(),'${A}',repeat('a',64),100,1)`);
+assert.throws(()=>service(reserve(id,Q,'b'.repeat(64))));checks++;
+raw(`UPDATE atlas_dictations SET state='completed',transcript='Texto fictício' WHERE id='${id}'`);eq(`SELECT transcript FROM atlas_dictations WHERE id='${id}'`,'Texto fictício');assert.equal(JSON.parse(service(reserve(id,Q))).transcript,'Texto fictício');checks++;
+raw(`UPDATE atlas_office_questions SET state='answered',answer='Fictício' WHERE id='${Q}'`);assert.throws(()=>service(reserve(randomUUID(),Q)));checks++;raw(`UPDATE atlas_office_questions SET state='open',answer=NULL WHERE id='${Q}'`);
+const stale=randomUUID();service(reserve(stale));raw(`UPDATE atlas_dictations SET lease_until=now()-interval '1 second' WHERE id='${stale}'`);assert.equal(JSON.parse(service(reserve(stale))).state,'failed');checks++;
+raw(`UPDATE atlas_dictations SET created_at=now()-interval '25 hours' WHERE id='${id}'`);service(reserve());eq(`SELECT state||':'||(transcript IS NULL) FROM atlas_dictations WHERE id='${id}'`,'expired:true');
+raw(`UPDATE atlas_dictations SET created_at=now()-interval '8 days' WHERE id='${id}'`);service(reserve());eq(`SELECT count(*) FROM atlas_dictations WHERE id='${id}'`,0);
+raw(`UPDATE profiles SET status='pending' WHERE id='${A}'`);eq('SELECT count(*) FROM atlas_dictations',0);assert.throws(()=>service(reserve()));checks++;raw(`UPDATE profiles SET status='active' WHERE id='${A}'`);
+raw(`DELETE FROM auth.sessions WHERE user_id='${A}'`);eq('SELECT count(*) FROM atlas_dictations',0);raw(`INSERT INTO auth.sessions(id,user_id) VALUES('${A}','${A}')`);
+// Forty attempts/day, including failed/unknown, atomic with concurrent reservations.
+raw(`TRUNCATE atlas_dictations;INSERT INTO atlas_dictations(id,owner_id,content_hash,size_bytes,seconds,state) SELECT gen_random_uuid(),'${A}',repeat('a',64),1000,2,'failed' FROM generate_series(1,39)`);
+const cap=await Promise.all([concurrent(reserve()),concurrent(reserve())]);assert.equal(cap.filter(x=>JSON.parse(x).fresh).length,1);checks++;assert.equal(cap.filter(x=>JSON.parse(x).state==='limited').length,1);checks++;eq('SELECT count(*) FROM atlas_dictations',40);
+eq('SELECT count(*) FROM tarefas',0);eq('SELECT count(*) FROM atlas_memories',0);eq('SELECT monitor_enabled FROM atlas_settings','f');
+console.log(JSON.stringify({checks,passed:true,database:DB,real_operational_writes:false}));

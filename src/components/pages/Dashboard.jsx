@@ -1,12 +1,23 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Lightbulb, Bell, CheckSquare, AlertTriangle, Clock, Calendar, ListChecks, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Helmet } from 'react-helmet';
+import {
+  Lightbulb,
+  Bell,
+  CheckSquare,
+  AlertTriangle,
+  Clock,
+  Calendar,
+  ListChecks,
+} from 'lucide-react';
+import { motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card } from '@/components/ui/card';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
+import '@/components/dashboard/Dashboard.css';
 import {
   format,
   startOfWeek,
@@ -23,6 +34,9 @@ import {
 import { ptBR } from 'date-fns/locale';
 import { useDataCache } from '@/hooks/useDataCache';
 import { taskCountsInOverdueAndUpcomingPipeline } from '@/lib/dashboardPipelineStatus';
+import { getAgencyPulseMessage } from '@/lib/accountPulse';
+import { useAgencyPulse } from '@/hooks/useAgencyPulse';
+import AgencyPulseBoard from '@/components/dashboard/AgencyPulseBoard';
 import DashboardAssistant from './DashboardAssistant';
 
 /** Dia de vencimento no calendário local (evita “atrasada/hoje” errado por UTC). */
@@ -35,75 +49,87 @@ function getDueDayStart(dueDateRaw) {
   }
   return startOfDay(new Date(dueDateRaw));
 }
-const StatCard = ({
-  icon: Icon,
-  title,
-  value,
-  subtitle,
-  color,
-  delay,
-  isFirstMount = true,
-  onClick
-}) => <div 
-    className={`bg-card dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow hover:scale-[1.02]' : ''}`}
-    onClick={onClick}
-  >
-    <div className="flex items-start justify-between">
-      <div className="space-y-1">
-        <p className="text-xs font-semibold text-muted-foreground dark:text-gray-400 uppercase tracking-wider">{title}</p>
-        <p className="text-2xl md:text-3xl font-bold text-card-foreground dark:text-white">{value}</p>
-        <p className="text-xs text-muted-foreground dark:text-gray-500">{subtitle}</p>
+
+function getHeroMessage(stats) {
+  if (stats.overdue > 0) {
+    return `Você tem ${stats.overdue} tarefa${stats.overdue > 1 ? 's' : ''} atrasada${stats.overdue > 1 ? 's' : ''}. Priorize o que está pendente e mantenha o time alinhado.`;
+  }
+  if (stats.today > 0) {
+    return `${stats.today} entrega${stats.today > 1 ? 's' : ''} para hoje. Foque no essencial e use o assistente para organizar o dia.`;
+  }
+  return 'Operação estável. Use o painel para antecipar demandas e acompanhar o que vem pela frente.';
+}
+
+function DashboardLoading() {
+  return (
+    <div className="planeje-dashboard-loading">
+      <div className="planeje-dashboard-skeleton planeje-dashboard-skeleton--hero" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="planeje-dashboard-skeleton planeje-dashboard-skeleton--stat" />
+        ))}
       </div>
-      <Icon className={`w-6 h-6 md:w-8 md:h-8 ${color}`} />
     </div>
-  </div>;
-const InfoCard = ({
-  icon: Icon,
-  title,
-  color,
-  children
-}) => <Card className="h-full dark:bg-gray-800 dark:border-gray-700">
-    <CardHeader className="flex flex-row items-center gap-3 space-y-0 pb-4">
-      <Icon className={`w-6 h-6 ${color}`} />
-      <CardTitle className="text-lg dark:text-white">{title}</CardTitle>
-    </CardHeader>
-    <CardContent>{children}</CardContent>
-  </Card>;
-const SugestaoItem = ({
-  task,
-  clientName
-}) => <div className="flex items-start gap-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg">
-    <div className="flex-shrink-0 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
-      <Lightbulb className="w-4 h-4 text-white" />
+  );
+}
+
+const StatCard = ({ icon: Icon, title, value, subtitle, tone, onClick }) => (
+  <motion.button
+    type="button"
+    className={`planeje-dashboard-stat planeje-dashboard-stat--${tone}`}
+    onClick={onClick}
+    whileHover={{ y: -3 }}
+    whileTap={{ scale: 0.98 }}
+  >
+    <div className="planeje-dashboard-stat-top">
+      <div>
+        <p className="planeje-dashboard-stat-label">{title}</p>
+        <p className="planeje-dashboard-stat-value">{value}</p>
+        <p className="planeje-dashboard-stat-sub">{subtitle}</p>
+      </div>
+      <div className="planeje-dashboard-stat-icon">
+        <Icon className="w-5 h-5" />
+      </div>
     </div>
-    <div className="flex-1">
-      <p className="text-sm font-medium text-yellow-900 dark:text-yellow-200">{task.title}</p>
-      <p className="text-xs text-yellow-700 dark:text-yellow-400">{clientName} • <span className="capitalize">{task.status}</span></p>
+  </motion.button>
+);
+
+const SugestaoItem = ({ task, clientName }) => (
+  <div className="planeje-dashboard-item planeje-dashboard-item--suggestion">
+    <div className="planeje-dashboard-item-badge planeje-dashboard-item-badge--suggestion">
+      <Lightbulb className="w-3.5 h-3.5" />
     </div>
-  </div>;
-const AlertaItem = ({
-  icon: Icon,
-  text,
-  subtext
-}) => <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
-    <div className="flex-shrink-0 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
-      <Icon className="w-4 h-4 text-white" />
+    <div className="min-w-0">
+      <p className="planeje-dashboard-item-title">{task.title}</p>
+      <p className="planeje-dashboard-item-meta">
+        {clientName} · <span className="capitalize">{task.status}</span>
+      </p>
     </div>
-    <div className="flex-1">
-      <p className="text-sm font-medium text-red-900 dark:text-red-200">{text}</p>
-      <p className="text-xs text-red-700 dark:text-red-400">{subtext}</p>
+  </div>
+);
+
+const AlertaItem = ({ icon: Icon, text, subtext }) => (
+  <div className="planeje-dashboard-item planeje-dashboard-item--alert">
+    <div className="planeje-dashboard-item-badge planeje-dashboard-item-badge--alert">
+      <Icon className="w-3.5 h-3.5" />
     </div>
-  </div>;
-const EmptyState = ({
-  icon: Icon,
-  title,
-  message,
-  color
-}) => <div className="flex flex-col items-center justify-center text-center h-full py-10">
-    <Icon className={`w-12 h-12 mb-4 ${color}`} />
-    <h4 className="text-lg font-semibold text-card-foreground dark:text-white">{title}</h4>
-    <p className="text-sm text-muted-foreground dark:text-gray-400">{message}</p>
-  </div>;
+    <div className="min-w-0">
+      <p className="planeje-dashboard-item-title">{text}</p>
+      <p className="planeje-dashboard-item-meta">{subtext}</p>
+    </div>
+  </div>
+);
+
+const EmptyState = ({ icon: Icon, title, message }) => (
+  <div className="planeje-dashboard-empty">
+    <div className="planeje-dashboard-empty-icon">
+      <Icon className="w-6 h-6" />
+    </div>
+    <h4>{title}</h4>
+    <p>{message}</p>
+  </div>
+);
+
 const Dashboard = () => {
   const {
     user,
@@ -435,9 +461,13 @@ const Dashboard = () => {
     }
   }, [user, profile, dashboardConfig, cachedData, shouldFetch, clearCache, applyDashboardFromCache]);
   
-  const handleNotImplemented = () => toast({
-    description: "🚧 Funcionalidade não implementada! Você pode solicitar no próximo prompt! 🚀"
-  });
+  const firstName = (profile?.full_name || 'Usuário').split(' ')[0];
+  const pulse = useAgencyPulse();
+  const pulseReady = !pulse.loading;
+  const heroMessage = useMemo(
+    () => (pulseReady ? getAgencyPulseMessage(pulse.summary) : getHeroMessage(stats)),
+    [pulseReady, pulse.summary, stats]
+  );
 
   const handleOpenTasksModal = (type) => {
     setSelectedTaskType(type);
@@ -479,76 +509,162 @@ const Dashboard = () => {
     value: stats.executed,
     subtitle: 'Esta semana',
     icon: CheckSquare,
-    color: 'text-green-500',
+    tone: 'executed',
     type: 'executadas'
   }, {
     title: 'Atrasadas',
     value: stats.overdue,
     subtitle: 'Requer atenção',
     icon: AlertTriangle,
-    color: 'text-red-500',
+    tone: 'overdue',
     type: 'atrasadas'
   }, {
     title: 'Hoje',
     value: stats.today,
     subtitle: 'Para postar',
     icon: Clock,
-    color: 'text-orange-500',
+    tone: 'today',
     type: 'hoje'
   }, {
     title: 'Próximas',
     value: stats.upcoming,
     subtitle: '7 dias',
     icon: Calendar,
-    color: 'text-blue-500',
+    tone: 'upcoming',
     type: 'proximas'
   }];
-  return <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Olá, {profile?.full_name || 'Usuário'}!</h1>
-        <p className="text-muted-foreground dark:text-gray-400 capitalize">{formattedDate}</p>
-        {(profile?.role === 'superadmin' || profile?.role === 'admin') && <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                <Button variant="dark" onClick={handleNotImplemented} className="w-full sm:w-auto">Meus dados</Button>
-                <Button variant="outline" onClick={handleNotImplemented} className="w-full sm:w-auto">Versão 3.0</Button>
-            </div>}
-      </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  if (loading && !cachedData) {
+    return (
+      <>
+        <Helmet>
+          <title>Início — Planeje</title>
+        </Helmet>
+        <DashboardLoading />
+      </>
+    );
+  }
+
+  return (
+    <div className="planeje-dashboard">
+      <Helmet>
+        <title>Início — Planeje</title>
+      </Helmet>
+
+      <WorkspacePageHeader
+        title={`Olá, ${firstName}!`}
+        description={formattedDate}
+      />
+      <p className="planeje-dashboard-lead">{heroMessage}</p>
+
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.06 }}
+      >
+        <AgencyPulseBoard
+          loading={pulse.loading}
+          error={pulse.error}
+          summary={pulse.summary}
+          refresh={pulse.refresh}
+        />
+      </motion.section>
+
+      <motion.section
+        className="planeje-dashboard-stats"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.08 }}
+      >
         {statCardsData.map((stat) => (
-          <StatCard 
-            key={stat.title} 
-            {...stat} 
-            delay={0} 
-            isFirstMount={false}
+          <StatCard
+            key={stat.title}
+            {...stat}
             onClick={() => handleOpenTasksModal(stat.type)}
           />
         ))}
-      </div>
+      </motion.section>
 
-      <DashboardAssistant
-        overdueTasks={overdueTasksList}
-        todayTasks={todayTasksList}
-        upcomingTasks={upcomingTasksList}
-        alerts={alerts}
-        suggestions={suggestions}
-        stats={stats}
-      />
+      <div className="planeje-dashboard-main">
+        <motion.div
+          className="planeje-dashboard-assistant-wrap"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.12 }}
+        >
+          <DashboardAssistant
+            overdueTasks={overdueTasksList}
+            todayTasks={todayTasksList}
+            upcomingTasks={upcomingTasksList}
+            alerts={alerts}
+            suggestions={suggestions}
+            stats={stats}
+          />
+        </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <InfoCard icon={Lightbulb} title="Sugestões de Prioridade" color="text-yellow-500">
-            {loading ? <p className="dark:text-gray-300">Analisando tarefas...</p> : suggestions.length > 0 ? <div className="space-y-3">
-                {suggestions.map(task => <SugestaoItem key={task.id} task={task} clientName={task.clientes?.empresa || 'N/A'} />)}
-              </div> : <EmptyState icon={ListChecks} title="Tudo tranquilo!" message="Nenhuma tarefa crítica no momento." color="text-green-500" />}
-          </InfoCard>
-        </div>
-        <div>
-          <InfoCard icon={Bell} title="Alertas Proativos" color="text-red-500">
-            {loading ? <p className="dark:text-gray-300">Verificando alertas...</p> : alerts.length > 0 ? <div className="space-y-3">
-                {alerts.map((alert, index) => <AlertaItem key={index} icon={AlertTriangle} text={alert.text} subtext={alert.subtext} />)}
-              </div> : <EmptyState icon={Bell} title="Tudo em ordem!" message="Nenhum alerta no momento." color="text-green-500" />}
-          </InfoCard>
-        </div>
+        <motion.div
+          className="planeje-dashboard-panels"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.16 }}
+        >
+          <div className="planeje-dashboard-panel">
+            <div className="planeje-dashboard-panel-header">
+              <div className="planeje-dashboard-panel-icon planeje-dashboard-panel-icon--suggestions">
+                <Lightbulb className="w-4 h-4" />
+              </div>
+              <h2 className="planeje-dashboard-panel-title">Sugestões de prioridade</h2>
+            </div>
+            <div className="planeje-dashboard-panel-body">
+              {loading ? (
+                <p className="text-sm text-slate-500">Analisando tarefas…</p>
+              ) : suggestions.length > 0 ? (
+                suggestions.map((task) => (
+                  <SugestaoItem
+                    key={task.id}
+                    task={task}
+                    clientName={task.clientes?.empresa || 'N/A'}
+                  />
+                ))
+              ) : (
+                <EmptyState
+                  icon={ListChecks}
+                  title="Tudo tranquilo!"
+                  message="Nenhuma tarefa crítica no momento."
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="planeje-dashboard-panel">
+            <div className="planeje-dashboard-panel-header">
+              <div className="planeje-dashboard-panel-icon planeje-dashboard-panel-icon--alerts">
+                <Bell className="w-4 h-4" />
+              </div>
+              <h2 className="planeje-dashboard-panel-title">Alertas proativos</h2>
+            </div>
+            <div className="planeje-dashboard-panel-body">
+              {loading ? (
+                <p className="text-sm text-slate-500">Verificando alertas…</p>
+              ) : alerts.length > 0 ? (
+                alerts.map((alert, index) => (
+                  <AlertaItem
+                    key={index}
+                    icon={AlertTriangle}
+                    text={alert.text}
+                    subtext={alert.subtext}
+                  />
+                ))
+              ) : (
+                <EmptyState
+                  icon={Bell}
+                  title="Tudo em ordem!"
+                  message="Nenhum alerta no momento."
+                />
+              )}
+            </div>
+          </div>
+        </motion.div>
       </div>
 
       <Dialog open={showTasksModal} onOpenChange={setShowTasksModal}>
@@ -559,7 +675,7 @@ const Dashboard = () => {
                 <>
                   {statCardsData.find(s => s.type === selectedTaskType)?.icon && (
                     React.createElement(statCardsData.find(s => s.type === selectedTaskType).icon, {
-                      className: `${statCardsData.find(s => s.type === selectedTaskType).color} w-5 h-5`
+                      className: 'w-5 h-5 text-slate-600'
                     })
                   )}
                   {getTitleForType(selectedTaskType)}
@@ -638,6 +754,7 @@ const Dashboard = () => {
           </ScrollArea>
         </DialogContent>
       </Dialog>
-    </div>;
+    </div>
+  );
 };
 export default Dashboard;

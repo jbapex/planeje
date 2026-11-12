@@ -1,0 +1,97 @@
+{
+  "release": "crm-ia-20261111-03",
+  "published_at": "2026-11-11T10:12:04.289153+00:00",
+  "previous_release": "crm-ia-20261111-02",
+  "source_count": 2063,
+  "overlay_count": 36,
+  "index_sha256": "9a38244989246eda79703663dcbe68f9ff33f07c9785075a80a80361fa7c3398",
+  "assets": [
+    "/assets/index.7b77a67f.js",
+    "/assets/index.7d7406ee.css"
+  ],
+  "verified_asset_count": 22,
+  "runtime_entries": [
+    "atlas-chat",
+    "atendimento-ia",
+    "atendimento-planejamento-scheduler",
+    "uazapi-send-message",
+    "uazapi-inbox-webhook",
+    "crm-ia",
+    "crm-ia-calendar",
+    "google-drive-api"
+  ],
+  "migrations_applied_once": {
+    "supabase/migrations/20261111090001_crm_ia_appointment_actions.sql": "d9ba590479ff6495dc3e5b50c0c427a22f365284f23ce3d495376e97db97d7d0",
+    "supabase/migrations/20261111090002_crm_ia_agent_drafts_voice_modes.sql": "654cd933f4b63557f40db50a2732211276b0b60ea8736de03f6e5b88d673d238",
+    "supabase/migrations/20261111090003_crm_ia_lead_tags.sql": "41f2307bd5e3f01779a8f4abe5e918fe6d6aed0f3fbc732fdc32dc8f2045f988"
+  },
+  "eight_previous_migrations_preserved": true,
+  "checks": {
+    "canonical_check": true,
+    "local_crm": {
+      "passed": 205,
+      "failed": 0,
+      "skipped": 0
+    },
+    "remote_node20": {
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0
+    },
+    "independent_node_ui": 80,
+    "independent_pg": 20,
+    "warm_session": 2,
+    "counts_overlap": true,
+    "network_denied_in_qa": true
+  },
+  "verification": {
+    "https": true,
+    "assets": true,
+    "asset_count": 22,
+    "sources": true,
+    "runtime": true,
+    "atlas_unchanged": true,
+    "profile_inherited": true,
+    "edge_options": {
+      "atlas-chat": 200,
+      "atendimento-ia": 200,
+      "atendimento-planejamento-scheduler": 200,
+      "uazapi-send-message": 200,
+      "uazapi-inbox-webhook": 200,
+      "crm-ia": 200,
+      "crm-ia-calendar": 200,
+      "google-drive-api": 200
+    },
+    "no_model_or_whatsapp_call": true
+  },
+  "database_access": {
+    "counts": {
+      "outbox": 0,
+      "configs": 0,
+      "agent_drafts": 0,
+      "audio_inputs": 0,
+      "calendar_jobs": 0,
+      "calendar_connections": 0,
+      "voice_authorizations": 0
+    },
+    "draft_rls": true,
+    "anon_workspace": false,
+    "authenticated_intake": false,
+    "authenticated_workspace": true,
+    "authenticated_draft_table": false,
+    "authenticated_delivery_start": false,
+    "authenticated_workspace_bypass": false,
+    "authenticated_appointment_context": false
+  },
+  "authenticated_ui": {
+    "agenda_week": true,
+    "server_summary": true,
+    "read_only": true,
+    "global_horizontal_overflow": false
+  },
+  "mass_activation": false,
+  "real_model_whatsapp_oauth_test": false,
+  "user_acceptance": false,
+  "vps_quality_document_preserved": true,
+  "remaining": "crm-ia-scaleos-paridade-2026-11-11.md"
+}

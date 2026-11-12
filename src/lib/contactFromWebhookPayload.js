@@ -3,6 +3,8 @@
  * Usado em ContatosPage (preencher a partir do log) e no modal "Ver corpo" (importar como contato).
  */
 
+import { recordedOriginSource } from './rastreamentoTrackableLink.js';
+
 /** Retorna o primeiro valor string não vazio encontrado em obj[keys]. Se o valor for objeto com URL/url, retorna essa URL. */
 function getStr(obj, ...keys) {
   if (!obj || typeof obj !== 'object') return null;
@@ -37,6 +39,61 @@ export function getFromJidFromRawPayload(rawPayload) {
   return `${jid}@s.whatsapp.net`;
 }
 
+/** Últimos 10–11 dígitos para comparar números BR (com/sem 55, com/sem 9). */
+export function normalizeWhatsappPhoneKey(phoneOrJid) {
+  const digits = String(phoneOrJid || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length >= 11) return digits.slice(-11);
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+/** Variantes de JID/telefone para bater log ↔ contato (uazapi usa formatos diferentes). */
+export function buildContactJidLookupVariants(contact) {
+  const jid = contact?.from_jid && String(contact.from_jid).trim();
+  const phone = (contact?.phone && String(contact.phone).trim()) || (jid ? jid.replace(/@.*$/i, '').trim() : '');
+  const key = normalizeWhatsappPhoneKey(phone || jid);
+  const variants = new Set();
+  if (jid && jid !== 'unknown') variants.add(jid);
+  if (phone) variants.add(phone);
+  if (key) {
+    variants.add(key);
+    variants.add(`${key}@s.whatsapp.net`);
+    variants.add(`${key}@lid`);
+    variants.add(`${key}@c.us`);
+    if (key.length === 11 && key[2] === '9') {
+      const ddd = key.slice(0, 2);
+      const rest = key.slice(2);
+      variants.add(`55${ddd}${rest}@s.whatsapp.net`);
+      variants.add(`55${ddd}9${rest}@s.whatsapp.net`);
+    }
+    if (key.length >= 12 && key.startsWith('55')) {
+      const local = key.slice(2);
+      variants.add(`${local}@s.whatsapp.net`);
+      variants.add(`${local}@lid`);
+    }
+  }
+  return [...variants].filter(Boolean);
+}
+
+/** Verifica se um registro de webhook_log pertence ao contato. */
+export function webhookLogMatchesContact(log, contact) {
+  if (!log || !contact) return false;
+  const variants = buildContactJidLookupVariants(contact);
+  const contactKey = normalizeWhatsappPhoneKey(contact.phone || contact.from_jid);
+  const col = log.from_jid && String(log.from_jid).trim();
+  if (col && col !== 'unknown') {
+    if (variants.includes(col)) return true;
+    const colKey = normalizeWhatsappPhoneKey(col);
+    if (contactKey && colKey && contactKey === colKey) return true;
+  }
+  const extracted = getFromJidFromRawPayload(log.raw_payload);
+  if (!extracted || extracted === 'unknown') return false;
+  if (variants.includes(extracted)) return true;
+  const exKey = normalizeWhatsappPhoneKey(extracted);
+  return !!(contactKey && exKey && contactKey === exKey);
+}
+
 /**
  * Extrai URL da foto de perfil (imagePreview, etc.) do raw_payload do evento.
  * Usado ao importar como contato para salvar no contato e repassar ao lead.
@@ -64,12 +121,24 @@ export function extractPhoneAndNameFromRawPayload(rawPayload, fromJid) {
     const body = rawPayload;
     const payload = (body.data && typeof body.data === 'object' ? body.data : body) || {};
     const chat = body.chat ?? payload.chat ?? (body.data && body.data.chat);
+    const message = body.message ?? payload.message;
+    const isGroup = !!(chat?.wa_isGroup ?? message?.isGroup ?? payload?.isGroup ?? payload?.is_group ?? body?.isGroup ?? body?.is_group);
+
+    if (isGroup && message && typeof message === 'object') {
+      const participantPhone = getStr(message, 'sender_pn', 'senderPn') ?? getStr(payload, 'sender_pn', 'senderPn') ?? getStr(body, 'sender_pn', 'senderPn');
+      if (participantPhone) phone = extractPhoneFromJid(participantPhone);
+      const participantName = getStr(message, 'senderName', 'pushName', 'notifyName');
+      if (participantName) senderName = participantName;
+    }
+
     if (!phone) {
       phone = getStr(chat, 'phone') ?? getStr(payload, 'number', 'phone') ?? getStr(body, 'number', 'phone') ?? '';
     }
-    const leadName = getStr(chat, 'lead_name', 'leadName') ?? getStr(body, 'lead_name', 'leadName') ?? getStr(payload, 'lead_name', 'leadName');
-    const nameRaw = leadName ?? getStr(chat, 'name', 'wa_name') ?? getStr(payload, 'notifyName', 'pushName', 'senderName', 'contactName', 'name', 'verifiedName') ?? getStr(body, 'notifyName', 'pushName', 'name', 'senderName');
-    senderName = (nameRaw && String(nameRaw).trim()) || (phone && String(phone).trim()) || phoneFromJid || null;
+    if (!senderName) {
+      const leadName = getStr(chat, 'lead_name', 'leadName') ?? getStr(body, 'lead_name', 'leadName') ?? getStr(payload, 'lead_name', 'leadName');
+      const nameRaw = leadName ?? getStr(chat, 'name', 'wa_name') ?? getStr(payload, 'notifyName', 'pushName', 'senderName', 'contactName', 'name', 'verifiedName') ?? getStr(body, 'notifyName', 'pushName', 'name', 'senderName');
+      senderName = (nameRaw && String(nameRaw).trim()) || (phone && String(phone).trim()) || phoneFromJid || null;
+    }
   }
   return {
     phone: (phone && String(phone).trim()) || phoneFromJid || null,
@@ -108,6 +177,7 @@ export function buildContactTrackingFromRawPayload(rawPayload) {
   const utm_content_val = getStr(body, 'utm_content') ?? getStr(payload, 'utm_content') ?? null;
   const utm_term_val = getStr(body, 'utm_term') ?? getStr(payload, 'utm_term') ?? null;
   const fbclid = getStr(body, 'fbclid') ?? getStr(payload, 'fbclid') ?? (chat ? getStr(chat, 'fbclid') : null);
+  const gclid = getStr(body, 'gclid') ?? getStr(payload, 'gclid') ?? (chat ? getStr(chat, 'gclid') : null);
   const source_id = getStr(externalAdReply, 'sourceID', 'source_id', 'sourceId') ?? getStr(body, 'sourceID', 'source_id', 'sourceId') ?? getStr(payload, 'sourceID', 'source_id', 'sourceId') ?? (chat ? getStr(chat, 'sourceID', 'source_id', 'sourceId') : null);
   const sourceApp = getStr(externalAdReply, 'sourceApp', 'source_app') ?? getStr(body, 'sourceApp', 'source_app') ?? getStr(payload, 'sourceApp', 'source_app') ?? (chat ? getStr(chat, 'sourceApp', 'source_app') : null);
   const ctwaClid = getStr(externalAdReply, 'ctwaClid', 'ctwa_clid') ?? getStr(body, 'ctwaClid', 'ctwa_clid') ?? getStr(payload, 'ctwaClid', 'ctwa_clid') ?? (chat ? getStr(chat, 'ctwaClid', 'ctwa_clid') : null);
@@ -115,10 +185,21 @@ export function buildContactTrackingFromRawPayload(rawPayload) {
   const entryPointConversionExternalSource = getStr(contextInfo, 'entryPointConversionExternalSource') ?? getStr(body, 'entryPointConversionExternalSource') ?? getStr(payload, 'entryPointConversionExternalSource') ?? null;
   const sourceURL = getStr(externalAdReply, 'sourceURL', 'source_url') ?? getStr(body, 'sourceURL', 'source_url') ?? getStr(payload, 'sourceURL', 'source_url') ?? null;
   const thumbnailURL = getStr(externalAdReply, 'thumbnailURL', 'thumbnail_url') ?? getStr(body, 'thumbnailURL', 'thumbnail_url') ?? getStr(payload, 'thumbnailURL', 'thumbnail_url') ?? null;
+  const ownerPhone =
+    getStr(body, 'owner') ?? getStr(payload, 'owner') ?? (chat ? getStr(chat, 'owner') : null);
   const metaIndicators = ['facebook', 'meta', 'fb', 'meta_ads', 'meta ads', 'facebook_ads', 'fb_ads'];
+  const googleIndicators = ['google', 'googleads', 'google_ads', 'adwords', 'gads'];
   const utmIsMeta = utm_source_val && metaIndicators.some((m) => utm_source_val.toLowerCase().includes(m));
+  const utmIsGoogle =
+    utm_source_val && googleIndicators.some((m) => utm_source_val.toLowerCase().includes(m));
+  const utmMediumIsCpc = utm_medium_val && /cpc|ppc|paid/i.test(utm_medium_val);
   const conversionSourceIsMeta = conversionSource && metaIndicators.some((m) => conversionSource.toLowerCase().includes(m));
-  const origin_source_val = utmIsMeta || fbclid || source_id || sourceApp || ctwaClid || conversionSourceIsMeta ? 'meta_ads' : 'nao_identificado';
+  let origin_source_val = 'nao_identificado';
+  if (utmIsMeta || fbclid || source_id || sourceApp || ctwaClid || conversionSourceIsMeta) {
+    origin_source_val = 'meta_ads';
+  } else if (gclid || utmIsGoogle || (utmMediumIsCpc && utmIsGoogle)) {
+    origin_source_val = 'google_ads';
+  }
   const tracking = {};
   if (utm_source_val) tracking.utm_source = utm_source_val;
   if (utm_medium_val) tracking.utm_medium = utm_medium_val;
@@ -126,6 +207,7 @@ export function buildContactTrackingFromRawPayload(rawPayload) {
   if (utm_content_val) tracking.utm_content = utm_content_val;
   if (utm_term_val) tracking.utm_term = utm_term_val;
   if (fbclid) tracking.fbclid = fbclid;
+  if (gclid) tracking.gclid = gclid;
   if (source_id) tracking.source_id = source_id;
   if (sourceApp) tracking.sourceApp = sourceApp;
   if (ctwaClid) tracking.ctwaClid = ctwaClid;
@@ -133,6 +215,7 @@ export function buildContactTrackingFromRawPayload(rawPayload) {
   if (entryPointConversionExternalSource) tracking.entryPointConversionExternalSource = entryPointConversionExternalSource;
   if (sourceURL) tracking.sourceURL = sourceURL;
   if (thumbnailURL) tracking.thumbnailURL = thumbnailURL;
+  if (ownerPhone) tracking.owner_phone = ownerPhone;
   return {
     origin_source: origin_source_val,
     utm_source: utm_source_val || null,
@@ -158,7 +241,8 @@ function utmStringsSuggestMeta(parts) {
  */
 export function isMetaAdsContactForStats(c) {
   if (!c) return false;
-  if (c.origin_source === 'meta_ads') return true;
+  const origin = recordedOriginSource(c);
+  if (origin) return origin === 'meta_ads';
   if (
     utmStringsSuggestMeta([
       c.utm_source,
@@ -201,6 +285,8 @@ export function isMetaAdsContactForStats(c) {
  */
 export function isMetaAdsLeadForStats(lead) {
   if (!lead) return false;
+  const origin = recordedOriginSource(lead, true);
+  if (origin) return origin === 'meta_ads';
   if (lead.origem === 'Meta Ads') return true;
   const td0 = lead.tracking_data;
   if (td0 && typeof td0 === 'object' && (td0.meta_lead_id || td0.form_id)) return true;

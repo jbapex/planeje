@@ -1,0 +1,8 @@
+/* O aviso aguarda o fechamento do formulário, sem interceptar seus cliques. */
+body:has(
+  [role="dialog"][data-state="open"],
+  [role="alertdialog"][data-state="open"],
+  [aria-modal="true"]:not([data-state="closed"])
+) .atendimento-espera-popup {
+  display: none;
+}

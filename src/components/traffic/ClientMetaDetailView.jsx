@@ -14,16 +14,23 @@ import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { format, isValid, startOfMonth, endOfMonth, subMonths, subDays, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { buildMetaSnapshot, saveClienteMetaResumo, readClienteMetaResumo, objectiveKpiCards, entityResultLine, extractEntityMetrics, OBJECTIVE_LABELS, readNestedAdsets, metaApiLimitMessage } from '@/lib/clienteMetaSnapshot';
+import { shouldKeepPreviousMeta } from '@/lib/trafegoHojeCache';
+import { formatAdsetAudience, formatAdsetAudienceFull } from '@/lib/metaAdsetAudience';
 
-const ClientMetaDetailView = ({ client, onClose }) => {
+const ClientMetaDetailView = ({ client, onClose, initialDate = null }) => {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('campanhas');
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
   const [selectedAdsetId, setSelectedAdsetId] = useState(null);
-  const [date, setDate] = useState({
-    from: new Date(new Date().setDate(new Date().getDate() - 30)),
-    to: new Date(),
-  });
+  const [date, setDate] = useState(() =>
+    initialDate?.from && initialDate?.to
+      ? initialDate
+      : {
+          from: new Date(new Date().setDate(new Date().getDate() - 30)),
+          to: new Date(),
+        }
+  );
   
   // Estados de dados
   const [campaigns, setCampaigns] = useState([]);
@@ -34,7 +41,9 @@ const ClientMetaDetailView = ({ client, onClose }) => {
   const [loadingAds, setLoadingAds] = useState(false);
   const [linkedAccounts, setLinkedAccounts] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'paused'
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [adsetsError, setAdsetsError] = useState(null);
+  const [adsetsByCampaign, setAdsetsByCampaign] = useState({});
   
   // Colunas visíveis (aplicadas a todas as abas)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -44,14 +53,15 @@ const ClientMetaDetailView = ({ client, onClose }) => {
     investimento: true,
     resultados: true,
     mensagens: true,
-    compras: true,
+    compras: false,
     custoResultado: true,
     alcance: true,
-    impressoes: true,
+    impressoes: false,
     cliques: true,
     ctr: true,
-    cpm: true,
-    roas: true,
+    cpm: false,
+    roas: false,
+    publicos: true,
   });
   
   const [showColumnSelector, setShowColumnSelector] = useState(false);
@@ -72,6 +82,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
     { key: 'ctr', label: 'CTR' },
     { key: 'cpm', label: 'CPM' },
     { key: 'roas', label: 'ROAS' },
+    { key: 'publicos', label: 'Públicos (conjuntos)' },
   ];
   
   const toggleColumn = (columnKey) => {
@@ -100,6 +111,13 @@ const ClientMetaDetailView = ({ client, onClose }) => {
   const formatROAS = (value) => {
     if (value === null || value === undefined || isNaN(value) || value === 0) return '0,00x';
     return `${(value || 0).toFixed(2)}x`;
+  };
+
+  const formatCostPerResult = (objective, item) => {
+    const metrics = extractEntityMetrics(item);
+    const result = entityResultLine(objective, metrics);
+    if (!result.value) return '—';
+    return formatCurrency(metrics.spend / result.value);
   };
 
   // Busca contas Meta vinculadas ao cliente
@@ -142,6 +160,10 @@ const ClientMetaDetailView = ({ client, onClose }) => {
       let totalMessages = 0;
       let totalPurchases = 0;
       let totalPurchaseValue = 0;
+      let totalClicks = 0;
+      let totalReach = 0;
+      let totalLeads = 0;
+      let totalEngagements = 0;
 
       for (const account of linkedAccounts) {
         await new Promise(resolve => setTimeout(resolve, 300)); // Delay entre contas
@@ -178,6 +200,8 @@ const ClientMetaDetailView = ({ client, onClose }) => {
           if (campaign.insights?.data?.[0]) {
             const insights = campaign.insights.data[0];
             totalSpend += parseFloat(insights.spend || 0) || 0;
+            totalClicks += parseFloat(insights.clicks || 0) || 0;
+            totalReach += parseFloat(insights.reach || 0) || 0;
             
             // Processa mensagens
             if (Array.isArray(insights.actions)) {
@@ -195,6 +219,12 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                 }
                 if (action?.action_type === 'omni_purchase') {
                   totalPurchases += parseFloat(action.value || 0) || 0;
+                }
+                if (String(action?.action_type || '').toLowerCase().includes('lead')) {
+                  totalLeads += parseFloat(action.value || 0) || 0;
+                }
+                if (action?.action_type === 'post_engagement' || action?.action_type === 'page_engagement') {
+                  totalEngagements += parseFloat(action.value || 0) || 0;
                 }
               });
             }
@@ -245,6 +275,12 @@ const ClientMetaDetailView = ({ client, onClose }) => {
         console.warn(`⚠️ ATENÇÃO: Esperado 3 campanhas em veiculação, mas encontrado ${activeCampaigns.length}`);
       }
 
+      const nested = {};
+      allCampaigns.forEach((campaign) => {
+        const list = readNestedAdsets(campaign);
+        if (list.length) nested[String(campaign.id)] = list;
+      });
+      setAdsetsByCampaign(nested);
       setCampaigns(allCampaigns);
       
       // Calcula resumo
@@ -257,10 +293,23 @@ const ClientMetaDetailView = ({ client, onClose }) => {
         messages: totalMessages,
         purchases: totalPurchases,
         purchaseValue: totalPurchaseValue,
+        clicks: totalClicks,
+        reach: totalReach,
+        leads: totalLeads,
+        engagements: totalEngagements,
         costPerMessage,
         costPerPurchase,
         roas,
+        activeCount: activeCampaigns.length,
       });
+      const nextSnapshot = buildMetaSnapshot({ campaigns: allCampaigns, period: timeRange });
+      const previous = readClienteMetaResumo(client);
+      if (
+        allCampaigns.length > 0 &&
+        !shouldKeepPreviousMeta({ campaigns: allCampaigns }, previous)
+      ) {
+        saveClienteMetaResumo(client.id, nextSnapshot).catch((e) => console.warn('Não gravou meta_resumo', e));
+      }
     } catch (err) {
       console.error('Erro ao buscar campanhas:', err);
       toast({
@@ -275,40 +324,41 @@ const ClientMetaDetailView = ({ client, onClose }) => {
 
   // Busca conjuntos de anúncios
   const fetchAdsets = useCallback(async () => {
-    if (!selectedCampaignId) {
-      console.log('⚠️ fetchAdsets chamado sem selectedCampaignId');
+    if (!selectedCampaignId) return;
+
+    const cached = adsetsByCampaign[String(selectedCampaignId)];
+    if (cached?.length) {
+      setAdsetsError(null);
+      setAdsets(cached);
       return;
     }
 
-    console.log('📊 Buscando conjuntos para campanha:', selectedCampaignId);
     setLoadingAdsets(true);
+    setAdsetsError(null);
     try {
       const timeRange = {
         since: date?.from && isValid(date.from) ? format(date.from, 'yyyy-MM-dd') : format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
         until: date?.to && isValid(date.to) ? format(date.to, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       };
 
-      console.log('📅 Time range:', timeRange);
-
-      await new Promise(resolve => setTimeout(resolve, 500));
-
       const response = await supabase.functions.invoke('meta-ads-api', {
         body: {
           action: 'get-adsets',
           campaignId: selectedCampaignId,
           time_range: timeRange,
-          metrics: ['spend', 'impressions', 'clicks', 'reach', 'results', 'actions', 'action_values'],
+          metrics: ['spend', 'impressions', 'clicks', 'reach', 'actions', 'action_values'],
         },
       });
 
-      console.log('📦 Resposta get-adsets completa:', JSON.stringify(response, null, 2));
+      if (response.error) throw response.error;
 
-      if (response.error) {
-        console.error('❌ Erro na resposta:', response.error);
-        throw response.error;
+      const limitMsg = metaApiLimitMessage(response.data);
+      if (limitMsg) {
+        setAdsets([]);
+        setAdsetsError(limitMsg);
+        return;
       }
-      
-      // Tenta diferentes caminhos possíveis na resposta
+
       let adsetsData = [];
       if (response.data?.adsets) {
         adsetsData = response.data.adsets;
@@ -319,25 +369,16 @@ const ClientMetaDetailView = ({ client, onClose }) => {
       } else if (response.data?.data && Array.isArray(response.data.data)) {
         adsetsData = response.data.data;
       }
-      
-      console.log(`✅ ${adsetsData.length} conjuntos encontrados:`, adsetsData);
-      console.log('📋 Estrutura da resposta:', {
-        'response.data': response.data,
-        'response.data?.adsets': response.data?.adsets,
-        'response.data?.data': response.data?.data,
-      });
+
       setAdsets(adsetsData);
     } catch (err) {
       console.error('❌ Erro ao buscar conjuntos:', err);
-      toast({
-        title: 'Erro ao buscar conjuntos',
-        description: err.message,
-        variant: 'destructive',
-      });
+      setAdsets([]);
+      setAdsetsError(err.message || 'Não foi possível buscar os conjuntos.');
     } finally {
       setLoadingAdsets(false);
     }
-  }, [selectedCampaignId, date, toast]);
+  }, [selectedCampaignId, date, adsetsByCampaign]);
 
   // Busca anúncios
   const fetchAds = useCallback(async () => {
@@ -421,12 +462,31 @@ const ClientMetaDetailView = ({ client, onClose }) => {
   }, [activeTab]);
 
   // Determina objetivo do cliente
+  const isMessageGoal = () => {
+    const obj = String(client?.objetivo_meta || '').toLowerCase();
+    if (obj.includes('mensagem') || obj.includes('lead')) return true;
+    if (obj.includes('compra') || obj.includes('e-commerce')) return false;
+    const messages = Number(summary?.messages || 0);
+    const purchases = Number(summary?.purchases || 0);
+    return messages > purchases;
+  };
+
+  const campaignSnapshot = useMemo(() => buildMetaSnapshot({ campaigns }), [campaigns]);
+  const kpiCards = useMemo(() => objectiveKpiCards(campaignSnapshot), [campaignSnapshot]);
+
   const getObjetivoLabel = () => {
-    const obj = client?.objetivo_meta?.toLowerCase() || '';
+    const obj = String(client?.objetivo_meta || '').toLowerCase();
     if (obj.includes('mensagem') || obj.includes('lead')) return 'Mensagens / Leads';
     if (obj.includes('compra') || obj.includes('e-commerce')) return 'Compras / E-commerce';
     if (obj === 'misto') return 'Misto';
-    return 'Não definido';
+    const snap = campaignSnapshot;
+    if (snap.inferredGoal === 'misto') return 'Misto (pelas campanhas)';
+    if (snap.inferredGoal && OBJECTIVE_LABELS[snap.inferredGoal]) {
+      return `${OBJECTIVE_LABELS[snap.inferredGoal]} (pelas campanhas)`;
+    }
+    if (Number(summary?.purchases || 0) > 0) return 'Compras (pelas campanhas)';
+    if (isMessageGoal()) return 'Mensagens (pelas campanhas)';
+    return 'Objetivo não cadastrado';
   };
 
   // Filtra itens baseado no status selecionado
@@ -556,12 +616,24 @@ const ClientMetaDetailView = ({ client, onClose }) => {
     
     const obj = objective.toUpperCase();
     
-    // Objetivos de mensagem/engajamento
-    if (obj.includes('MESSAGING') || obj.includes('MESSAGE') || 
-        obj.includes('ENGAGEMENT') || obj.includes('LEAD') ||
-        obj.includes('CONVERSATION') || obj.includes('COMMENT') ||
-        obj.includes('REACTION') || obj.includes('SHARE')) {
+    // Objetivos de mensagem
+    if (obj.includes('MESSAGING') || obj.includes('MESSAGE') || obj.includes('CONVERSATION')) {
       return 'messages';
+    }
+
+    if (obj.includes('LEAD')) {
+      return 'leads';
+    }
+
+    if (
+      obj.includes('ENGAGEMENT') ||
+      obj.includes('COMMENT') ||
+      obj.includes('REACTION') ||
+      obj.includes('SHARE') ||
+      obj.includes('POST_ENGAGEMENT') ||
+      obj.includes('PAGE_LIKE')
+    ) {
+      return 'engagement';
     }
     
     // Objetivos de compra/venda/conversão
@@ -610,7 +682,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
     
     switch (resultType) {
       case 'messages':
-        // Soma todas as ações de mensagem/engajamento
+        // Soma todas as ações de mensagem
         let messages = 0;
         if (Array.isArray(insights.actions)) {
           insights.actions.forEach(action => {
@@ -622,12 +694,6 @@ const ClientMetaDetailView = ({ client, onClose }) => {
               'messaging_replies',
               'onsite_messaging_conversation',
               'messaging_conversation',
-              'lead',
-              'onsite_conversion.lead_7d',
-              'post_engagement',
-              'post_reactions',
-              'post_comments',
-              'post_shares',
             ];
             if (messagingTypes.includes(action?.action_type)) {
               messages += parseFloat(action.value || 0) || 0;
@@ -635,6 +701,28 @@ const ClientMetaDetailView = ({ client, onClose }) => {
           });
         }
         return messages;
+
+      case 'leads':
+        let leads = 0;
+        if (Array.isArray(insights.actions)) {
+          insights.actions.forEach(action => {
+            const t = String(action?.action_type || '').toLowerCase();
+            if (t.includes('lead')) leads += parseFloat(action.value || 0) || 0;
+          });
+        }
+        return leads;
+
+      case 'engagement':
+        let engagements = 0;
+        if (Array.isArray(insights.actions)) {
+          insights.actions.forEach(action => {
+            const t = String(action?.action_type || '');
+            if (t === 'post_engagement' || t === 'page_engagement') {
+              engagements += parseFloat(action.value || 0) || 0;
+            }
+          });
+        }
+        return engagements || parseFloat(insights.clicks || 0) || 0;
         
       case 'purchases':
         // Soma compras
@@ -708,6 +796,8 @@ const ClientMetaDetailView = ({ client, onClose }) => {
     let messages = 0;
     let purchases = 0;
     let purchaseValue = 0;
+    let engagements = 0;
+    let leads = 0;
 
     // Debug: log das actions disponíveis (apenas primeira vez)
     if (Array.isArray(insights.actions) && insights.actions.length > 0 && !window._loggedDetailActions) {
@@ -742,11 +832,17 @@ const ClientMetaDetailView = ({ client, onClose }) => {
         }
         
         if (action?.action_type === 'omni_purchase') {
-          const purchaseValue = parseFloat(action.value || 0) || 0;
-          purchases += purchaseValue;
-          if (purchaseValue > 0) {
-            console.log(`✅ [processInsights] Compra encontrada: omni_purchase = ${purchaseValue} em ${item.name || item.id}`);
+          const purchaseValueCount = parseFloat(action.value || 0) || 0;
+          purchases += purchaseValueCount;
+          if (purchaseValueCount > 0) {
+            console.log(`✅ [processInsights] Compra encontrada: omni_purchase = ${purchaseValueCount} em ${item.name || item.id}`);
           }
+        }
+        if (action?.action_type === 'post_engagement' || action?.action_type === 'page_engagement') {
+          engagements += parseFloat(action.value || 0) || 0;
+        }
+        if (String(action?.action_type || '').toLowerCase().includes('lead')) {
+          leads += parseFloat(action.value || 0) || 0;
         }
       });
     } else {
@@ -786,6 +882,8 @@ const ClientMetaDetailView = ({ client, onClose }) => {
       messages,
       purchases,
       purchaseValue,
+      engagements,
+      leads,
       ctr,
       cpm,
       costPerMessage,
@@ -821,7 +919,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                  Detalhes Meta - {client?.empresa}
+                  {client?.empresa || 'Campanhas Meta'}
                 </h2>
                 <Badge variant="outline" className="dark:border-gray-600 dark:text-white">
                   {getObjetivoLabel()}
@@ -913,7 +1011,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                     Todos os Status
                   </SelectItem>
                   <SelectItem value="active" className="dark:text-white dark:hover:bg-gray-600">
-                    Ativo
+                    Só no ar
                   </SelectItem>
                   <SelectItem value="paused" className="dark:text-white dark:hover:bg-gray-600">
                     Pausado
@@ -932,29 +1030,42 @@ const ClientMetaDetailView = ({ client, onClose }) => {
 
             {/* Cards de resumo */}
             {summary && (
-              <div className="grid grid-cols-4 gap-4 mt-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
                 <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                   <div className="text-xs text-gray-600 dark:text-gray-400">Investimento</div>
                   <div className="text-lg font-semibold dark:text-white">{formatCurrency(summary.spend)}</div>
                 </div>
                 <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="text-xs text-gray-600 dark:text-gray-400">
-                    {client?.objetivo_meta?.includes('mensagem') || client?.objetivo_meta?.includes('lead') ? 'Mensagens' : 'Compras'}
-                  </div>
-                  <div className="text-lg font-semibold dark:text-white">
-                    {formatNumber(client?.objetivo_meta?.includes('mensagem') || client?.objetivo_meta?.includes('lead') ? summary.messages : summary.purchases)}
-                  </div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400">Campanhas no ar</div>
+                  <div className="text-lg font-semibold dark:text-white">{formatNumber(summary.activeCount || 0)}</div>
                 </div>
-                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Custo por Resultado</div>
-                  <div className="text-lg font-semibold dark:text-white">
-                    {formatCurrency(client?.objetivo_meta?.includes('mensagem') || client?.objetivo_meta?.includes('lead') ? summary.costPerMessage : summary.costPerPurchase)}
+                {kpiCards.map((card) => (
+                  <div key={card.key} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">{card.label}</div>
+                    <div className="text-lg font-semibold dark:text-white">{card.value}</div>
+                    {card.line ? (
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{card.line}</div>
+                    ) : null}
                   </div>
-                </div>
-                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="text-xs text-gray-600 dark:text-gray-400">ROAS</div>
-                  <div className="text-lg font-semibold dark:text-white">{formatROAS(summary.roas)}</div>
-                </div>
+                ))}
+                {Number(summary.reach || 0) > 0 && !kpiCards.some((c) => c.key === 'alcance') ? (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">Alcance</div>
+                    <div className="text-lg font-semibold dark:text-white">{formatNumber(summary.reach)}</div>
+                  </div>
+                ) : null}
+                {Number(summary.clicks || 0) > 0 && !kpiCards.some((c) => c.key === 'trafego') ? (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">Cliques</div>
+                    <div className="text-lg font-semibold dark:text-white">{formatNumber(summary.clicks)}</div>
+                  </div>
+                ) : null}
+                {Number(summary.messages || 0) > 0 && !kpiCards.some((c) => c.key === 'mensagens') ? (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">Mensagens</div>
+                    <div className="text-lg font-semibold dark:text-white">{formatNumber(summary.messages)}</div>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -1104,7 +1215,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               {visibleColumns.investimento && <TableCell className="dark:text-gray-300">{insights ? formatCurrency(insights.spend) : '-'}</TableCell>}
                               {visibleColumns.resultados && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? formatNumber(insights.resultValue || 0) : '-'}
+                                  {entityResultLine(campaign.objective, extractEntityMetrics(campaign)).line}
                                 </TableCell>
                               )}
                               {visibleColumns.mensagens && (
@@ -1119,11 +1230,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               )}
                               {visibleColumns.custoResultado && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? (() => {
-                                    const resultValue = insights.resultValue || 0;
-                                    const costPerResult = resultValue > 0 ? insights.spend / resultValue : 0;
-                                    return formatCurrency(costPerResult);
-                                  })() : '-'}
+                                  {formatCostPerResult(campaign.objective, campaign)}
                                 </TableCell>
                               )}
                               {visibleColumns.alcance && <TableCell className="dark:text-gray-300">{insights ? formatNumber(insights.reach) : '-'}</TableCell>}
@@ -1153,7 +1260,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                   </div>
                 ) : adsets.length === 0 ? (
                   <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                    Nenhum conjunto encontrado para esta campanha.
+                    {adsetsError || 'Nenhum conjunto encontrado para esta campanha.'}
                   </div>
                 ) : (
                   <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-x-auto">
@@ -1163,6 +1270,7 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                           {visibleColumns.status && <TableHead className="dark:text-white">Status</TableHead>}
                           {visibleColumns.nome && <TableHead className="dark:text-white">Nome</TableHead>}
                           {visibleColumns.objetivo && <TableHead className="dark:text-white">Objetivo</TableHead>}
+                          {visibleColumns.publicos && <TableHead className="dark:text-white min-w-[240px]">Públicos</TableHead>}
                           {visibleColumns.investimento && <TableHead className="dark:text-white">Investimento</TableHead>}
                           {visibleColumns.resultados && <TableHead className="dark:text-white">Resultados</TableHead>}
                           {visibleColumns.mensagens && <TableHead className="dark:text-white">Mensagens</TableHead>}
@@ -1254,10 +1362,20 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               )}
                               {visibleColumns.nome && <TableCell className="font-medium dark:text-white">{adset.name || '-'}</TableCell>}
                               {visibleColumns.objetivo && <TableCell className="dark:text-gray-300">{translateObjective(campaigns.find(c => c.id === adset.campaign_id)?.objective || adset.objective)}</TableCell>}
+                              {visibleColumns.publicos && (
+                                <TableCell className="dark:text-gray-300 max-w-[280px]">
+                                  <span className="line-clamp-3" title={formatAdsetAudienceFull(adset.targeting)}>
+                                    {formatAdsetAudience(adset.targeting) || formatAdsetAudienceFull(adset.targeting)}
+                                  </span>
+                                </TableCell>
+                              )}
                               {visibleColumns.investimento && <TableCell className="dark:text-gray-300">{insights ? formatCurrency(insights.spend) : '-'}</TableCell>}
                               {visibleColumns.resultados && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? formatNumber(insights.resultValue || 0) : '-'}
+                                  {entityResultLine(
+                                    campaigns.find((c) => String(c.id) === String(adset.campaign_id))?.objective || adset.objective,
+                                    extractEntityMetrics(adset)
+                                  ).line}
                                 </TableCell>
                               )}
                               {visibleColumns.mensagens && (
@@ -1272,11 +1390,10 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               )}
                               {visibleColumns.custoResultado && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? (() => {
-                                    const resultValue = insights.resultValue || 0;
-                                    const costPerResult = resultValue > 0 ? insights.spend / resultValue : 0;
-                                    return formatCurrency(costPerResult);
-                                  })() : '-'}
+                                  {formatCostPerResult(
+                                    campaigns.find((c) => String(c.id) === String(adset.campaign_id))?.objective || adset.objective,
+                                    adset
+                                  )}
                                 </TableCell>
                               )}
                               {visibleColumns.alcance && <TableCell className="dark:text-gray-300">{insights ? formatNumber(insights.reach) : '-'}</TableCell>}
@@ -1402,7 +1519,10 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               {visibleColumns.investimento && <TableCell className="dark:text-gray-300">{insights ? formatCurrency(insights.spend) : '-'}</TableCell>}
                               {visibleColumns.resultados && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? formatNumber(insights.resultValue || 0) : '-'}
+                                  {entityResultLine(
+                                    campaigns.find((c) => c.id === adsets.find((a) => a.id === ad.adset_id)?.campaign_id)?.objective || ad.objective,
+                                    extractEntityMetrics(ad)
+                                  ).line}
                                 </TableCell>
                               )}
                               {visibleColumns.mensagens && (
@@ -1417,11 +1537,10 @@ const ClientMetaDetailView = ({ client, onClose }) => {
                               )}
                               {visibleColumns.custoResultado && (
                                 <TableCell className="dark:text-gray-300">
-                                  {insights ? (() => {
-                                    const resultValue = insights.resultValue || 0;
-                                    const costPerResult = resultValue > 0 ? insights.spend / resultValue : 0;
-                                    return formatCurrency(costPerResult);
-                                  })() : '-'}
+                                  {formatCostPerResult(
+                                    campaigns.find((c) => c.id === adsets.find((a) => a.id === ad.adset_id)?.campaign_id)?.objective || ad.objective,
+                                    ad
+                                  )}
                                 </TableCell>
                               )}
                               {visibleColumns.alcance && <TableCell className="dark:text-gray-300">{insights ? formatNumber(insights.reach) : '-'}</TableCell>}

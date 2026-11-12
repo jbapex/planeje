@@ -54,6 +54,7 @@ import ClienteCanaisPage from '@/components/pages/ClienteCanaisPage';
 import ApicebotIntegracaoPage from '@/components/pages/ApicebotIntegracaoPage';
 import CaixaEntradaPage from '@/components/pages/CaixaEntradaPage';
 import CrmWhatsAppPage from '@/components/pages/CrmWhatsAppPage';
+import { buildConversasUrl, CONVERSAS_CONFIG_PATH, canManageConversasConfig } from '@/lib/conversasRoutes';
 import ContatosPage from '@/components/pages/ContatosPage';
 import AutomacoesPage from '@/components/pages/AutomacoesPage';
 
@@ -84,6 +85,8 @@ const CRM_TAB_API = 'api';
 const CRM_TAB_CANAIS = 'canais';
 const CRM_TAB_CAIXA_ENTRADA = 'caixa-entrada';
 const CRM_TAB_WHATSAPP = 'whatsapp';
+const CRM_TAB_ATENDIMENTO = 'atendimento';
+const CRM_TAB_ATENDIMENTO_CONFIG = 'atendimento-config';
 const CRM_TAB_APICEBOT = 'apicebot';
 const CRM_TAB_CONTATOS = 'contatos';
 const CRM_TAB_RELATORIO_META = 'relatorio-meta';
@@ -103,6 +106,8 @@ const CRM_TABS_BY_PATH = {
   [CRM_TAB_AUTOMACOES]: true,
   [CRM_TAB_CAIXA_ENTRADA]: true,
   [CRM_TAB_WHATSAPP]: true,
+  [CRM_TAB_ATENDIMENTO]: true,
+  [CRM_TAB_ATENDIMENTO_CONFIG]: true,
 };
 
 // Ocultar por hora: Caixa de entrada e WhatsApp (abas e conteúdo)
@@ -117,13 +122,17 @@ const ClientCRMContent = () => {
   const basePath = location.pathname.startsWith('/client-area') ? '/client-area' : location.pathname.startsWith('/crm') ? '/crm' : '/cliente';
   const forceContatosOnly = basePath === '/client-area';
 
-  const isAdminWithoutCliente = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
+  const isInternalTeam = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role);
+  const isAdminWithoutCliente = isInternalTeam && !profile?.cliente_id;
+  const internalAtendimentoTabs = [CRM_TAB_ATENDIMENTO, CRM_TAB_ATENDIMENTO_CONFIG];
+  const isClienteRole = profile?.role === 'cliente';
 
   const normalizedTabParam = tabParam === CRM_TAB_ALIAS_CONTATOS ? CRM_TAB_CONTATOS : tabParam;
   const resolvedTab = forceContatosOnly
     ? CRM_TAB_CONTATOS
     : (CRM_TABS_BY_PATH[normalizedTabParam] ? normalizedTabParam : (isAdminWithoutCliente ? CRM_TAB_CONTATOS : CRM_TAB_LEADS));
   const [activeTab, setActiveTab] = useState(resolvedTab);
+  const [whatsAppInitialJid, setWhatsAppInitialJid] = useState(null);
 
   useEffect(() => {
     if (normalizedTabParam && CRM_TABS_BY_PATH[normalizedTabParam] && normalizedTabParam !== activeTab) setActiveTab(normalizedTabParam);
@@ -131,6 +140,20 @@ const ClientCRMContent = () => {
 
   // Administrador: só Contatos; redirecionar qualquer outra aba para contatos
   const crmPath = (tab) => (basePath === '/crm' ? `${basePath}/${tab}` : `${basePath}/crm/${tab}`);
+
+  useEffect(() => {
+    if (normalizedTabParam === CRM_TAB_ATENDIMENTO) {
+      navigate(buildConversasUrl({ chatJid: whatsAppInitialJid || undefined }), { replace: true });
+      setWhatsAppInitialJid(null);
+      return;
+    }
+    if (normalizedTabParam === CRM_TAB_ATENDIMENTO_CONFIG) {
+      navigate(
+        canManageConversasConfig(profile?.role) ? CONVERSAS_CONFIG_PATH : buildConversasUrl(),
+        { replace: true }
+      );
+    }
+  }, [normalizedTabParam, whatsAppInitialJid, navigate, profile?.role]);
 
   useEffect(() => {
     if (tabParam === CRM_TAB_ALIAS_CONTATOS) {
@@ -141,10 +164,14 @@ const ClientCRMContent = () => {
       navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
       return;
     }
-    if (isAdminWithoutCliente && tabParam !== CRM_TAB_CONTATOS) {
+    if (isClienteRole && tabParam && internalAtendimentoTabs.includes(tabParam)) {
+      navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
+      return;
+    }
+    if (isAdminWithoutCliente && tabParam && !internalAtendimentoTabs.includes(tabParam) && tabParam !== CRM_TAB_CONTATOS) {
       navigate(crmPath(CRM_TAB_CONTATOS), { replace: true });
     }
-  }, [forceContatosOnly, isAdminWithoutCliente, tabParam, navigate, basePath]);
+  }, [forceContatosOnly, isAdminWithoutCliente, isClienteRole, tabParam, navigate, basePath]);
 
   const setActiveTabAndNavigate = useCallback(
     (value) => {
@@ -211,7 +238,6 @@ const ClientCRMContent = () => {
   }, [navigate, crmPath]);
   const [duplicateLeadInfo, setDuplicateLeadInfo] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
-  const [whatsAppInitialJid, setWhatsAppInitialJid] = useState(null);
   const { members: clientMembers } = useClientMembers();
   const isMobile = useMediaQuery('(max-width: 767px)');
   const lastLeadElementRef = useRef(null);
@@ -668,7 +694,7 @@ const ClientCRMContent = () => {
           <TabsContent value={CRM_TAB_API} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
             <ClienteApiPage onGoToCanais={() => setActiveTabAndNavigate(CRM_TAB_CANAIS)} embeddedInCrm />
           </TabsContent>
-          <TabsContent value={CRM_TAB_CANAIS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+          <TabsContent value={CRM_TAB_CANAIS} className="mt-4 flex flex-col w-full min-h-0 overflow-y-auto data-[state=inactive]:hidden">
             <ClienteCanaisPage onGoToApi={() => setActiveTabAndNavigate(CRM_TAB_API)} embeddedInCrm />
           </TabsContent>
           <TabsContent value={CRM_TAB_APICEBOT} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
@@ -687,11 +713,25 @@ const ClientCRMContent = () => {
               </TabsContent>
             </>
           )}
+          {isInternalTeam && (
+            <>
+              <TabsContent value={CRM_TAB_ATENDIMENTO} className="mt-0 flex flex-col flex-1 min-h-0 overflow-hidden data-[state=inactive]:hidden">
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  Redirecionando para Conversas…
+                </div>
+              </TabsContent>
+              <TabsContent value={CRM_TAB_ATENDIMENTO_CONFIG} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  Redirecionando para configuração…
+                </div>
+              </TabsContent>
+            </>
+          )}
           <TabsContent value={CRM_TAB_CONTATOS} className="mt-4 flex flex-col flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden">
             <ContatosPage
               embeddedInCrm
               onNovoLead={() => setShowAddLead(true)}
-              onOpenConversation={HIDE_INBOX_AND_WHATSAPP_TABS ? undefined : (jid) => { setActiveTabAndNavigate(CRM_TAB_WHATSAPP); setWhatsAppInitialJid(jid); }}
+              onOpenConversation={isInternalTeam ? (jid) => navigate(buildConversasUrl({ chatJid: jid })) : undefined}
             />
           </TabsContent>
           </div>

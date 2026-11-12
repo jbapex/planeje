@@ -1,18 +1,45 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload, MessageSquare, Sparkles } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { User, KeyRound, Save, Trash2, Users, Edit, PlusCircle, Send, Link as LinkIcon, Copy, Loader2, Upload, MessageSquare, Sparkles, Bell, Settings as SettingsIcon, Puzzle, Share2, HardDrive, Megaphone, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import Help from '@/components/tasks/automations/AutomationHelp';
+import { TEAM_PROFILE_STATUSES, teamProfileStatusLabel, saveTeamProfileEdit } from '@/lib/teamProfileEditor';
 import { supabase } from '@/lib/customSupabaseClient';
+import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
+import { changeOwnPassword } from '@/lib/changeOwnPassword';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { fetchOpenRouterModels } from '@/lib/openrouterModels';
+import SettingsAlertsPanel from '@/components/settings/SettingsAlertsPanel';
+import McpUserTokenCard from '@/components/settings/McpUserTokenCard';
+import { deleteTeamUser } from '@/lib/adminDeleteTeamUser';
+import { cn } from '@/lib/utils';
+import '@/components/settings/Settings.css';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
+
+const ROLE_LABELS = {
+  superadmin: 'Super Admin',
+  admin: 'Admin',
+  colaborador: 'Colaborador',
+};
 
 const OPENAI_FALLBACK_MODELS = [
   'openai/gpt-4o',
@@ -29,14 +56,16 @@ const Settings = () => {
   const [savedKeyPreview, setSavedKeyPreview] = useState(''); // Preview da chave salva
   const [users, setUsers] = useState([]);
   const [inviteLinks, setInviteLinks] = useState([]);
-  const [isInviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [isEditDialogOpen, setEditDialogOpen] = useState(false);
   const [isLinkDialogOpen, setLinkDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('colaborador');
   const [linkRole, setLinkRole] = useState('colaborador');
+  const [linkEmail, setLinkEmail] = useState('');
   const [editRole, setEditRole] = useState('');
+  const [editStatus, setEditStatus] = useState(undefined);
+  const [isSavingTeamProfile, setIsSavingTeamProfile] = useState(false);
+  const [teamProfileError, setTeamProfileError] = useState('');
+  const savingTeamProfileRef = useRef(false);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -48,13 +77,25 @@ const Settings = () => {
   const [projectsDefaultModel, setProjectsDefaultModel] = useState('openai/gpt-4o-mini');
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('');
   const [savedOpenRouterPreview, setSavedOpenRouterPreview] = useState('');
+  const [openRouterKeyStatus, setOpenRouterKeyStatus] = useState(null);
+  const [isSavingOpenRouterKey, setIsSavingOpenRouterKey] = useState(false);
   const [isSavingProjectsAi, setIsSavingProjectsAi] = useState(false);
   const [apiModelsLoading, setApiModelsLoading] = useState(false);
   const [apiModelsDetected, setApiModelsDetected] = useState([]);
   const [apiModelSelected, setApiModelSelected] = useState('');
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [isPasswordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const parsedAllowedModels = String(projectsAllowedModelsText || '')
     .split(/[\n,;]/)
     .map((x) => x.trim())
@@ -165,16 +206,20 @@ const Settings = () => {
   }, [projectsAiProvider, apiKey, toast]);
 
   const fetchUsers = useCallback(async () => {
-    const { data, error } = await supabase.from('profiles').select('*');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('role', ['superadmin', 'admin', 'colaborador'])
+      .order('full_name');
     if (error) {
       toast({ title: "Erro ao buscar usuários", description: error.message, variant: "destructive" });
     } else {
-      setUsers(data);
+      setUsers(data || []);
     }
   }, [toast]);
   
   const fetchInviteLinks = useCallback(async () => {
-    const { data, error } = await supabase.from('invites').select('*');
+    const { data, error } = await supabase.from('invites').select('id,token,role,recipient_email,expires_at').is('consumed_at', null).not('recipient_email', 'is', null).gt('expires_at', new Date().toISOString());
     if (error) {
       toast({ title: "Erro ao buscar links de convite", description: error.message, variant: "destructive" });
     } else {
@@ -286,10 +331,13 @@ const Settings = () => {
     setProjectsOpenRouterModel(fallbackModel);
       setOpenrouterCustomModel('');
     const { data: ork } = await supabase.rpc('get_encrypted_secret', { p_secret_name: 'OPENROUTER_API_KEY' });
-    if (ork && ork.length > 12) {
-      setSavedOpenRouterPreview(`${ork.substring(0, 4)}...${ork.substring(ork.length - 4)}`);
+    const openRouterSaved = String(ork || '').trim();
+    if (openRouterSaved.startsWith('sk-') && openRouterSaved.length > 12) {
+      setSavedOpenRouterPreview(`${openRouterSaved.substring(0, 4)}...${openRouterSaved.substring(openRouterSaved.length - 4)}`);
+      setOpenRouterKeyStatus('saved');
     } else {
       setSavedOpenRouterPreview('');
+      setOpenRouterKeyStatus(openRouterSaved ? 'invalid' : null);
     }
     const { data: cfg } = await supabase
       .from('public_config')
@@ -361,22 +409,55 @@ const Settings = () => {
         );
       if (eCfg) throw eCfg;
       if (openrouterKeyInput.trim()) {
+        const nextKey = openrouterKeyInput.trim();
+        if (!nextKey.startsWith('sk-')) {
+          toast({ title: 'Chave do OpenRouter inválida', description: 'Cole a chave que começa com sk-or-.', variant: 'destructive' });
+          setIsSavingProjectsAi(false);
+          return;
+        }
         const { error: e3 } = await supabase.rpc('set_encrypted_secret', {
           p_secret_name: 'OPENROUTER_API_KEY',
-          p_secret_value: openrouterKeyInput.trim(),
+          p_secret_value: nextKey,
         });
         if (e3) throw e3;
         setOpenrouterKeyInput('');
       }
       toast({
         title: 'IA em campanhas atualizada',
-        description: `Provedor salvo e ${normalizedModels.length} modelo(s) disponível(is) para o usuário escolher no Plano de Campanha.`,
+        description: `${normalizedModels.length} modelo(s) na lista. O Assistente de Tráfego mostra essa mesma lista ao abrir.`,
       });
       await loadProjectsAiSettings();
     } catch (err) {
       toast({ title: 'Erro ao salvar', description: err.message, variant: 'destructive' });
     } finally {
       setIsSavingProjectsAi(false);
+    }
+  };
+
+  const handleSaveOpenRouterKey = async () => {
+    if (profile?.role !== 'superadmin') {
+      toast({ title: 'Acesso negado', variant: 'destructive' });
+      return;
+    }
+    const nextKey = openrouterKeyInput.trim();
+    if (!nextKey.startsWith('sk-')) {
+      toast({ title: 'Chave inválida', description: 'Cole a chave do OpenRouter que começa com sk-or-.', variant: 'destructive' });
+      return;
+    }
+    setIsSavingOpenRouterKey(true);
+    try {
+      const { error } = await supabase.rpc('set_encrypted_secret', {
+        p_secret_name: 'OPENROUTER_API_KEY',
+        p_secret_value: nextKey,
+      });
+      if (error) throw error;
+      setOpenrouterKeyInput('');
+      toast({ title: 'Chave do OpenRouter salva', description: 'O Assistente de Tráfego passa a usar esta chave.' });
+      await loadProjectsAiSettings();
+    } catch (err) {
+      toast({ title: 'Erro ao salvar', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsSavingOpenRouterKey(false);
     }
   };
 
@@ -400,6 +481,36 @@ const Settings = () => {
     setUploading(false);
   };
 
+  const resetPasswordForm = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+  };
+
+  const handleChangePassword = async (event) => {
+    event.preventDefault();
+    if (isChangingPassword) return;
+    setPasswordError('');
+    setIsChangingPassword(true);
+    try {
+      await changeOwnPassword({
+        supabase,
+        email: user?.email,
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      });
+      resetPasswordForm();
+      setPasswordDialogOpen(false);
+      toast({ title: 'Senha alterada com sucesso', description: 'Use a nova senha no próximo acesso.' });
+    } catch (error) {
+      setPasswordError(error?.message || 'Não foi possível alterar a senha. Tente novamente.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   const uploadAvatar = async (event) => {
     try {
       setUploading(true);
@@ -420,7 +531,7 @@ const Settings = () => {
       }
       
       const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
+      const publicUrl = rewritePublicStorageUrl(data.publicUrl);
       
       const { error: updateError } = await supabase
         .from('profiles')
@@ -486,31 +597,18 @@ const Settings = () => {
     }
   };
 
-  const handleInviteUser = async () => {
-    if (!inviteEmail) {
-      toast({ title: "E-mail inválido", description: "Por favor, insira um e-mail para convidar.", variant: "destructive" });
+  const handleGenerateInviteLink = async () => {
+    const recipientEmail = linkEmail.trim().toLowerCase();
+    if (isGeneratingLink || profile?.role !== 'superadmin') return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+      toast({ title: 'Informe o e-mail da pessoa convidada', variant: 'destructive' });
       return;
     }
-
-    const { error } = await supabase.auth.inviteUserByEmail(inviteEmail, { data: { role: inviteRole, full_name: 'Novo Usuário' } });
-
-    if (error) {
-      toast({ title: "Erro ao convidar usuário", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Convite enviado!", description: `Um convite foi enviado para ${inviteEmail}.` });
-      setInviteEmail('');
-      setInviteRole('colaborador');
-      setInviteDialogOpen(false);
-      fetchUsers();
-    }
-  };
-
-  const handleGenerateInviteLink = async () => {
     setIsGeneratingLink(true);
     const token = crypto.randomUUID();
     const { data, error } = await supabase
       .from('invites')
-      .insert({ token, role: linkRole, created_by: user.id })
+      .insert({ token, role: linkRole, created_by: user.id, recipient_email: recipientEmail })
       .select();
 
     if (error) {
@@ -519,6 +617,7 @@ const Settings = () => {
       toast({ title: 'Link de convite gerado!', description: 'O link foi adicionado à lista.' });
       setInviteLinks(prev => [...prev, ...data]);
       setLinkDialogOpen(false);
+      setLinkEmail('');
     }
     setIsGeneratingLink(false);
   };
@@ -539,56 +638,169 @@ const Settings = () => {
     toast({ title: "Link copiado!", description: "O link de convite foi copiado para sua área de transferência." });
   };
 
-  const handleOpenEditDialog = (user) => {
-    setSelectedUser(user);
-    setEditRole(user.role);
+  const handleOpenEditDialog = (targetUser) => {
+    if (profile?.role !== 'superadmin' || savingTeamProfileRef.current || targetUser.id === user?.id) return;
+    setSelectedUser(targetUser);
+    setEditRole(targetUser.role);
+    setEditStatus(targetUser.status);
+    setTeamProfileError('');
     setEditDialogOpen(true);
   };
 
-  const handleUpdateUserRole = async () => {
-    if (!selectedUser || !editRole) return;
-    const { error } = await supabase.from('profiles').update({ role: editRole }).eq('id', selectedUser.id);
-    if (error) {
-      toast({ title: "Erro ao atualizar permissão", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Permissão atualizada!", description: `A permissão de ${selectedUser.full_name} foi atualizada.` });
-      setEditDialogOpen(false);
+  const handleEditDialogOpenChange = (open) => {
+    if (savingTeamProfileRef.current) return;
+    setEditDialogOpen(open);
+    if (!open) {
       setSelectedUser(null);
-      fetchUsers();
+      setTeamProfileError('');
     }
   };
 
-  const handleDeleteUser = async (userId) => {
-    toast({
-      title: "Funcionalidade em desenvolvimento",
-      description: "A exclusão de usuários requer configuração adicional de segurança e estará disponível em breve.",
-      variant: "default",
-    });
+  const handleUpdateTeamProfile = async () => {
+    if (savingTeamProfileRef.current || !selectedUser || profile?.role !== 'superadmin' || selectedUser.id === user?.id) return;
+    savingTeamProfileRef.current = true;
+    setIsSavingTeamProfile(true);
+    setTeamProfileError('');
+    try {
+      const result = await saveTeamProfileEdit(selectedUser, { role: editRole, status: editStatus }, (id, patch) =>
+        supabase.from('profiles').update(patch).eq('id', id).select('id,role,status').single());
+      if (result.changed) {
+        setUsers(current => current.map(person => person.id === result.profile.id ? { ...person, ...result.profile } : person));
+        toast({ title: 'Cadastro atualizado!', description: `As alterações de ${selectedUser.full_name || 'usuário'} foram salvas.` });
+      } else {
+        toast({ title: 'Nenhuma alteração', description: 'O cadastro foi mantido como estava.' });
+      }
+      setEditDialogOpen(false);
+      setSelectedUser(null);
+    } catch (error) {
+      const message = error?.message || 'Não foi possível confirmar o salvamento. Confira o cadastro antes de tentar novamente.';
+      setTeamProfileError(message);
+      toast({ title: 'Não foi possível atualizar o cadastro', description: message, variant: 'destructive' });
+    } finally {
+      savingTeamProfileRef.current = false;
+      setIsSavingTeamProfile(false);
+    }
+  };
+
+  const handleDeleteUser = (targetUser) => {
+    if (!targetUser?.id) return;
+    setUserToDelete(targetUser);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete?.id) return;
+    setIsDeletingUser(true);
+    try {
+      await deleteTeamUser(userToDelete.id);
+      toast({
+        title: 'Usuário excluído',
+        description: `${userToDelete.full_name || 'Usuário'} foi removido do sistema.`,
+      });
+      setUserToDelete(null);
+      fetchUsers();
+    } catch (err) {
+      toast({
+        title: 'Erro ao excluir usuário',
+        description: err?.message || 'Não foi possível remover o usuário.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
+  const canDeleteUser = (targetUser) => {
+    if (!targetUser?.id || targetUser.id === user?.id) return false;
+    if (targetUser.role === 'superadmin') return false;
+    return ['admin', 'colaborador'].includes(targetUser.role);
   };
 
   const isSuperAdmin = profile?.role === 'superadmin';
+  // Equipe interna por role — não exigir cliente_id null (alguns superadmins têm cliente vinculado)
+  const isTeamUser = ['superadmin', 'admin', 'colaborador'].includes(profile?.role);
+  const activeTab = searchParams.get('tab') || 'conta';
+
+  const settingsTabs = useMemo(() => {
+    const tabs = [
+      { id: 'conta', label: 'Conta', icon: User },
+      { id: 'alertas', label: 'Alertas', icon: Bell },
+      { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
+    ];
+    if (isSuperAdmin) {
+      tabs.push({ id: 'integracoes', label: 'Integrações', icon: KeyRound });
+      tabs.push({ id: 'equipe', label: 'Equipe', icon: Users });
+    }
+    return tabs;
+  }, [isSuperAdmin]);
+
+  const setSettingsTab = useCallback(
+    (tabId) => {
+      if (!tabId || tabId === 'conta') {
+        setSearchParams({}, { replace: true });
+      } else {
+        setSearchParams({ tab: tabId }, { replace: true });
+      }
+    },
+    [setSearchParams]
+  );
+
+  useEffect(() => {
+    if (!isSuperAdmin && (activeTab === 'integracoes' || activeTab === 'equipe')) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [activeTab, isSuperAdmin, setSearchParams]);
+
+  const teamStats = useMemo(() => ({
+    total: users.length,
+    admins: users.filter((u) => u.role === 'admin').length,
+    colaboradores: users.filter((u) => u.role === 'colaborador').length,
+    superadmins: users.filter((u) => u.role === 'superadmin').length,
+  }), [users]);
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-7xl mx-auto space-y-8"
+      className="planeje-settings w-full"
     >
-      <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Configurações</h1>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        <div className="lg:col-span-1 space-y-8">
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-                <CardHeader>
-                    <div className="flex items-center gap-4">
-                        <User className="h-8 w-8 text-green-600" />
-                        <div>
-                            <CardTitle className="text-xl dark:text-white">Meu Perfil</CardTitle>
-                            <CardDescription className="dark:text-gray-400">Atualize suas informações pessoais.</CardDescription>
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
+      <WorkspacePageHeader
+        title="Configurações"
+        label="Sistema"
+        help={`Gerencie perfil, alertas no aplicativo, WhatsApp${isSuperAdmin ? ', integrações e equipe' : ''}. Use as abas para abrir somente a configuração necessária.`}
+        actions={<nav className="flex flex-wrap items-center gap-0.5 rounded-xl bg-slate-100 p-0.5 dark:bg-white/[0.05]" aria-label="Seções de configurações">
+            {settingsTabs.map((tab) => {
+              const TabIcon = tab.icon;
+              return (
+                <Button
+                  key={tab.id}
+                  type="button"
+                  variant={activeTab === tab.id ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 rounded-lg px-2.5 text-xs"
+                  onClick={() => setSettingsTab(tab.id)}
+                >
+                  <TabIcon className="mr-1 h-3.5 w-3.5" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </nav>}
+      />
+
+      <div className="planeje-settings-panel">
+        {activeTab === 'conta' && (
+          <div className="planeje-settings-grid-2 planeje-settings-grid-2--conta">
+            <article className="planeje-settings-card">
+              <div className="planeje-settings-card-header">
+                <div className="planeje-settings-card-icon planeje-settings-card-icon--user">
+                  <User className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="planeje-settings-card-title">Meu perfil</h2>
+                  <p className="planeje-settings-card-desc">Atualize foto e nome exibidos no Planeje.</p>
+                </div>
+              </div>
+              <div className="planeje-settings-card-body space-y-4">
                     <div className="flex flex-col items-center space-y-4">
                         <div className="relative group">
                             <Avatar className="h-24 w-24">
@@ -604,19 +816,349 @@ const Settings = () => {
                         <Input id="avatar-upload" type="file" className="hidden" onChange={uploadAvatar} accept="image/*" disabled={uploading} />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="full_name" className="dark:text-white">Nome Completo</Label>
-                        <Input id="full_name" value={fullName} onChange={(e) => setFullName(e.target.value)} className="dark:bg-gray-700 dark:text-white dark:border-gray-600" />
+                        <Label htmlFor="full_name">Nome completo</Label>
+                        <Input id="full_name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
                     </div>
-                </CardContent>
-                <CardFooter>
+              </div>
+              <div className="planeje-settings-card-footer">
                     <Button onClick={handleUpdateProfile} disabled={uploading} className="w-full">
                         {uploading ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2 h-4 w-4" />}
-                        {uploading ? 'Salvando...' : 'Salvar Perfil'}
+                        {uploading ? 'Salvando...' : 'Salvar perfil'}
                     </Button>
-                </CardFooter>
-            </Card>
+              </div>
+            </article>
 
-            {isSuperAdmin && (
+            <article className="planeje-settings-card">
+              <div className="planeje-settings-card-header">
+                <div className="planeje-settings-card-icon planeje-settings-card-icon--bell">
+                  <Bell className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="planeje-settings-card-title">Resumo da conta</h2>
+                  <p className="planeje-settings-card-desc">Dados de acesso e atalhos rápidos.</p>
+                </div>
+              </div>
+              <div className="planeje-settings-card-body">
+                <div className="planeje-settings-info-row">
+                  <span className="planeje-settings-info-label">E-mail</span>
+                  <span className="planeje-settings-info-value">{user?.email || '—'}</span>
+                </div>
+                <div className="planeje-settings-info-row">
+                  <span className="planeje-settings-info-label">Papel</span>
+                  <span className="planeje-settings-info-value">
+                    <span className="planeje-settings-role-badge">
+                      {ROLE_LABELS[profile?.role] || profile?.role || '—'}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <div className="planeje-settings-card-footer space-y-2">
+                <Button type="button" className="w-full" onClick={() => setPasswordDialogOpen(true)}>
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Alterar senha
+                </Button>
+                <Button type="button" variant="outline" className="w-full" onClick={() => setSettingsTab('alertas')}>
+                  <Bell className="mr-2 h-4 w-4" />
+                  Configurar alertas no app
+                </Button>
+              </div>
+            </article>
+
+            <Dialog open={isPasswordDialogOpen} onOpenChange={(open) => {
+              if (isChangingPassword) return;
+              setPasswordDialogOpen(open);
+              if (!open) resetPasswordForm();
+            }}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Alterar senha</DialogTitle>
+                  <DialogDescription>
+                    Confirme sua senha atual e escolha a nova senha para esta conta.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-current-password">Senha atual</Label>
+                    <Input id="settings-current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required disabled={isChangingPassword} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-new-password">Nova senha</Label>
+                    <Input id="settings-new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} required disabled={isChangingPassword} />
+                    <p className="text-xs text-muted-foreground">Use pelo menos 8 caracteres.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-confirm-password">Confirmar nova senha</Label>
+                    <Input id="settings-confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required disabled={isChangingPassword} />
+                  </div>
+                  {passwordError && <p role="alert" className="text-sm text-destructive">{passwordError}</p>}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => { setPasswordDialogOpen(false); resetPasswordForm(); }} disabled={isChangingPassword}>Cancelar</Button>
+                    <Button type="submit" disabled={isChangingPassword}>
+                      {isChangingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Salvar nova senha
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <article className="planeje-settings-card">
+              <div className="planeje-settings-card-header">
+                <div className="planeje-settings-card-icon planeje-settings-card-icon--key">
+                  <SettingsIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="planeje-settings-card-title">Atalhos</h2>
+                  <p className="planeje-settings-card-desc">Acesso rápido às demais seções.</p>
+                </div>
+              </div>
+              <div className="planeje-settings-card-body">
+                <div className="planeje-settings-quick-links">
+                  <button type="button" className="planeje-settings-quick-link" onClick={() => setSettingsTab('alertas')}>
+                    <span>Alertas no app</span>
+                    <Bell className="h-4 w-4 shrink-0 opacity-60" />
+                  </button>
+                  <button type="button" className="planeje-settings-quick-link" onClick={() => setSettingsTab('whatsapp')}>
+                    <span>Notificações WhatsApp</span>
+                    <MessageSquare className="h-4 w-4 shrink-0 opacity-60" />
+                  </button>
+                  {isSuperAdmin && (
+                    <>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => setSettingsTab('integracoes')}>
+                        <span>Integrações (IA)</span>
+                        <KeyRound className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => navigate('/settings/meta')}>
+                        <span>Meta da agência</span>
+                        <Share2 className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => navigate('/settings/google-drive')}>
+                        <span>Google Drive da agência</span>
+                        <HardDrive className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => navigate('/settings/google-ads')}>
+                        <span>Google Ads da agência</span>
+                        <Megaphone className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => navigate('/settings/google-dados')}>
+                        <span>Google dados da agência</span>
+                        <BarChart3 className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                      <button type="button" className="planeje-settings-quick-link" onClick={() => setSettingsTab('equipe')}>
+                        <span>Gerenciar equipe</span>
+                        <Users className="h-4 w-4 shrink-0 opacity-60" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </article>
+
+            {isTeamUser && <McpUserTokenCard enabled={isTeamUser} />}
+          </div>
+        )}
+
+        {activeTab === 'alertas' && (
+          <div className="planeje-settings-grid-wide">
+          <article className="planeje-settings-card">
+            <div className="planeje-settings-card-header">
+              <div className="planeje-settings-card-icon planeje-settings-card-icon--bell">
+                <Bell className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="planeje-settings-card-title">Alertas no app</h2>
+                <p className="planeje-settings-card-desc">
+                  Sons de Conversas e Tarefas, além de notificações do navegador com a aba em segundo plano.
+                </p>
+              </div>
+            </div>
+            <div className="planeje-settings-card-body">
+              <SettingsAlertsPanel showWhatsAppLink={false} />
+            </div>
+            <div className="planeje-settings-card-footer">
+              <Button type="button" variant="outline" className="w-full" onClick={() => setSettingsTab('whatsapp')}>
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Ir para notificações WhatsApp
+              </Button>
+            </div>
+          </article>
+          <article className="planeje-settings-card planeje-settings-card--aside">
+            <div className="planeje-settings-card-header">
+              <div className="planeje-settings-card-icon planeje-settings-card-icon--bell">
+                <Bell className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="planeje-settings-card-title">Como funcionam</h2>
+                <p className="planeje-settings-card-desc">Resumo dos alertas no Planeje.</p>
+              </div>
+            </div>
+            <div className="planeje-settings-card-body">
+              <ul className="planeje-settings-tip-list">
+                <li>Conversas: som e popup quando chega mensagem (com outra aba aberta).</li>
+                <li>Tarefas: aviso quando alguém move card no Kanban e você é responsável.</li>
+                <li>Navegador: permissão libera balão do sistema no Windows/macOS.</li>
+              </ul>
+            </div>
+          </article>
+          </div>
+        )}
+
+        {activeTab === 'whatsapp' && (
+          <div className="planeje-settings-grid-wide">
+          <article className="planeje-settings-card">
+            <div className="planeje-settings-card-header">
+              <div className="planeje-settings-card-icon planeje-settings-card-icon--whatsapp">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="planeje-settings-card-title">Notificações WhatsApp</h2>
+                <p className="planeje-settings-card-desc">
+                  Alertas automáticos quando tarefas mudam de status, novas atribuições e outros eventos.
+                </p>
+              </div>
+            </div>
+            <div className="planeje-settings-card-body space-y-3">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Escolha quais eventos disparam mensagem no seu WhatsApp e teste o envio antes de ativar para a equipe.
+              </p>
+            </div>
+            <div className="planeje-settings-card-footer">
+              <Button onClick={() => navigate('/settings/whatsapp')} className="w-full">
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Abrir configurações WhatsApp
+              </Button>
+            </div>
+          </article>
+          <article className="planeje-settings-card">
+            <div className="planeje-settings-card-header">
+              <div className="planeje-settings-card-icon planeje-settings-card-icon--whatsapp">
+                <Puzzle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="planeje-settings-card-title">Extensão no Chrome</h2>
+                <p className="planeje-settings-card-desc">
+                  Ícone arrastável em qualquer página do Chrome: demandas do dia e criação rápida de tarefa ou solicitação.
+                </p>
+              </div>
+            </div>
+            <div className="planeje-settings-card-footer">
+              <Button onClick={() => navigate('/extensao-whatsapp')} className="w-full" variant="outline">
+                <Puzzle className="mr-2 h-4 w-4" />
+                Baixar extensão
+              </Button>
+            </div>
+          </article>
+          <article className="planeje-settings-card planeje-settings-card--aside">
+            <div className="planeje-settings-card-header">
+              <div className="planeje-settings-card-icon planeje-settings-card-icon--whatsapp">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="planeje-settings-card-title">O que configurar</h2>
+                <p className="planeje-settings-card-desc">Na tela completa de WhatsApp.</p>
+              </div>
+            </div>
+            <div className="planeje-settings-card-body">
+              <ul className="planeje-settings-tip-list">
+                <li>Mudança de status de tarefas no Kanban.</li>
+                <li>Novas tarefas atribuídas a você.</li>
+                <li>Teste de envio antes de ativar para a equipe.</li>
+              </ul>
+            </div>
+          </article>
+          </div>
+        )}
+
+        {activeTab === 'integracoes' && isSuperAdmin && (
+          <div className="planeje-settings-integracoes-grid">
+              <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <Share2 className="h-8 w-8 text-blue-600" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">Meta da agência</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        Token do System User para Tráfego, páginas e, depois, Instagram/Facebook.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Cole e teste o token nesta tela. Não use o token do cliente em Rastreamento.
+                  </p>
+                  <Button onClick={() => navigate('/settings/meta')}>
+                    <Share2 className="mr-2 h-4 w-4" />
+                    Configurar e validar
+                  </Button>
+                </CardContent>
+              </Card>
+              <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <HardDrive className="h-8 w-8 text-sky-600" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">Google Drive da agência</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        Client ID e Secret para anexar arquivos do Drive nas tarefas.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Cole os IDs do aplicativo Google aqui. Depois cada empresa conecta a própria conta em Canais.
+                  </p>
+                  <Button onClick={() => navigate('/settings/google-drive')}>
+                    <HardDrive className="mr-2 h-4 w-4" />
+                    Configurar OAuth
+                  </Button>
+                </CardContent>
+              </Card>
+              <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <Megaphone className="h-8 w-8 text-emerald-600" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">Google Ads da agência</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        Developer Token, OAuth e MCC para listar contas e devolver conversões.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Configure uma vez na agência. Depois vincule a conta na ficha do cliente e mapeie ações em Rastreamento.
+                  </p>
+                  <Button onClick={() => navigate('/settings/google-ads')}>
+                    <Megaphone className="mr-2 h-4 w-4" />
+                    Configurar e testar
+                  </Button>
+                </CardContent>
+              </Card>
+              <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <BarChart3 className="h-8 w-8 text-amber-600" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">Google dados da agência</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        Analytics, Meu Negócio e Tag Manager com um login da agência.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Autorize uma vez. Depois vincule propriedade, ficha e contêiner na ficha do cliente. Não mistura com a Meta.
+                  </p>
+                  <Button onClick={() => navigate('/settings/google-dados')}>
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                    Autorizar e testar
+                  </Button>
+                </CardContent>
+              </Card>
               <Card className="dark:bg-gray-800 dark:border-gray-700">
                 <CardHeader>
                   <div className="flex items-center gap-4">
@@ -731,10 +1273,52 @@ const Settings = () => {
                   </div>
                 </CardContent>
               </Card>
-            )}
 
-            {isSuperAdmin && (
               <Card className="dark:bg-gray-800 dark:border-gray-700">
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <Sparkles className="h-8 w-8 text-amber-500" />
+                    <div>
+                      <CardTitle className="text-xl dark:text-white">Chave do OpenRouter</CardTitle>
+                      <CardDescription className="dark:text-gray-400">
+                        É esta chave que libera Claude e os outros modelos no Assistente de Tráfego.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {openRouterKeyStatus === 'saved' && savedOpenRouterPreview ? (
+                    <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded-md">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Chave salva:</span>
+                      <code className="text-sm font-mono text-gray-800 dark:text-gray-200">{savedOpenRouterPreview}</code>
+                      <span className="ml-auto text-xs text-green-600 dark:text-green-400">Válida no formato</span>
+                    </div>
+                  ) : null}
+                  {openRouterKeyStatus === 'invalid' ? (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      O que está salvo não é uma chave. O Assistente fica no GPT-4o mini até você colar uma chave que comece com sk-or-.
+                    </p>
+                  ) : null}
+                  <Input
+                    id="or-key-main"
+                    type="password"
+                    autoComplete="off"
+                    value={openrouterKeyInput}
+                    onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+                    placeholder="sk-or-..."
+                    className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                  />
+                  <p className="text-xs text-muted-foreground dark:text-gray-500">
+                    Cole aqui. Não precisa colocar no servidor nem publicar função de novo.
+                  </p>
+                  <Button type="button" className="w-full" onClick={handleSaveOpenRouterKey} disabled={isSavingOpenRouterKey}>
+                    {isSavingOpenRouterKey ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {openRouterKeyStatus === 'saved' ? 'Atualizar chave do OpenRouter' : 'Salvar chave do OpenRouter'}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="dark:bg-gray-800 dark:border-gray-700 planeje-settings-integracoes-span-2">
                 <CardHeader>
                   <div className="flex items-center gap-4">
                     <Sparkles className="h-8 w-8 text-amber-500" />
@@ -926,23 +1510,9 @@ const Settings = () => {
                           Selecione um modelo da lista liberada para Projeto. Use "Personalizado" para digitar um ID específico.
                         </p>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="or-key" className="dark:text-white">Chave API OpenRouter</Label>
-                        {savedOpenRouterPreview ? (
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Chave salva: <code className="font-mono">{savedOpenRouterPreview}</code> — cole uma nova abaixo para substituir.
-                          </p>
-                        ) : null}
-                        <Input
-                          id="or-key"
-                          type="password"
-                          autoComplete="off"
-                          value={openrouterKeyInput}
-                          onChange={(e) => setOpenrouterKeyInput(e.target.value)}
-                          placeholder="sk-or-..."
-                          className="dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                        />
-                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        A chave do OpenRouter fica no cartão acima. Salvar esta configuração não troca a chave.
+                      </p>
                     </>
                   )}
                   <Button
@@ -955,44 +1525,27 @@ const Settings = () => {
                     Salvar configuração de IA (campanhas)
                   </Button>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    É necessário fazer deploy das Edge Functions <code className="text-xs">openai-chat</code> e <code className="text-xs">openrouter-chat</code> no Supabase.
+                    A chave salva no cartão OpenRouter já vale para o Assistente. Não cole a chave em arquivo do servidor.
                   </p>
                 </CardContent>
               </Card>
-            )}
+          </div>
+        )}
 
-            <Card className="dark:bg-gray-800 dark:border-gray-700">
-              <CardHeader>
-                <div className="flex items-center gap-4">
-                  <MessageSquare className="h-8 w-8 text-green-600" />
-                  <div>
-                    <CardTitle className="text-xl dark:text-white">Notificações WhatsApp</CardTitle>
-                    <CardDescription className="dark:text-gray-400">Configure notificações automáticas via WhatsApp.</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Button 
-                  onClick={() => navigate('/settings/whatsapp')} 
-                  className="w-full"
-                  variant="outline"
-                >
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  Configurar WhatsApp
-                </Button>
-              </CardContent>
-            </Card>
-        </div>
-
-        {isSuperAdmin && (
-            <Card className="lg:col-span-2 dark:bg-gray-800 dark:border-gray-700">
+        {activeTab === 'equipe' && isSuperAdmin && (
+            <Card className="planeje-settings-equipe-card dark:bg-gray-800 dark:border-gray-700 flex flex-col">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <Users className="h-8 w-8 text-blue-600" />
                     <div>
                       <CardTitle className="text-xl dark:text-white">Gerenciamento de Usuários</CardTitle>
-                      <CardDescription className="dark:text-gray-400">Adicione e gerencie os usuários do sistema.</CardDescription>
+                      <CardDescription className="dark:text-gray-400">Adicione e gerencie os usuários internos do sistema.</CardDescription>
+                      <div className="planeje-settings-equipe-stats">
+                        <span className="planeje-settings-equipe-stat">{teamStats.total} na equipe</span>
+                        <span className="planeje-settings-equipe-stat">{teamStats.admins} admin</span>
+                        <span className="planeje-settings-equipe-stat">{teamStats.colaboradores} colaboradores</span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -1003,9 +1556,13 @@ const Settings = () => {
                             <DialogContent className="dark:bg-gray-800 dark:border-gray-700">
                                 <DialogHeader>
                                     <DialogTitle className="dark:text-white">Gerar Link de Convite</DialogTitle>
-                                    <DialogDescription className="dark:text-gray-400">Crie um link compartilhável para novos usuários se cadastrarem com uma permissão específica.</DialogDescription>
+                                    <DialogDescription className="dark:text-gray-400">Convide uma pessoa pelo e-mail. O link vale por 7 dias e só pode ser usado uma vez.</DialogDescription>
                                 </DialogHeader>
                                 <div className="space-y-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="link-email">E-mail da pessoa convidada</Label>
+                                        <Input id="link-email" type="email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} autoComplete="email" />
+                                    </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="link-role" className="dark:text-white">Permissão para o Link</Label>
                                         <Select value={linkRole} onValueChange={setLinkRole}>
@@ -1027,61 +1584,50 @@ const Settings = () => {
                             </DialogContent>
                         </Dialog>
 
-                        <Dialog open={isInviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-                            <DialogTrigger asChild>
-                                <Button><PlusCircle className="mr-2 h-4 w-4" />Convidar por E-mail</Button>
-                            </DialogTrigger>
-                            <DialogContent className="dark:bg-gray-800 dark:border-gray-700">
-                                <DialogHeader>
-                                    <DialogTitle className="dark:text-white">Convidar Novo Usuário</DialogTitle>
-                                    <DialogDescription className="dark:text-gray-400">Envie um convite por e-mail para um novo membro da equipe.</DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4 py-4">
-                                    <div className="space-y-2">
-                                    <Label htmlFor="invite-email" className="dark:text-white">E-mail do Usuário</Label>
-                                    <Input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="nome@exemplo.com" className="dark:bg-gray-700 dark:text-white dark:border-gray-600" />
-                                    </div>
-                                    <div className="space-y-2">
-                                    <Label htmlFor="invite-role" className="dark:text-white">Permissão</Label>
-                                    <Select value={inviteRole} onValueChange={setInviteRole}>
-                                        <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600"><SelectValue placeholder="Selecione a permissão" /></SelectTrigger>
-                                        <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
-                                        <SelectItem value="admin" className="dark:text-white dark:hover:bg-gray-600">Admin</SelectItem>
-                                        <SelectItem value="colaborador" className="dark:text-white dark:hover:bg-gray-600">Colaborador</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    </div>
-                                </div>
-                                <DialogFooter>
-                                    <Button variant="ghost" onClick={() => setInviteDialogOpen(false)} className="dark:text-white dark:border-gray-600 dark:hover:bg-gray-700">Cancelar</Button>
-                                    <Button onClick={handleInviteUser}><Send className="mr-2 h-4 w-4" />Enviar Convite</Button>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
+
                     </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Label className="dark:text-white">Usuários Ativos</Label>
-                <div className="border rounded-md max-h-60 overflow-y-auto dark:border-gray-700">
+              <CardContent className="planeje-settings-equipe-grid flex-1">
+                <section className="planeje-settings-equipe-section">
+                <Label className="dark:text-white">Usuários internos</Label>
+                <div className="planeje-settings-equipe-list">
                   {users.length > 0 ? (
                     users.map(u => (
-                      <div key={u.id} className="flex items-center justify-between p-3 border-b last:border-b-0 dark:border-gray-700">
-                        <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8">
+                      <div key={u.id} className="planeje-settings-equipe-row">
+                        <div className="planeje-settings-equipe-row-main">
+                            <Avatar className="h-9 w-9">
                                 <AvatarImage src={u.avatar_url} />
                                 <AvatarFallback className="dark:bg-gray-700 dark:text-white">{u.full_name ? u.full_name.charAt(0).toUpperCase() : '?'}</AvatarFallback>
                             </Avatar>
-                            <div>
-                              <p className="font-medium dark:text-white">{u.full_name || 'Novo Usuário'}</p>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">{u.role}</p>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium dark:text-white truncate">{u.full_name || 'Novo Usuário'}</p>
+                                <Badge variant="outline" className={cn('shrink-0', u.status === 'active' ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200' : u.status === 'pending' ? 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200')}>{teamProfileStatusLabel(u.status)}</Badge>
+                              </div>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {ROLE_LABELS[u.role] || u.role}
+                              </p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleOpenEditDialog(u)} disabled={u.id === user.id} className="dark:text-gray-300 dark:hover:bg-gray-700">
+                        <div className="planeje-settings-equipe-row-actions">
+                          <Button type="button" variant="ghost" size="icon" aria-label={`Editar cadastro de ${u.full_name || 'Novo Usuário'}`} title="Editar cadastro" onClick={() => handleOpenEditDialog(u)} disabled={u.id === user.id} className="dark:text-gray-300 dark:hover:bg-gray-700">
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(u.id)} disabled={u.id === user.id} className="dark:text-red-400 dark:hover:bg-gray-700">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteUser(u)}
+                            disabled={!canDeleteUser(u)}
+                            title={
+                              u.id === user?.id
+                                ? 'Você não pode excluir a si mesmo'
+                                : u.role === 'superadmin'
+                                  ? 'Superadmin não pode ser excluído aqui'
+                                  : 'Excluir usuário'
+                            }
+                            className="dark:text-red-400 dark:hover:bg-gray-700 disabled:opacity-30"
+                          >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -1091,22 +1637,23 @@ const Settings = () => {
                     <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Nenhum usuário encontrado.</p>
                   )}
                 </div>
-                
-                <>
-                    <Label className="dark:text-white">Links de Convite Ativos</Label>
-                    <div className="border rounded-md max-h-48 overflow-y-auto dark:border-gray-700">
+                </section>
+
+                <section className="planeje-settings-equipe-section">
+                    <Label className="dark:text-white">Links de convite ativos</Label>
+                    <div className="planeje-settings-equipe-list">
                     {inviteLinks.length > 0 ? (
                         inviteLinks.map(link => (
-                        <div key={link.id} className="flex items-center justify-between p-3 border-b last:border-b-0 dark:border-gray-700">
-                            <div>
+                        <div key={link.id} className="planeje-settings-equipe-row">
+                            <div className="min-w-0">
                             <p className="font-medium text-sm dark:text-white">
-                                Link para <span className="font-bold capitalize">{link.role}</span>
+                                {link.recipient_email} · <span className="font-bold">{ROLE_LABELS[link.role] || link.role}</span>
                             </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs md:max-w-sm">
-                                Token: {link.token}
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                Válido até {new Date(link.expires_at).toLocaleDateString('pt-BR')}
                             </p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="planeje-settings-equipe-row-actions">
                             <Button variant="ghost" size="icon" onClick={() => copyToClipboard(link.token)} className="dark:text-gray-300 dark:hover:bg-gray-700">
                                 <Copy className="h-4 w-4" />
                             </Button>
@@ -1120,7 +1667,7 @@ const Settings = () => {
                         <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Nenhum link de convite ativo.</p>
                     )}
                     </div>
-                </>
+                </section>
 
               </CardContent>
             </Card>
@@ -1128,30 +1675,83 @@ const Settings = () => {
       </div>
 
       {isSuperAdmin && (
-          <Dialog open={isEditDialogOpen} onOpenChange={setEditDialogOpen}>
-            <DialogContent className="dark:bg-gray-800 dark:border-gray-700">
+          <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogOpenChange}>
+            <DialogContent
+              className="dark:bg-gray-800 dark:border-gray-700"
+              onInteractOutside={event => { if (savingTeamProfileRef.current) event.preventDefault(); }}
+              onEscapeKeyDown={event => { if (savingTeamProfileRef.current) event.preventDefault(); }}
+            >
               <DialogHeader>
-                <DialogTitle className="dark:text-white">Editar Permissão</DialogTitle>
-                <DialogDescription className="dark:text-gray-400">Altere a permissão de {selectedUser?.full_name}.</DialogDescription>
+                <DialogTitle className="dark:text-white">Editar cadastro</DialogTitle>
+                <DialogDescription className="dark:text-gray-400">Cadastro de {selectedUser?.full_name || 'usuário'}.</DialogDescription>
               </DialogHeader>
-              <div className="py-4">
-                <Label htmlFor="edit-role" className="dark:text-white">Permissão</Label>
-                <Select value={editRole} onValueChange={setEditRole}>
-                  <SelectTrigger className="dark:bg-gray-700 dark:text-white dark:border-gray-600"><SelectValue placeholder="Selecione a permissão" /></SelectTrigger>
-                  <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
-                    <SelectItem value="superadmin" className="dark:text-white dark:hover:bg-gray-600">Super Admin</SelectItem>
-                    <SelectItem value="admin" className="dark:text-white dark:hover:bg-gray-600">Admin</SelectItem>
-                    <SelectItem value="colaborador" className="dark:text-white dark:hover:bg-gray-600">Colaborador</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="py-4 space-y-4">
+                <div>
+                  <Label htmlFor="edit-role" className="dark:text-white">Permissão</Label>
+                  <Select value={editRole} onValueChange={setEditRole} disabled={isSavingTeamProfile}>
+                    <SelectTrigger id="edit-role" className="dark:bg-gray-700 dark:text-white dark:border-gray-600"><SelectValue placeholder="Selecione a permissão" /></SelectTrigger>
+                    <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                      <SelectItem value="superadmin" className="dark:text-white dark:hover:bg-gray-600">Super Admin</SelectItem>
+                      <SelectItem value="admin" className="dark:text-white dark:hover:bg-gray-600">Admin</SelectItem>
+                      <SelectItem value="colaborador" className="dark:text-white dark:hover:bg-gray-600">Colaborador</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1">
+                    <Label htmlFor="edit-profile-status" className="dark:text-white">Situação do cadastro</Label>
+                    <Help label="Ajuda sobre a situação do cadastro">Ativo habilita o perfil nas atribuições por função e nas regras que exigem responsável ativo. Esta situação não bloqueia o login nem redistribui tarefas existentes.</Help>
+                  </div>
+                  <Select
+                    value={TEAM_PROFILE_STATUSES.some(option => option.value === editStatus) ? editStatus : '__unchanged_status__'}
+                    onValueChange={value => setEditStatus(value === '__unchanged_status__' ? selectedUser?.status : value)}
+                    disabled={isSavingTeamProfile}
+                  >
+                    <SelectTrigger id="edit-profile-status" className="dark:bg-gray-700 dark:text-white dark:border-gray-600"><SelectValue placeholder="Não definido" /></SelectTrigger>
+                    <SelectContent className="dark:bg-gray-700 dark:border-gray-600">
+                      {!TEAM_PROFILE_STATUSES.some(option => option.value === selectedUser?.status) && <SelectItem value="__unchanged_status__">Não definido</SelectItem>}
+                      {TEAM_PROFILE_STATUSES.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              {teamProfileError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{teamProfileError}</p>}
               <DialogFooter>
-                <Button variant="ghost" onClick={() => setEditDialogOpen(false)} className="dark:text-white dark:border-gray-600 dark:hover:bg-gray-700">Cancelar</Button>
-                <Button onClick={handleUpdateUserRole}><Save className="mr-2 h-4 w-4" />Salvar Alterações</Button>
+                <Button type="button" variant="ghost" disabled={isSavingTeamProfile} onClick={() => handleEditDialogOpenChange(false)} className="dark:text-white dark:border-gray-600 dark:hover:bg-gray-700">Cancelar</Button>
+                <Button type="button" onClick={handleUpdateTeamProfile} disabled={isSavingTeamProfile}><Save className="mr-2 h-4 w-4" />{isSavingTeamProfile ? 'Salvando…' : 'Salvar alterações'}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
       )}
+
+      <AlertDialog open={Boolean(userToDelete)} onOpenChange={(open) => !open && !isDeletingUser && setUserToDelete(null)}>
+        <AlertDialogContent className="dark:bg-gray-800 dark:border-gray-700">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="dark:text-white">Excluir usuário da equipe?</AlertDialogTitle>
+            <AlertDialogDescription className="dark:text-gray-400">
+              {userToDelete
+                ? `“${userToDelete.full_name || 'Usuário'}” (${ROLE_LABELS[userToDelete.role] || userToDelete.role}) perderá o acesso ao Planeje. Esta ação não pode ser desfeita.`
+                : 'O usuário será removido permanentemente.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingUser} className="dark:text-white dark:border-gray-600">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingUser}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteUser();
+              }}
+            >
+              {isDeletingUser ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {isDeletingUser ? 'Excluindo...' : 'Excluir usuário'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 };

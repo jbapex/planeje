@@ -1,0 +1,2 @@
+export const ATLAS_EVENTS_PILOT=new URLSearchParams(location.search).get('scenario')==='managed';
+export async function eventBudgetOverview(){return{owner_id:'00000000-0000-4000-8000-000000000001',enabled:true,mode:'assist',client_ids:[3,7,8].map(n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0')),manager_policy:{enabled:true,create_after_clarification:true},used_tokens:0,max_tokens_per_day:1000000,model_calls:0};}

@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/marmottajr/habblaud",
+  "commit": "4ccce2537472fe5a8d432f06974494d2e778ff15",
+  "version": "0.11.0",
+  "license": "MIT",
+  "scope": [
+    "client/src/world",
+    "client/src/art",
+    "shared",
+    "client/public/assets"
+  ],
+  "omitted": [
+    "server",
+    "mods",
+    "hooks",
+    "original client UI",
+    "tests",
+    "art preview"
+  ],
+  "changes": [
+    "Replaced optional upstream brand manifest entry with the existing Planeje logo for reception signage.",
+    "Added exact copies of public/brand/logo-horizontal.png, simbolo.png and favicon.png as local preview assets.",
+    "Adapted client/src/world/assets.ts to Vite BASE_URL so the live office can be served under /atlas-office/; all other upstream TypeScript files remain unmodified."
+  ],
+  "retrievedAt": "2026-10-15"
+}

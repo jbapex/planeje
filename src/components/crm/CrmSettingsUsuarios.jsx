@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ClientUserManager from '@/components/admin/ClientUserManager';
+import ClienteMetaCtwaAdminPanel from '@/components/crm/ClienteMetaCtwaAdminPanel';
 import { Loader2, Plus, Trash2, Search, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -145,6 +146,20 @@ export default function CrmSettingsUsuarios() {
 
   return (
     <div className="flex flex-col gap-6 w-full min-w-0 pb-10">
+      {effectiveClienteId && (
+        <Card className={cardClass}>
+          <CardHeader className={headerClass}>
+            <CardTitle className={titleClass}>Conversões WhatsApp (Meta)</CardTitle>
+            <CardDescription className={descClass}>
+              Token e canais da empresa — mesma configuração para todos os usuários desta conta.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-4 pt-0">
+            <ClienteMetaCtwaAdminPanel clienteId={effectiveClienteId} compact />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Seção Usuários – estilo exemplo */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

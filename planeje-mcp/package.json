@@ -1,6 +1,6 @@
 {
   "name": "planeje-mcp",
-  "version": "1.0.0",
+  "version": "2.9.2",
   "private": true,
   "type": "module",
   "description": "Servidor MCP (HTTP) para consultar e criar dados no Planeje via Supabase",

@@ -12,6 +12,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
     import { format } from "date-fns";
     import { cn } from "@/lib/utils";
     import { supabase } from '@/lib/customSupabaseClient';
+    import { resolvePrimaryCampaignTaskId } from '@/lib/paidCampaignTaskLinks';
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -53,7 +54,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
         setFormData({
             client_id: campaign?.client_id || '',
             assignee_id: campaign?.assignee_id || '',
-            task_id: initialAd?.task_id || '',
+            task_id: resolvePrimaryCampaignTaskId(campaign) || '',
             ad_name: initialAd?.name || '',
             description: initialAd?.description || '',
             attachments: initialAd?.attachments || [],

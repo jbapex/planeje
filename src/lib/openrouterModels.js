@@ -211,18 +211,16 @@ export function organizeModelsByProvider(models) {
  * @returns {string} Indicador de preço ($, $$, $$$, $$$$)
  */
 export function getPriceIndicator(pricing) {
-  if (!pricing || !pricing.prompt || !pricing.completion) {
-    return '?';
-  }
-
-  // Calcular custo médio por 1M tokens (prompt + completion)
-  const promptCost = pricing.prompt || 0;
-  const completionCost = pricing.completion || 0;
-  const avgCost = (promptCost + completionCost) / 2;
-
+  const promptCost = Number(pricing?.prompt);
+  const completionCost = Number(pricing?.completion);
+  if (!Number.isFinite(promptCost) || !Number.isFinite(completionCost)) return '';
+  // A API manda dólar por token (ex.: "0.000001"). A faixa abaixo é por 1 milhão.
+  const perMillion = (token) => (token > 0 && token < 0.01 ? token * 1_000_000 : token);
+  const avgCost = (perMillion(promptCost) + perMillion(completionCost)) / 2;
+  if (!(avgCost > 0)) return '';
   if (avgCost < 0.5) return '$';
   if (avgCost < 2) return '$$';
-  if (avgCost < 10) return '$$$';
+  if (avgCost < 8) return '$$$';
   return '$$$$';
 }
 

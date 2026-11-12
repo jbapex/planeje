@@ -17,7 +17,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Save, Plus, Trash2, Sun, Bell, Users, ListFilter, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Save, Plus, Trash2, Sun, Bell, Users, ListFilter, SlidersHorizontal, Play } from 'lucide-react';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
 
 const DESTINATARIO_OPCOES = [
   { key: 'assignees', label: 'Responsáveis' },
@@ -82,6 +83,7 @@ export default function PlanejeAutomacoesPage() {
   const [briefingModelo, setBriefingModelo] = useState('claude-sonnet-4-6');
   const [briefingExtraJson, setBriefingExtraJson] = useState({});
   const [briefingSaving, setBriefingSaving] = useState(false);
+  const [briefingDispatchTesting, setBriefingDispatchTesting] = useState(false);
 
   const [notifAtivo, setNotifAtivo] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
@@ -111,7 +113,7 @@ export default function PlanejeAutomacoesPage() {
   const loadAutomacoes = useCallback(async () => {
     const { data, error } = await supabase
       .from('automacoes_config')
-      .select('id, nome, ativo, configuracao')
+      .select('id, nome, ativo, configuracao, horario')
       .in('nome', ['briefing_diario', 'notificacao_tarefa']);
 
     if (error) throw error;
@@ -121,7 +123,10 @@ export default function PlanejeAutomacoesPage() {
     if (br) {
       setBriefingAtivo(!!br.ativo);
       const parsed = briefingConfigFromRow(br.configuracao);
-      const { horario, numeros_briefing, modelo: modeloRaw, ...rest } = parsed;
+      const { horario: horarioJson, numeros_briefing, modelo: modeloRaw, ...rest } = parsed;
+      const horarioCol =
+        typeof br.horario === 'string' && String(br.horario).trim() ? String(br.horario).trim() : null;
+      const horario = normalizeTimeHHmm(horarioCol || horarioJson);
       setBriefingHorario(horario);
       setBriefingNumeros(numeros_briefing);
       const allowedModelos = BRIEFING_MODELO_OPCOES.map((o) => o.value);
@@ -268,15 +273,17 @@ export default function PlanejeAutomacoesPage() {
         setBriefingNumeros(numerosComPendente);
         setNovoNumero('');
       }
+      const horarioNorm = normalizeTimeHHmm(briefingHorario);
       const configuracao = {
         ...briefingExtraJson,
-        horario: briefingHorario,
+        horario: horarioNorm,
         numeros_briefing: numerosComPendente,
         modelo: briefingModelo,
       };
       const row = {
         nome: 'briefing_diario',
         ativo: briefingAtivo,
+        horario: horarioNorm,
         configuracao,
         updated_at: new Date().toISOString(),
       };
@@ -292,6 +299,68 @@ export default function PlanejeAutomacoesPage() {
       });
     } finally {
       setBriefingSaving(false);
+    }
+  };
+
+  /** Extrai texto útil quando a chamada à função na Supabase falha (rede, erro interno, etc.). */
+  const parseInvokeErrorBody = async (fnError) => {
+    const res = fnError?.context;
+    if (!res || typeof res.clone !== 'function') return fnError?.message || String(fnError);
+    let detail = fnError.message || 'Edge Function';
+    try {
+      const j = await res.clone().json();
+      if (j?.error) detail = String(j.error);
+      if (j?.body_preview) detail = `${detail} — ${String(j.body_preview).slice(0, 240)}`;
+    } catch {
+      try {
+        const t = await res.clone().text();
+        if (t?.trim()) detail = `${detail}: ${t.trim().slice(0, 240)}`;
+      } catch {
+        /* ignore */
+      }
+    }
+    return detail;
+  };
+
+  /** Pede à Supabase para enviar já um briefing de teste (só admin; ignora o horário do dia). */
+  const handleTestBriefingDispatch = async () => {
+    setBriefingDispatchTesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('briefing-daily-scheduler', {
+        body: { force: true },
+      });
+      if (error) {
+        const detail = await parseInvokeErrorBody(error);
+        throw new Error(detail);
+      }
+      if (data?.ok === false) {
+        const parts = [data.error].filter(Boolean);
+        if (data.worker_status != null) parts.push(`status ${data.worker_status}`);
+        if (data.body_preview) parts.push(String(data.body_preview).slice(0, 400));
+        throw new Error(parts.join(' — ') || 'Disparo rejeitado');
+      }
+      if (data?.error && data?.ok !== true) {
+        throw new Error(data.error);
+      }
+      if (data?.dispatched) {
+        toast({
+          title: 'Disparo enviado',
+          description: 'O worker recebeu o pedido de briefing (teste). Verifique o WhatsApp e os logs do servidor.',
+        });
+      } else {
+        toast({
+          title: 'Resposta da função',
+          description: typeof data?.detail === 'string' ? data.detail : JSON.stringify(data ?? {}),
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha no disparo de teste',
+        description: e.message || String(e),
+      });
+    } finally {
+      setBriefingDispatchTesting(false);
     }
   };
 
@@ -484,13 +553,12 @@ export default function PlanejeAutomacoesPage() {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-8 px-2 sm:px-4 md:px-6 pb-24">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Automações</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Briefing diário, alertas de tarefa e números WhatsApp da equipe. As alterações entram após salvar cada bloco.
-        </p>
-      </div>
+    <div className="w-full max-w-7xl mx-auto space-y-5 pb-24">
+      <WorkspacePageHeader
+        title="Automações"
+        label="Regras"
+        help="Configure briefing diário, alertas de tarefa e números de WhatsApp da equipe. Cada bloco informa quando a alteração entra em funcionamento e precisa ser salvo separadamente."
+      />
 
       <Card>
         <CardHeader>
@@ -501,7 +569,9 @@ export default function PlanejeAutomacoesPage() {
             <div className="min-w-0 flex-1">
               <CardTitle className="text-lg">Briefing diário</CardTitle>
               <CardDescription>
-                Envio automático do resumo (via integração em servidor). Defina horário e quem recebe no WhatsApp.
+                Define horário de Brasília, modelo e números (fica guardado na base de dados). O envio pelo WhatsApp é
+                feito por um <span className="font-medium text-foreground">programa no servidor</span>, que a Supabase
+                chama no horário certo. É preciso configurar na Supabase a URL desse programa e o agendamento.
               </CardDescription>
             </div>
           </div>
@@ -512,19 +582,23 @@ export default function PlanejeAutomacoesPage() {
               <Label htmlFor="briefing-ativo" className="text-base">
                 Ativo
               </Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Liga ou desliga o agendamento no worker.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Ligado: no horário combinado a Supabase pode pedir o envio do resumo.</p>
             </div>
             <Switch id="briefing-ativo" checked={briefingAtivo} onCheckedChange={setBriefingAtivo} />
           </div>
 
-          <div className="space-y-2 max-w-xs">
+          <div className="space-y-2 max-w-md">
             <Label htmlFor="briefing-horario">Horário</Label>
             <Input
               id="briefing-horario"
               type="time"
+              step={60}
               value={briefingHorario}
-              onChange={(e) => setBriefingHorario(e.target.value)}
+              onChange={(e) => setBriefingHorario(normalizeTimeHHmm(e.target.value || briefingHorario))}
             />
+            <p className="text-xs text-muted-foreground">
+              Usa sempre o horário de <span className="font-medium text-foreground">Brasília</span>.
+            </p>
           </div>
 
           <div className="space-y-2 max-w-md">
@@ -541,9 +615,7 @@ export default function PlanejeAutomacoesPage() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Salvo em <code className="text-xs">configuracao.modelo</code> no Supabase; o worker usa ao gerar o briefing.
-            </p>
+            <p className="text-xs text-muted-foreground">Fica guardado na configuração do briefing na base de dados.</p>
           </div>
 
           <div className="space-y-3">
@@ -587,10 +659,35 @@ export default function PlanejeAutomacoesPage() {
             </p>
           </div>
 
-          <Button onClick={handleSaveBriefing} disabled={briefingSaving} className="gap-2">
-            {briefingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Salvar
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={handleSaveBriefing} disabled={briefingSaving} className="gap-2">
+              {briefingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar
+            </Button>
+            {canEditRegras && (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                onClick={handleTestBriefingDispatch}
+                disabled={briefingDispatchTesting || briefingSaving}
+              >
+                {briefingDispatchTesting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                Disparar teste agora
+              </Button>
+            )}
+          </div>
+          {canEditRegras && (
+            <p className="text-xs text-muted-foreground">
+              Envia um pedido imediato com o que está salvo (modelo e números). Se der erro, leia o texto do aviso: às
+              vezes a URL do servidor só aceita outro tipo de notificação e o programa precisa ser atualizado para
+              entender o briefing.
+            </p>
+          )}
         </CardContent>
       </Card>
 

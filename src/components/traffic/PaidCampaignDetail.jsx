@@ -10,6 +10,9 @@ import React, { useState, useEffect, useCallback } from 'react';
     import PaidCampaignForm from '@/components/forms/PaidCampaignForm';
     import { AnimatePresence } from 'framer-motion';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
+    import { paidTrafficPaths } from '@/lib/paidTrafficRoutes';
+    import { fetchPaidCampaignsWithLinks } from '@/lib/paidCampaignsFetch';
+    import { resolvePrimaryCampaignTaskId } from '@/lib/paidCampaignTaskLinks';
 
     const PaidCampaignDetail = () => {
         const { id } = useParams();
@@ -36,18 +39,14 @@ import React, { useState, useEffect, useCallback } from 'react';
             }, 10000);
             
             try {
-                const { data: campaignData, error } = await supabase
-                    .from('paid_campaigns')
-                    .select('*, clientes(*), profiles!assignee_id(*)')
-                    .eq('id', id)
-                    .single();
+                const { data: campaignData, error } = await fetchPaidCampaignsWithLinks({ eqId: id });
 
                 clearTimeout(timeoutId);
 
                 if (error || !campaignData) {
                     console.error('Erro ao buscar campanha:', error);
                     toast({ title: 'Erro ao buscar campanha', description: error?.message || 'Campanha não encontrada', variant: 'destructive' });
-                    navigate('/paid-traffic');
+                    navigate(paidTrafficPaths.campaignsKanban());
                     return;
                 }
                 setCampaign(campaignData);
@@ -55,14 +54,14 @@ import React, { useState, useEffect, useCallback } from 'react';
                 console.error('Erro inesperado ao buscar campanha:', err);
                 clearTimeout(timeoutId);
                 toast({ title: 'Erro ao buscar campanha', description: err.message, variant: 'destructive' });
-                navigate('/paid-traffic');
+                navigate(paidTrafficPaths.campaignsKanban());
             } finally {
                 setLoading(false);
             }
         }, [id, navigate, toast]);
         
         const fetchDropdownData = useCallback(async () => {
-            const { data: clientsData } = await supabase.from('clientes').select('id, empresa');
+            const { data: clientsData } = await supabase.from('clientes').select('id, empresa').eq('etapa', 'closed');
             setClients(clientsData || []);
 
             // Importante: clientes (role='cliente') não podem aparecer como responsáveis.
@@ -90,7 +89,7 @@ import React, { useState, useEffect, useCallback } from 'react';
                 toast({ title: 'Erro ao excluir campanha', description: error.message, variant: 'destructive' });
             } else {
                 toast({ title: 'Campanha excluída com sucesso!' });
-                navigate('/paid-traffic');
+                navigate(paidTrafficPaths.campaignsKanban());
             }
         };
         
@@ -127,11 +126,13 @@ import React, { useState, useEffect, useCallback } from 'react';
         const ad = campaign.ad_sets?.[0]?.ads?.[0] || {};
         const adSetName = campaign.ad_sets?.[0]?.name || 'N/A';
         const adName = ad.name || 'N/A';
+        const linkedTaskId = resolvePrimaryCampaignTaskId(campaign);
+        const linkedTask = tasks.find((t) => t.id === linkedTaskId);
 
         return (
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                    <Button variant="ghost" onClick={() => navigate('/paid-traffic')} className="dark:text-gray-300 dark:hover:bg-gray-700">
+                    <Button variant="ghost" onClick={() => navigate(paidTrafficPaths.campaignsKanban())} className="dark:text-gray-300 dark:hover:bg-gray-700">
                         <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para Tráfego Pago
                     </Button>
                     {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
@@ -181,6 +182,9 @@ import React, { useState, useEffect, useCallback } from 'react';
                            <CardHeader><CardTitle className="text-lg dark:text-white">Anúncio: {adName}</CardTitle></CardHeader>
                            <CardContent>
                                <p className="text-sm dark:text-gray-300">{ad.description}</p>
+                               {linkedTask ? (
+                                 <p className="text-xs text-muted-foreground mt-2">Tarefa: {linkedTask.title}</p>
+                               ) : null}
                            </CardContent>
                        </Card>
                     </CardContent>

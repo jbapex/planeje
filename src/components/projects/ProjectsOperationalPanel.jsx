@@ -37,6 +37,7 @@ import {
   normalizeProjetosStatus,
 } from '@/lib/projectsOperationalMetrics';
 import { parseMesReferenciaLocal } from '@/lib/mesReferencia';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
 
 const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -234,6 +235,7 @@ export default function ProjectsOperationalPanel({
   onNewClient,
   onOpenClientProjects,
   onUpdateProjectStatus,
+  onBackToPlans,
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -831,30 +833,19 @@ export default function ProjectsOperationalPanel({
   return (
     <div className="flex w-full min-w-0 flex-col text-foreground">
       <Tabs value={mainTab} onValueChange={setMainTab} className="flex w-full min-w-0 flex-col">
-        <div className="sticky top-0 z-30 -mx-6 shrink-0 border-b border-gray-200 bg-background px-6 pb-3 pt-1 shadow-sm dark:border-gray-700 dark:bg-gray-950">
+        <div className="shrink-0">
           <div className="space-y-4">
-            <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{metaLine}</p>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                  Projetos<span className="text-emerald-600 dark:text-emerald-400">.</span>
-                </h1>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" className="border-gray-200 bg-card dark:border-gray-700" onClick={onNewClient}>
-                  <Plus className="h-4 w-4" />
-                  Cliente
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                  onClick={onNewCampaign}
-                >
-                  <Plus className="h-4 w-4" />
-                  Nova campanha
-                </Button>
-              </div>
-            </header>
+            <WorkspacePageHeader
+              title="Visão da agência"
+              label="Projetos"
+              description={metaLine}
+              help="Compare planejamento, execução, saúde e pendências por cliente. Esta é uma visão gerencial; a criação do documento e dos materiais continua dentro de cada plano mensal."
+              actions={<>
+                {onBackToPlans ? <Button variant="secondary" size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={onBackToPlans}>Voltar aos planos</Button> : null}
+                <Button variant="ghost" size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={onNewClient}><Plus className="mr-1 h-3.5 w-3.5" />Cliente</Button>
+                <Button size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={onNewCampaign}><Plus className="mr-1 h-3.5 w-3.5" />Novo projeto</Button>
+              </>}
+            />
 
             <div className="flex flex-col gap-3 rounded-xl border border-gray-200/90 bg-muted/25 p-3 dark:border-gray-800 lg:flex-row lg:items-end lg:justify-between">
               <div className="relative max-w-md flex-1">

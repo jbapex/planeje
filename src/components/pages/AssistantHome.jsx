@@ -10,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
+import AtlasEntry from '@/components/AtlasEntry';
 
 const AssistantHome = () => {
   const navigate = useNavigate();
@@ -185,24 +187,16 @@ const AssistantHome = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-        {/* Header */}
-        <div className="mb-10">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500 to-purple-600">
-              <Sparkles className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 dark:text-white">
-                Assistente de Projetos
-              </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                Gerencie projetos e tarefas com inteligência artificial
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="min-h-full">
+      <div className="max-w-7xl mx-auto">
+        <WorkspacePageHeader
+          className="mb-6"
+          title="Assistente de projetos"
+          label="IA"
+          help="Use a IA para apoiar conteúdo, análise, criativos e estratégia. Você pode trabalhar com o contexto de um cliente específico ou abrir uma conversa geral."
+        />
+
+        <AtlasEntry userId={user?.id} />
 
         {/* Botões Principais - Destaque */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
@@ -261,6 +255,30 @@ const AssistantHome = () => {
               </CardContent>
             </Card>
           </motion.div>
+        </div>
+
+        <div className="mb-10">
+          <Card className="border-2 border-gray-200 dark:border-gray-800">
+            <CardContent className="p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-slate-100">
+                    <Brain className="h-6 w-6 text-slate-700" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Cérebro IA</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Decisões, combinados sem tarefa e bloqueios. Consulta os registros e propõe o próximo passo.
+                    </p>
+                  </div>
+                </div>
+                <Button variant="outline" onClick={() => navigate('/assistant/cerebro')}>
+                  <ArrowRight className="h-4 w-4 mr-2" />
+                  Abrir Cérebro
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Dashboard de Aprendizado */}
@@ -435,4 +453,3 @@ const AssistantHome = () => {
 };
 
 export default AssistantHome;
-

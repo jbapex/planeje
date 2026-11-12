@@ -3,6 +3,7 @@ import { startOfMonth, endOfMonth, eachDayOfInterval, format, parseISO, addMonth
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getTaskDueState } from '@/lib/taskUrgency';
 
 const TimelineView = ({ tasks, statusOptions, users, onOpenTask, clients }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -41,7 +42,7 @@ const TimelineView = ({ tasks, statusOptions, users, onOpenTask, clients }) => {
   const clientNames = Object.keys(tasksByClient).sort();
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
+    <div className="tasks-timeline-shell bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
       <div className="flex justify-center items-center mb-4 flex-shrink-0">
         <Button variant="ghost" size="icon" onClick={() => setCurrentDate(subMonths(currentDate, 1))}>
           <ChevronLeft className="h-5 w-5" />
@@ -55,11 +56,11 @@ const TimelineView = ({ tasks, statusOptions, users, onOpenTask, clients }) => {
         <div className="inline-block min-w-full align-top">
           <div className="grid" style={{ gridTemplateColumns: `200px repeat(${daysInMonth.length}, minmax(50px, 1fr))` }}>
             {/* Header: Cliente */}
-            <div className="sticky top-0 left-0 bg-gray-100 dark:bg-gray-900 z-20 border-b border-r dark:border-gray-700 font-semibold p-2 dark:text-white flex items-center">Cliente</div>
+            <div className="tasks-timeline-head sticky top-0 left-0 bg-gray-100 dark:bg-gray-900 z-20 border-b border-r dark:border-gray-700 font-semibold p-2 dark:text-white flex items-center">Cliente</div>
             
             {/* Header: Dias */}
             {daysInMonth.map(day => (
-              <div key={day.toString()} className="sticky top-0 bg-gray-100 dark:bg-gray-900 z-10 text-center border-b border-r dark:border-gray-700 p-2 text-sm dark:text-gray-300">
+              <div key={day.toString()} className="tasks-timeline-head sticky top-0 bg-gray-100 dark:bg-gray-900 z-10 text-center border-b border-r dark:border-gray-700 p-2 text-sm dark:text-gray-300">
                 <span className="font-semibold">{format(day, 'd')}</span>
                 <div className="text-xs text-gray-400">{format(day, 'eee', { locale: ptBR })}</div>
               </div>
@@ -68,7 +69,7 @@ const TimelineView = ({ tasks, statusOptions, users, onOpenTask, clients }) => {
             {/* Rows: Clientes e Tarefas */}
             {clientNames.length > 0 ? clientNames.map((clientName) => (
               <React.Fragment key={clientName}>
-                <div className="sticky left-0 bg-white dark:bg-gray-800 z-10 border-b border-r dark:border-gray-700 font-medium p-2 text-sm dark:text-white flex items-center truncate" title={clientName}>{clientName}</div>
+                <div className="tasks-timeline-sticky sticky left-0 bg-white dark:bg-gray-800 z-10 border-b border-r dark:border-gray-700 font-medium p-2 text-sm dark:text-white flex items-center truncate" title={clientName}>{clientName}</div>
                 {daysInMonth.map((day) => {
                    const tasksForDay = tasksByClient[clientName].filter(t => {
                     const taskDate = parseISO(t.due_date);
@@ -78,12 +79,18 @@ const TimelineView = ({ tasks, statusOptions, users, onOpenTask, clients }) => {
                     <div key={`${clientName}-${day.toString()}`} className={`border-b border-r dark:border-gray-700 p-1 space-y-1 min-h-[60px] flex flex-col`}>
                       {tasksForDay.map(task => {
                         const statusInfo = statusOptions.find(s => s.value === task.status) || {};
+                        const due = getTaskDueState(task, { statusOptions });
+                        const bg = statusInfo.color || '#6B7280';
                         return (
                           <div 
                             key={task.id} 
                             onClick={() => onOpenTask(task)} 
-                            className="text-xs p-1 rounded text-white truncate cursor-pointer hover:opacity-80 transition-opacity"
-                            style={{ backgroundColor: statusInfo.color || '#6B7280' }}
+                            className="tasks-timeline-task text-xs p-1 rounded text-white truncate cursor-pointer hover:opacity-80 transition-opacity border-l-2"
+                            style={{
+                              '--status-color': bg,
+                              backgroundColor: bg,
+                              borderLeftColor: due.color || bg,
+                            }}
                             title={`${task.title} - ${getAssigneesNames(task.assignee_ids)}`}
                           >
                             {task.title}

@@ -17,6 +17,11 @@ module.exports = {
 		},
 		extend: {
 			colors: {
+				jb: {
+					orange: '#F07D58',
+					purple: '#9333EA',
+					'purple-dark': '#6D28D9',
+				},
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',

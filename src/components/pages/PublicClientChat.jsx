@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMe
     import { useParams, useNavigate, useLocation } from 'react-router-dom';
     import { Helmet } from 'react-helmet';
     import { supabase } from '@/lib/customSupabaseClient';
+import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
     import { useToast } from '@/components/ui/use-toast';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import { motion, AnimatePresence } from 'framer-motion';
@@ -3475,7 +3476,7 @@ Falha ao comunicar com o servidor: ${error.message || 'Erro desconhecido'}
                                <div className="rounded-2xl flex-shrink-0 shadow-sm overflow-hidden w-11 h-11 relative">
                                    {client?.logo_urls && client.logo_urls.length > 0 && !logoError ? (
                                        <img 
-                                           src={client.logo_urls[0]} 
+                                           src={rewritePublicStorageUrl(client.logo_urls[0])} 
                                            alt={client?.empresa || 'Cliente'} 
                                            className="absolute inset-0 w-full h-full object-cover rounded-2xl"
                                            style={{ imageOrientation: 'from-image' }}

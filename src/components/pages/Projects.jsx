@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
     import { Input } from '@/components/ui/input';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
+import { CONTA_SERVICOS } from '@/lib/projectPlanningWorkflow';
     import { useAuth } from '@/contexts/SupabaseAuthContext';
     import ProjectForm from '@/components/forms/ProjectForm';
     import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -23,13 +24,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
     } from "@/components/ui/table";
     import { useDataCache } from '@/hooks/useDataCache';
     import ProjectsOperationalPanel from '@/components/projects/ProjectsOperationalPanel';
+    import ProjectsSimpleHome from '@/components/projects/ProjectsSimpleHome';
 
     const Projects = () => {
       const [projects, setProjects] = useState([]);
       const [clients, setClients] = useState([]);
       const [tasks, setTasks] = useState([]);
       const [campaignPlans, setCampaignPlans] = useState([]);
+      const [monthlyScopes, setMonthlyScopes] = useState([]);
+      const [planSkips, setPlanSkips] = useState([]);
       const [users, setUsers] = useState([]);
+      const [taskStatuses, setTaskStatuses] = useState([]);
       const [editingProject, setEditingProject] = useState(null);
       const [loading, setLoading] = useState(true);
       const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +44,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       const [projectToDelete, setProjectToDelete] = useState(null);
       const [isFormOpen, setIsFormOpen] = useState(false);
       const [selectedClientId, setSelectedClientId] = useState(null);
+      const [showAgencyView, setShowAgencyView] = useState(false);
       const { toast } = useToast();
       const { user } = useAuth();
       const navigate = useNavigate();
@@ -51,8 +57,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       // Hook de cache para prevenir re-fetch desnecessário
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache('projects_v4');
       
-      // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
-      const hasFetchedRef = useRef(false);
+      const fetchDataRef = useRef(null);
 
       useEffect(() => {
         const path = location.pathname;
@@ -75,30 +80,50 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
       }, [location, navigate, projects]);
 
 
-      const fetchData = useCallback(async () => {
-        setLoading(true);
-        const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('*, clientes(empresa)');
-        const { data: clientsData, error: clientsError } = await supabase
-          .from('clientes')
-          .select('id, empresa, responsavel, logo_urls, etapa');
-        const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('id, project_id, status, assignee_ids, due_date, post_date, title');
+      const fetchData = useCallback(async (options = {}) => {
+        if (!options?.silent) setLoading(true);
+        const [projectResult, clientResult, statusResult, userResult, scopeResult, skipResult] = await Promise.all([
+          supabase.from('projetos').select('*, clientes(empresa)'),
+          supabase.from('clientes').select('id, empresa, responsavel, logo_urls, etapa, tipo_servico, tipo_contrato, entregaveis'),
+          supabase.from('task_statuses').select('value, is_terminal'),
+          supabase.from('profiles').select('id, full_name, avatar_url').neq('role', 'cliente'),
+          supabase.from('client_monthly_scopes').select('client_id, reference_month, product, deliverables'),
+          supabase.from('project_plan_skips').select('client_id, reference_month'),
+        ]);
+        const { data: projectsData, error: projectsError } = projectResult;
+        const { data: clientsData, error: clientsError } = clientResult;
+        const { data: statusesData, error: statusesError } = statusResult;
+        const { data: usersData, error: usersError } = userResult;
+        const { data: scopesData, error: scopesError } = scopeResult;
+        const { data: skipsData, error: skipsError } = skipResult;
         const projectIds = (projectsData || []).map((p) => p.id).filter(Boolean);
+        let tasksData = [];
+        let tasksError = null;
         let plansData = [];
         let plansError = null;
         if (projectIds.length > 0) {
-          const res = await supabase.from('campaign_plans').select('*').in('project_id', projectIds);
-          plansData = res.data || [];
-          plansError = res.error;
+          const [planResult, taskResult] = await Promise.all([
+            supabase.from('campaign_plans').select('*').in('project_id', projectIds),
+            (async () => {
+              const data = [];
+              for (let offset = 0; ; offset += 500) {
+                const result = await supabase.from('tarefas')
+                  .select('id, project_id, plan_material_id, status, assignee_ids, due_date, post_date, title, production_delivered_at, stage_due_at')
+                  .in('project_id', projectIds).order('id').range(offset, offset + 499);
+                if (result.error) return { data: [], error: result.error };
+                data.push(...(result.data || []));
+                if ((result.data || []).length < 500) return { data, error: null };
+              }
+            })(),
+          ]);
+          plansData = planResult.data || [];
+          plansError = planResult.error;
+          tasksData = taskResult.data || [];
+          tasksError = taskResult.error;
         }
-        // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
-        // Então removemos perfis de cliente de todas as listas de "usuários".
-        const { data: usersData, error: usersError } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url')
-          .neq('role', 'cliente');
 
-        if (projectsError || clientsError || tasksError || usersError || plansError) {
-          toast({ title: "Erro ao buscar dados", description: projectsError?.message || clientsError?.message || tasksError?.message || usersError?.message || plansError?.message, variant: "destructive" });
+        if (projectsError || clientsError || tasksError || usersError || plansError || statusesError || scopesError || skipsError) {
+          toast({ title: "Erro ao buscar dados", description: projectsError?.message || clientsError?.message || tasksError?.message || usersError?.message || plansError?.message || statusesError?.message || scopesError?.message || skipsError?.message, variant: "destructive" });
         } else {
           // Salva no cache
           const dataToCache = {
@@ -106,67 +131,66 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
             clients: clientsData || [],
             tasks: tasksData || [],
             campaignPlans: plansData || [],
-            users: usersData || []
+            monthlyScopes: scopesData || [],
+            planSkips: skipsData || [],
+            users: usersData || [],
+            taskStatuses: statusesData || []
           };
           setCachedData(dataToCache);
           setProjects(dataToCache.projects);
           setClients(dataToCache.clients);
           setTasks(dataToCache.tasks);
           setCampaignPlans(dataToCache.campaignPlans);
+          setMonthlyScopes(dataToCache.monthlyScopes);
+          setPlanSkips(dataToCache.planSkips);
           setUsers(dataToCache.users);
+          setTaskStatuses(dataToCache.taskStatuses);
         }
         setLoading(false);
       }, [toast, setCachedData]);
+      fetchDataRef.current = fetchData;
 
       useEffect(() => {
         if (!user) return;
-        
-        // Se já fez fetch inicial, não faz nada (evita recarregamento ao voltar para aba)
-        if (hasFetchedRef.current) {
-          // Apenas sincroniza com cache se necessário, sem fazer fetch
-          if (!shouldFetch() && cachedData) {
-            setProjects(cachedData.projects);
-            setClients(cachedData.clients);
-            setTasks(cachedData.tasks);
-            setCampaignPlans(cachedData.campaignPlans || []);
-            setUsers(cachedData.users);
-            setLoading(false);
-          }
-          return;
-        }
-        
-        // Se tem cache válido, usa ele e marca como fetched
         if (!shouldFetch() && cachedData) {
           setProjects(cachedData.projects);
           setClients(cachedData.clients);
           setTasks(cachedData.tasks);
           setCampaignPlans(cachedData.campaignPlans || []);
+          setMonthlyScopes(cachedData.monthlyScopes || []);
+          setPlanSkips(cachedData.planSkips || []);
           setUsers(cachedData.users);
+          setTaskStatuses(cachedData.taskStatuses || []);
           setLoading(false);
-          hasFetchedRef.current = true;
-          return;
         }
-
-        // Se não tem cache ou está expirado, faz fetch apenas uma vez
-        if (!hasFetchedRef.current) {
-          hasFetchedRef.current = true;
-          fetchData();
-        }
+        void fetchDataRef.current?.({ silent: Boolean(cachedData) });
+        const refresh = () => { void fetchDataRef.current?.({ silent: true }); };
+        window.addEventListener('focus', refresh);
+        return () => window.removeEventListener('focus', refresh);
       }, [user]); // Apenas user como dependência - evita re-execução
+
+      useEffect(() => {
+        if (location.pathname !== '/projects' || !prefillClientId || clients.length === 0) return;
+        if (clients.some((c) => c.id === prefillClientId)) {
+          setSelectedClientId(prefillClientId);
+        }
+      }, [prefillClientId, clients, location.pathname]);
       
       const handleSaveProject = async (projectData, isNew) => {
         // Usa o owner_id do formData se existir, senão usa o user.id como padrão
         const dataToSave = { ...projectData, owner_id: projectData.owner_id || user.id };
         let error;
+        let savedProject;
 
         if (isNew) {
-            ({ error } = await supabase.from('projetos').insert(dataToSave));
+            ({ error, data: savedProject } = await supabase.from('projetos').insert(dataToSave).select('id').single());
         } else {
             ({ error } = await supabase.from('projetos').update(dataToSave).eq('id', editingProject.id));
         }
 
         if (error) {
           toast({ title: "Erro ao salvar projeto", description: error.message, variant: "destructive" });
+          return false;
         } else {
           toast({ title: `Projeto ${isNew ? 'criado' : 'atualizado'}!` });
           setCachedData(null); // Limpa cache para forçar refresh
@@ -179,8 +203,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
             }
           }
           
-          fetchData();
-          navigate('/projects');
+          if (isNew && savedProject?.id) { setIsFormOpen(false); navigate(`/projects/${savedProject.id}/planner${prefillMonth != null ? '?plan=edit' : ''}`); }
+          else { fetchData(); navigate('/projects'); }
+          return true;
         }
       };
 
@@ -209,8 +234,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         setShowDeleteAlert(false);
       };
       
-      const handleDeleteClick = (e, project) => {
-        e.stopPropagation();
+      const handleDeleteClick = (projectOrEvent, maybeProject) => {
+        const project = maybeProject || projectOrEvent;
+        if (projectOrEvent?.stopPropagation) projectOrEvent.stopPropagation();
         setProjectToDelete(project);
         setShowDeleteAlert(true);
       };
@@ -237,17 +263,45 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
       const handleUpdateProjectStatus = useCallback(
         async (projectId, newStatus) => {
-          const { error } = await supabase.from('projetos').update({ status: newStatus }).eq('id', projectId);
-          if (error) {
+          try {
+            const { error } = await supabase.from('projetos').update({ status: newStatus }).eq('id', projectId).select('id, status').single();
+            if (error) throw error;
+            toast({ title: 'Etapa do projeto atualizada' });
+            setProjects((current) => current.map((project) => project.id === projectId ? { ...project, status: newStatus } : project));
+            setCachedData(null);
+            await fetchData({ silent: true });
+            return true;
+          } catch (error) {
             toast({ title: 'Erro ao atualizar status', description: error.message, variant: 'destructive' });
-            return;
+            return false;
           }
-          toast({ title: 'Status da campanha atualizado' });
-          setCachedData(null);
-          fetchData();
         },
         [toast, setCachedData, fetchData]
       );
+
+      const handleDismissPlan = async (clientId, referenceMonth) => {
+        const month = String(referenceMonth || '').slice(0, 10);
+        const { error } = await supabase.from('project_plan_skips').insert({ client_id: clientId, reference_month: month, created_by: user.id });
+        if (error && error.code !== '23505') {
+          toast({ title: 'Não foi possível tirar do quadro', description: error.message, variant: 'destructive' });
+          return;
+        }
+        toast({ title: 'Tirou deste mês', description: 'O plano automático desse mês não volta.' });
+        setCachedData(null);
+        await fetchData({ silent: true });
+      };
+
+      const handleMarkConta = async (clientId, tipo) => {
+        const { error } = await supabase.from('clientes').update({ tipo_servico: tipo }).eq('id', clientId);
+        if (error) {
+          toast({ title: 'Não foi possível marcar a conta', description: error.message, variant: 'destructive' });
+          return;
+        }
+        const label = CONTA_SERVICOS.find((item) => item.value === tipo)?.label || tipo;
+        toast({ title: 'Conta marcada', description: label });
+        setClients((current) => current.map((client) => client.id === clientId ? { ...client, tipo_servico: tipo } : client));
+        setCachedData(null);
+      };
 
       const getProjectProgress = (projectId) => {
         const projectTasks = tasks.filter(t => t.project_id === projectId);
@@ -312,7 +366,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                             <img 
                               className="h-8 w-8 rounded-full border-2 border-white dark:border-gray-800 object-cover" 
                               alt={owner.full_name || 'Responsável'} 
-                              src={owner.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`}
+                              src={rewritePublicStorageUrl(owner.avatar_url) || `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`}
                               onError={(e) => {
                                 e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`;
                               }}
@@ -377,7 +431,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                           <img 
                             className="h-8 w-8 rounded-full border-2 border-white dark:border-gray-800 object-cover" 
                             alt={owner.full_name || 'Responsável'} 
-                            src={owner.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`}
+                            src={rewritePublicStorageUrl(owner.avatar_url) || `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`}
                             onError={(e) => {
                               e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.full_name || 'User')}&background=random`;
                             }}
@@ -401,89 +455,17 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
         </Card>
       );
 
-      const selectedClient = clients.find(c => c.id === selectedClientId);
-
       return (
         <div className="space-y-6">
-          {selectedClientId && (
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <Button variant="ghost" size="sm" onClick={handleBackToClients} className="flex items-center gap-2">
-                  <ArrowLeft className="h-4 w-4" />
-                  Voltar ao painel
-                </Button>
-                <ChevronRight className="h-4 w-4 text-gray-400" />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{selectedClient?.empresa}</h1>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                    {filteredProjects.length} {filteredProjects.length === 1 ? 'campanha' : 'campanhas'}
-                  </p>
-                </div>
-              </div>
-              <Button onClick={() => handleOpenForm()}>
-                <Plus className="mr-2 h-4 w-4" /> Nova campanha
-              </Button>
-            </div>
-          )}
-
-          {/* Busca e filtros só na visão por cliente (campanhas do cliente) */}
-          {selectedClientId && (
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="relative w-full md:w-auto">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  placeholder="Buscar projetos..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-full md:w-80 dark:bg-gray-800 dark:border-gray-700"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Filter className="h-5 w-5 text-gray-500" />
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[180px] dark:bg-gray-800 dark:border-gray-700"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
-                  <SelectContent className="dark:bg-gray-800 dark:border-gray-700">
-                    <SelectItem value="all">Todos os Status</SelectItem>
-                    {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-
-          {/* Conteúdo */}
-          {selectedClientId ? (
-            // View de projetos do cliente
-            <>
-              <Tabs value={viewMode} onValueChange={setViewMode} className="w-full">
-                <TabsList className="dark:bg-gray-800 dark:border-gray-700">
-                  <TabsTrigger value="grid" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white"><LayoutGrid className="mr-2 h-4 w-4" /> Grade</TabsTrigger>
-                  <TabsTrigger value="list" className="dark:text-gray-300 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white"><List className="mr-2 h-4 w-4" /> Lista</TabsTrigger>
-                </TabsList>
-                <TabsContent value="grid">
-                  {loading ? <p className="text-center py-10 dark:text-gray-300">Carregando...</p> : renderGridView()}
-                </TabsContent>
-                <TabsContent value="list">
-                  {loading ? <p className="text-center py-10 dark:text-gray-300">Carregando...</p> : renderListView()}
-                </TabsContent>
-              </Tabs>
-
-              {filteredProjects.length === 0 && !loading && (
-                <div className="text-center py-10">
-                  <p className="text-gray-500 dark:text-gray-400">Nenhum projeto encontrado.</p>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {clients.length === 0 && !loading ? (
+          {clients.length === 0 && !loading ? (
                 <div className="text-center py-10 rounded-md border border-border bg-muted/20">
                   <p className="text-gray-500 dark:text-gray-400 mb-4">Nenhum cliente cadastrado.</p>
                   <Button onClick={() => navigate('/clients/new')} variant="outline">
                     <Plus className="mr-2 h-4 w-4" /> Criar primeiro cliente
                   </Button>
                 </div>
-              ) : (
+              ) : showAgencyView && !selectedClientId ? (
+                <div>
                 <ProjectsOperationalPanel
                   clients={clients}
                   projects={projects}
@@ -496,9 +478,36 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                   onNewClient={() => navigate('/clients/new')}
                   onOpenClientProjects={(clientId) => handleSelectClient(clientId)}
                   onUpdateProjectStatus={handleUpdateProjectStatus}
+                  onBackToPlans={() => setShowAgencyView(false)}
                 />
-              )}
-            </>
+                </div>
+              ) : (
+                <ProjectsSimpleHome
+                  projects={projects}
+                  monthlyScopes={monthlyScopes}
+                  clients={clients}
+                  tasks={tasks}
+                  campaignPlans={campaignPlans}
+                  statusOptions={taskStatuses} users={users}
+                  onUpdateProjectStatus={handleUpdateProjectStatus}
+                  onDismissPlan={handleDismissPlan}
+                  onDeleteProject={(project) => handleDeleteClick(project)}
+                  onMarkConta={handleMarkConta}
+                  planSkips={planSkips}
+                  loading={loading}
+                  navigate={navigate}
+                  onNewProject={({ clientId, year, monthIndex } = {}) => {
+                    const params = new URLSearchParams({ year: String(year || new Date().getFullYear()), month: String(monthIndex ?? new Date().getMonth()) });
+                    if (clientId) params.set('client_id', clientId);
+                    navigate(`/projects/new?${params}`);
+                  }}
+                  onRefresh={fetchData}
+                  onShowAgency={() => setShowAgencyView(true)}
+                  selectedClientId={selectedClientId}
+                  onBack={handleBackToClients}
+                  initialYear={prefillYear}
+                  initialMonth={prefillMonth}
+                />
           )}
 
           <AnimatePresence>
@@ -512,7 +521,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
                 users={users}
                 defaultClientId={prefillClientId || selectedClientId}
                 defaultYear={prefillYear || undefined}
-                defaultMonth={prefillMonth || undefined}
+                defaultMonth={prefillMonth !== null ? Number(prefillMonth) : undefined}
               />
             )}
           </AnimatePresence>

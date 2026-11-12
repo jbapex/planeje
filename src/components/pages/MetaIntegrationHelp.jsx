@@ -103,7 +103,7 @@ const MetaIntegrationHelp = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="dark:text-gray-300">
-              Agora, vá para o seu projeto no <a href="https://supabase.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Supabase</a>, acesse o <strong>SQL Editor</strong>, e depois o <strong>Vault</strong>. Adicione o seguinte segredo:
+              Salve o token em <a href="#/settings/meta" className="text-blue-500 hover:underline">Configurações → Meta da agência</a>. O Planeje valida contas, páginas e Instagram na hora. Não cole o token no chat nem no Rastreamento do cliente.
             </p>
             <Alert variant="default" className="dark:bg-gray-900">
               <Terminal className="h-4 w-4" />

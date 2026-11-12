@@ -1,6 +1,8 @@
 import { parseISO, isBefore, startOfDay, addDays } from 'date-fns';
 import { getMaterialCalendarDateKey, buildTaskTitleFromPlanMaterial } from '@/lib/campaignPlanMateriais';
 import { parseMesReferenciaLocal } from '@/lib/mesReferencia';
+import { projectCoversMonth, projectMaterialsForMonth } from '@/lib/projectPeriod';
+import { getEffectiveTaskDeadline } from '@/lib/taskUrgency';
 
 const TERMINAL_TASK_STATUSES = new Set([
   'concluido',
@@ -12,10 +14,7 @@ const TERMINAL_TASK_STATUSES = new Set([
 ]);
 
 export function projectInReferenceMonth(project, year, monthIndex) {
-  if (!project?.mes_referencia) return false;
-  const d = parseMesReferenciaLocal(project.mes_referencia);
-  if (!d) return false;
-  return d.getFullYear() === year && d.getMonth() === monthIndex;
+  return projectCoversMonth(project, `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`);
 }
 
 /** Início do mês de referência da visão (comparável a mes_referencia normalizado). */
@@ -49,6 +48,7 @@ export function listStaleExecutionBeforePeriod({ clients, projects, year, monthI
   for (const p of projects) {
     if (!clientIds.has(p.client_id)) continue;
     if (!projectIsExecucao(p)) continue;
+    if (projectCoversMonth(p, `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`)) continue;
     const ref = projectMesReferenciaStart(p);
     if (!ref || !isBefore(ref, periodStart)) continue;
     const refLabel = ref.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
@@ -66,17 +66,17 @@ export function planForProject(campaignPlans, projectId) {
   return campaignPlans.find((p) => p.project_id === projectId) || null;
 }
 
-/** Indica se já existe tarefa com título gerado a partir do material. */
-export function materialHasLinkedTask(material, projectTasks, clientEmpresa) {
-  const expected = buildTaskTitleFromPlanMaterial(clientEmpresa, material.descricao);
-  return projectTasks.some((t) => (t.title || '').trim() === expected.trim());
+/** Vínculo explícito: renomear a peça ou a tarefa não muda sua identidade. */
+export function materialHasLinkedTask(material, projectTasks) {
+  return material?.id != null && projectTasks.some((t) => t.plan_material_id != null && String(t.plan_material_id) === String(material.id));
 }
 
 export function isTaskOverdue(task) {
-  if (!task?.due_date) return false;
+  const effectiveDue = getEffectiveTaskDeadline(task).value;
+  if (!effectiveDue) return false;
   if (TERMINAL_TASK_STATUSES.has(String(task.status || '').toLowerCase())) return false;
   try {
-    const raw = String(task.due_date);
+    const raw = String(effectiveDue);
     const due = parseISO(raw.includes('T') ? raw : `${raw}T23:59:59`);
     return isBefore(due, startOfDay(new Date()));
   } catch {
@@ -269,7 +269,7 @@ export function aggregateOperationalStats({
     const empresa = clientsById[p.client_id]?.empresa || '';
     const pTasks = projectTasksMap[p.id] || [];
     overdueTasks += pTasks.filter(isTaskOverdue).length;
-    const mats = plan?.materiais || [];
+    const mats = projectMaterialsForMonth(plan, p, `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`, pTasks);
     for (const m of mats) {
       materialsTotal += 1;
       if (!getMaterialCalendarDateKey(m)) materialsWithoutDate += 1;
@@ -312,8 +312,9 @@ export function normalizeProjetosStatus(raw) {
 }
 
 const STATUS_LABEL = {
+  a_fazer: 'A fazer',
   planejamento: 'Planejamento',
-  aprovacao: 'Aprovação',
+  aprovacao: 'Reunião / Aprovação',
   execucao: 'Execução',
   concluido: 'Concluído',
   pausado: 'Pausado',
@@ -372,7 +373,8 @@ export function buildClientRows({ clients, projects, tasks, campaignPlans, users
     const staleExecutions = staleByClientId[client.id] || [];
     const staleExecutionCount = staleExecutions.length;
     const monthProject = getCampaignForClientMonth(projects, client.id, year, monthIndex);
-    const plan = monthProject ? planForProject(campaignPlans, monthProject.id) : null;
+    const savedPlan = monthProject ? planForProject(campaignPlans, monthProject.id) : null;
+    const plan = savedPlan ? { ...savedPlan, materiais: projectMaterialsForMonth(savedPlan, monthProject, `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`, byProject[monthProject.id] || []) } : null;
     const pTasks = monthProject ? byProject[monthProject.id] || [] : [];
     const empresa = client.empresa || '';
     const mats = plan?.materiais || [];
@@ -578,7 +580,7 @@ export function buildCampaignRows({
     const pTasks = byProject[p.id] || [];
     const client = clientById[p.client_id];
     const empresa = client?.empresa || '';
-    const mats = plan?.materiais || [];
+    const mats = referenceScope === 'todas_abertas' ? (plan?.materiais || []) : projectMaterialsForMonth(plan, p, `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`, pTasks);
     const materialsWithoutTask = mats.filter((m) => !materialHasLinkedTask(m, pTasks, empresa)).length;
     const overdueCount = pTasks.filter(isTaskOverdue).length;
     const ps = planStatusLabel(plan);

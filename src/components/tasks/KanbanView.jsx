@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-    import { motion } from 'framer-motion';
     import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
     import { Users } from 'lucide-react';
+    import { cn } from '@/lib/utils';
+    import { getTaskDueState } from '@/lib/taskUrgency';
+    import { TaskDueLabel, TaskPriorityBadge } from '@/components/tasks/TaskUrgencyBadges';
+    import TaskChannelBadges from '@/components/tasks/TaskChannelBadges';
 
     const KanbanView = ({ tasks, onUpdateStatus, onOpenTask, statusOptions, users }) => {
       const [draggedTask, setDraggedTask] = useState(null);
@@ -11,6 +14,23 @@ import React, { useState, useRef, useEffect } from 'react';
       const [isDown, setIsDown] = useState(false);
       const [startX, setStartX] = useState(0);
       const [scrollLeft, setScrollLeft] = useState(0);
+
+      const scrollSnapshotRef = useRef(0);
+
+      useEffect(() => {
+        const slider = sliderRef.current;
+        if (!slider) return;
+        const onScroll = () => {
+          scrollSnapshotRef.current = slider.scrollLeft;
+        };
+        slider.addEventListener('scroll', onScroll, { passive: true });
+        return () => slider.removeEventListener('scroll', onScroll);
+      }, []);
+
+      useEffect(() => {
+        const slider = sliderRef.current;
+        if (slider) slider.scrollLeft = scrollSnapshotRef.current;
+      }, [tasks]);
 
       useEffect(() => {
         const slider = sliderRef.current;
@@ -64,9 +84,15 @@ import React, { useState, useRef, useEffect } from 'react';
 
       const handleDrop = (e, newStatus) => {
         e.preventDefault();
+        e.stopPropagation();
         if (draggedTask && draggedTask.status !== newStatus) {
           onUpdateStatus(draggedTask.id, newStatus);
         }
+        setDraggedTask(null);
+        setDragOverColumn(null);
+      };
+
+      const handleDragEnd = () => {
         setDraggedTask(null);
         setDragOverColumn(null);
       };
@@ -92,27 +118,43 @@ import React, { useState, useRef, useEffect } from 'react';
                 key={status.value}
                 onDrop={(e) => handleDrop(e, status.value)}
                 onDragOver={(e) => handleDragOver(e, status.value)}
-                className={`w-80 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow-sm transition-colors flex flex-col ${dragOverColumn === status.value ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                className={`tasks-kanban-col w-80 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow-sm transition-colors flex flex-col ${dragOverColumn === status.value ? 'is-drag-over bg-blue-50 dark:bg-blue-900/30' : ''}`}
               >
-                <div className="px-3 py-2 rounded-t-lg flex-shrink-0" style={{ backgroundColor: status.color || '#6B7280' }}>
+                <div
+                  className="tasks-kanban-col-header px-3 py-2 rounded-t-lg flex-shrink-0"
+                  style={{ '--status-color': status.color || '#6B7280', backgroundColor: status.color || '#6B7280' }}
+                >
                   <h3 className="font-medium text-sm text-white">{status.label} ({tasks.filter(t => t.status === status.value).length})</h3>
                 </div>
                 <div className="flex-grow space-y-3 p-3 overflow-y-auto min-h-0">
                   {tasks.filter(t => t.status === status.value).map(task => {
                     const assignees = getAssignees(task.assignee_ids);
+                    const due = getTaskDueState(task, { statusOptions });
                     return (
-                      <motion.div
+                      <div
                         key={task.id}
-                        layout
                         draggable
                         onDragStart={(e) => handleDragStart(e, task)}
+                        onDragEnd={handleDragEnd}
                         onClick={() => onOpenTask(task)}
-                        className="bg-white dark:bg-gray-800 p-3 rounded-md shadow-sm cursor-pointer border dark:border-gray-700"
+                        className={cn(
+                          'tasks-kanban-card bg-white dark:bg-gray-800 p-3 rounded-md shadow-sm cursor-pointer border dark:border-gray-700 transition-opacity',
+                          due.color && 'border-l-4',
+                          draggedTask?.id === task.id && 'opacity-40'
+                        )}
+                        style={{
+                          '--due-tone-color': due.color || undefined,
+                          borderLeftColor: due.color || undefined,
+                        }}
                       >
-                        <p className="font-medium text-sm dark:text-white">{task.title}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium text-sm dark:text-white">{task.title}</p>
+                          <TaskPriorityBadge priority={task.priority} />
+                        </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{task.clientes?.empresa}</p>
+                        <TaskChannelBadges publications={task._channel_publications} compact />
                         <div className="flex justify-between items-center mt-2 text-xs text-gray-400">
-                          <span>{task.due_date ? new Date(task.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : ''}</span>
+                          <TaskDueLabel task={task} statusOptions={statusOptions} />
                            <div className="flex items-center -space-x-2">
                                 {assignees.length > 0 ? (
                                     assignees.slice(0, 2).map(assignee => (
@@ -133,7 +175,7 @@ import React, { useState, useRef, useEffect } from 'react';
                                 )}
                             </div>
                         </div>
-                      </motion.div>
+                      </div>
                     );
                   })}
                 </div>

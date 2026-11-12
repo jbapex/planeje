@@ -1,0 +1,223 @@
+/* Navegação principal — mesma base escura do menu lateral. */
+.planeje-tasks .tasks-tab-bar {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.14), transparent 28%),
+    radial-gradient(circle at 0% 100%, rgba(249, 115, 22, 0.1), transparent 32%),
+    linear-gradient(165deg, #18151a 0%, #111214 52%, #0d0f12 100%);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 26px rgba(15, 18, 24, 0.18);
+}
+
+.planeje-tasks .tasks-tab-trigger {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.planeje-tasks .tasks-tab-trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.planeje-tasks .tasks-tab-trigger[data-state='active'] {
+  background: #fff;
+  color: #111214;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Tarefas — dark mode (apenas cores, layout inalterado) */
+
+.dark .planeje-tasks .tasks-filters-bar {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow: none;
+}
+
+.dark .planeje-tasks .tasks-tab-bar {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.14), transparent 28%),
+    radial-gradient(circle at 0% 100%, rgba(249, 115, 22, 0.1), transparent 32%),
+    linear-gradient(165deg, #18151a 0%, #111214 52%, #0d0f12 100%);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .planeje-tasks .tasks-tab-trigger {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.dark .planeje-tasks .tasks-tab-trigger:hover {
+  color: hsl(var(--foreground));
+}
+
+.dark .planeje-tasks .tasks-tab-trigger[data-state='active'] {
+  background: #fff;
+  color: #111214;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+/* ——— Kanban ——— */
+.dark .planeje-tasks .tasks-kanban-col {
+  background: hsl(var(--background) / 0.55);
+  border: 1px solid hsl(var(--border) / 0.65);
+  box-shadow: none;
+}
+
+.dark .planeje-tasks .tasks-kanban-col.is-drag-over {
+  background: rgba(201, 74, 46, 0.1);
+  border-color: rgba(201, 74, 46, 0.35);
+}
+
+.dark .planeje-tasks .tasks-kanban-col-header {
+  background: color-mix(in srgb, var(--status-color, #6b7280) 26%, hsl(var(--card))) !important;
+  border-bottom: 2px solid color-mix(in srgb, var(--status-color, #6b7280) 52%, transparent);
+}
+
+.dark .planeje-tasks .tasks-kanban-col-header h3 {
+  color: color-mix(in srgb, var(--status-color, #9ca3af) 58%, hsl(var(--foreground)));
+}
+
+.dark .planeje-tasks .tasks-kanban-card {
+  background: hsl(217 28% 24%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.dark .planeje-tasks .tasks-kanban-card:hover {
+  background: hsl(217 28% 27%);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+.dark .planeje-tasks .tasks-kanban-card p.font-medium {
+  color: hsl(var(--foreground));
+}
+
+.dark .planeje-tasks .tasks-kanban-card .text-gray-500 {
+  color: hsl(var(--muted-foreground) / 0.95);
+}
+
+/* ——— Alerta de entrega (amarelo / vermelho) ——— */
+.planeje-tasks .tasks-due-soon {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.planeje-tasks .tasks-due-overdue {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.planeje-tasks .tasks-kanban-card.tasks-due-soon,
+.planeje-tasks .tasks-kanban-card.tasks-due-overdue {
+  border-left-width: 4px;
+}
+
+.dark .planeje-tasks .tasks-due-soon {
+  background: rgba(120, 53, 15, 0.34) !important;
+  border-color: rgba(251, 191, 36, 0.42) !important;
+}
+
+.dark .planeje-tasks .tasks-due-overdue {
+  background: rgba(127, 29, 29, 0.38) !important;
+  border-color: rgba(248, 113, 113, 0.48) !important;
+}
+
+/* ——— Lista ——— */
+.dark .planeje-tasks .tasks-list-container {
+  gap: 10px;
+}
+
+.dark .planeje-tasks .tasks-list-row {
+  background: hsl(217 28% 22%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-left-width: 4px !important;
+  border-left-color: var(--due-tone-color, color-mix(in srgb, var(--status-color, #6b7280) 88%, white)) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+.dark .planeje-tasks .tasks-list-row:hover {
+  background: hsl(217 28% 25%) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.dark .planeje-tasks .tasks-list-row.tasks-due-soon {
+  background: rgba(120, 53, 15, 0.42) !important;
+  border-color: rgba(251, 191, 36, 0.42) !important;
+  border-left-color: var(--due-tone-color, #f59e0b) !important;
+}
+
+.dark .planeje-tasks .tasks-list-row.tasks-due-overdue {
+  background: rgba(127, 29, 29, 0.46) !important;
+  border-color: rgba(248, 113, 113, 0.48) !important;
+  border-left-color: var(--due-tone-color, #ef4444) !important;
+}
+
+.dark .planeje-tasks .tasks-list-row.tasks-due-soon:hover {
+  background: rgba(120, 53, 15, 0.52) !important;
+}
+
+.dark .planeje-tasks .tasks-list-row.tasks-due-overdue:hover {
+  background: rgba(127, 29, 29, 0.56) !important;
+}
+
+.dark .planeje-tasks .tasks-list-card {
+  background: hsl(var(--card)) !important;
+  border-color: hsl(var(--border) / 0.85) !important;
+  box-shadow: none;
+}
+
+.dark .planeje-tasks .tasks-status-badge {
+  background: color-mix(in srgb, var(--status-color, #6b7280) 24%, hsl(var(--card))) !important;
+  color: color-mix(in srgb, var(--status-color, #9ca3af) 70%, hsl(var(--foreground))) !important;
+  border: 1px solid color-mix(in srgb, var(--status-color, #6b7280) 38%, transparent) !important;
+}
+
+/* ——— Timeline / Calendário ——— */
+.dark .planeje-tasks .tasks-timeline-shell,
+.dark .planeje-tasks .tasks-calendar-shell {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow: none;
+}
+
+.dark .planeje-tasks .tasks-timeline-head {
+  background: hsl(var(--muted) / 0.45);
+  border-color: hsl(var(--border) / 0.85);
+  color: hsl(var(--foreground));
+}
+
+.dark .planeje-tasks .tasks-timeline-sticky {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border) / 0.85);
+  color: hsl(var(--foreground));
+}
+
+.dark .planeje-tasks .tasks-calendar-day {
+  border-color: hsl(var(--border) / 0.75);
+}
+
+.dark .planeje-tasks .tasks-calendar-day.is-today {
+  background: rgba(201, 74, 46, 0.12);
+}
+
+.dark .planeje-tasks .tasks-calendar-day.is-today > span {
+  color: #f9a8d4;
+}
+
+.dark .planeje-tasks .tasks-timeline-task {
+  background: color-mix(in srgb, var(--status-color, #6b7280) 30%, hsl(var(--card))) !important;
+  color: color-mix(in srgb, var(--status-color, #9ca3af) 68%, hsl(var(--foreground))) !important;
+  border: 1px solid color-mix(in srgb, var(--status-color, #6b7280) 38%, transparent);
+}
+
+.dark .planeje-tasks .tasks-calendar-task {
+  background: color-mix(in srgb, var(--status-color, #6b7280) 32%, hsl(var(--card))) !important;
+  border: 1px solid color-mix(in srgb, var(--status-color, #6b7280) 40%, transparent);
+}
+
+.dark .planeje-tasks .tasks-calendar-task button,
+.dark .planeje-tasks .tasks-calendar-task span {
+  color: color-mix(in srgb, var(--status-color, #9ca3af) 65%, hsl(var(--foreground)));
+}

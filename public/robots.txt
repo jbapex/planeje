@@ -1,0 +1,3 @@
+# Permite o crawler de busca da OpenAI no Planeje.
+User-agent: OAI-SearchBot
+Allow: /

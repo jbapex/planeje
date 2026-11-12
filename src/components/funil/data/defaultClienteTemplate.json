@@ -1,0 +1,1075 @@
+{
+  "name": "Dinamac",
+  "nodes": [
+    {
+      "id": "node_1779124611565",
+      "type": "custom",
+      "position": {
+        "x": 137.8363107367901,
+        "y": 181.9890908486624
+      },
+      "data": {
+        "type": "google",
+        "label": "Google Ads",
+        "subtitle": "Google Ads / SEO"
+      }
+    },
+    {
+      "id": "node_1779124651856",
+      "type": "custom",
+      "position": {
+        "x": 766.8110826395957,
+        "y": 143.90812349164148
+      },
+      "data": {
+        "type": "landing-page",
+        "label": "Site Dinamac",
+        "subtitle": "Ecommerce"
+      }
+    },
+    {
+      "id": "node_1779124873556",
+      "type": "custom",
+      "position": {
+        "x": 1812.0512945528883,
+        "y": 178.1712273782888
+      },
+      "data": {
+        "type": "whatsapp",
+        "label": "WhatsApp",
+        "subtitle": "Mensagem via WhatsApp"
+      }
+    },
+    {
+      "id": "node_1779124923282",
+      "type": "custom",
+      "position": {
+        "x": 321.2589071060014,
+        "y": 151.1571752552521
+      },
+      "data": {
+        "type": "jornada-b",
+        "label": "Jornada B",
+        "subtitle": "Jornada B · Médio Ticket — roçadeira, motosserra, implemento (R$2k–R$15k)"
+      }
+    },
+    {
+      "id": "node_1779125028455",
+      "type": "custom",
+      "position": {
+        "x": 910.1292313824941,
+        "y": 983.6755742919377
+      },
+      "data": {
+        "type": "boleto",
+        "label": "Carrinho",
+        "subtitle": "Pagamento por boleto"
+      }
+    },
+    {
+      "id": "node_1779125052274",
+      "type": "custom",
+      "position": {
+        "x": 1366.7476811701097,
+        "y": 1395.7908570067323
+      },
+      "data": {
+        "type": "purchase",
+        "label": "Compra Aprovada",
+        "subtitle": "Confirmação de compra"
+      }
+    },
+    {
+      "id": "node_1779125071657",
+      "type": "custom",
+      "position": {
+        "x": 1812.2636951954664,
+        "y": 674.1086686235587
+      },
+      "data": {
+        "type": "vendedor",
+        "label": "Vendedor",
+        "subtitle": "Closer A / Consultor B / Express C"
+      }
+    },
+    {
+      "id": "node_1779125153627",
+      "type": "custom",
+      "position": {
+        "x": 1270.2831090647192,
+        "y": 499.58276110843394
+      },
+      "data": {
+        "type": "meta",
+        "label": "Meta Ads",
+        "subtitle": "Campanhas Meta Ads (Facebook + Instagram)"
+      }
+    },
+    {
+      "id": "node_1779125211556",
+      "type": "custom",
+      "position": {
+        "x": 1351.2348456274774,
+        "y": 913.2060881592378
+      },
+      "data": {
+        "type": "meta",
+        "label": "Meta Ads",
+        "subtitle": "Campanhas Meta Ads (Facebook + Instagram)"
+      }
+    },
+    {
+      "id": "node_1779125302555",
+      "type": "custom",
+      "position": {
+        "x": 1516.8792481879652,
+        "y": 507.6950916038737
+      },
+      "data": {
+        "type": "image-ad",
+        "label": "Imagem Ad",
+        "subtitle": "Criativo em imagem"
+      }
+    },
+    {
+      "id": "node_1779125358872",
+      "type": "custom",
+      "position": {
+        "x": 1272.6343432555518,
+        "y": 660.8845189642255
+      },
+      "data": {
+        "type": "tiktok",
+        "label": "TikTok",
+        "subtitle": "Anúncios no TikTok"
+      }
+    },
+    {
+      "id": "node_1779125699424",
+      "type": "custom",
+      "position": {
+        "x": 1118.9704402687184,
+        "y": 499.2378619368362
+      },
+      "data": {
+        "type": "pixel-meta",
+        "label": "Pixel Meta",
+        "subtitle": "Pixel do Meta — rastreia eventos e conversões"
+      }
+    },
+    {
+      "id": "node_1779125803569",
+      "type": "custom",
+      "position": {
+        "x": 1179.3767094066213,
+        "y": 921.7851263285942
+      },
+      "data": {
+        "type": "pixel-meta",
+        "label": "Pixel Meta",
+        "subtitle": "Pubclias asdjaosda "
+      }
+    },
+    {
+      "id": "node_1779125837654",
+      "type": "custom",
+      "position": {
+        "x": 1119.795450487356,
+        "y": 653.677511207212
+      },
+      "data": {
+        "type": "pixel-meta",
+        "label": "Pixel Tiktok",
+        "subtitle": "Pixel do Meta — rastreia eventos e conversões"
+      }
+    },
+    {
+      "id": "node_1779125886938",
+      "type": "custom",
+      "position": {
+        "x": 1120.3749265683325,
+        "y": 349.7118071043043
+      },
+      "data": {
+        "type": "gtm",
+        "label": "GTM",
+        "subtitle": "Google Tag Manager — gerencia todas as tags"
+      }
+    },
+    {
+      "id": "node_1779126021536",
+      "type": "custom",
+      "position": {
+        "x": 1269.7505929063998,
+        "y": 359.3246616415952
+      },
+      "data": {
+        "type": "google",
+        "label": "Google Ads",
+        "subtitle": "Google Ads / SEO"
+      }
+    },
+    {
+      "id": "node_1779126137805",
+      "type": "custom",
+      "position": {
+        "x": 1179.2345334696327,
+        "y": 1094.7726084662531
+      },
+      "data": {
+        "type": "gtm",
+        "label": "GTM",
+        "subtitle": "Google Tag Manager — gerencia todas as tags"
+      }
+    },
+    {
+      "id": "node_1779126153004",
+      "type": "custom",
+      "position": {
+        "x": 1353.0640931456091,
+        "y": 1102.4116758415526
+      },
+      "data": {
+        "type": "google",
+        "label": "Google Ads",
+        "subtitle": "Google Ads / SEO"
+      }
+    },
+    {
+      "id": "node_1779126171488",
+      "type": "custom",
+      "position": {
+        "x": 1590.617319219361,
+        "y": 1003.0711840178385
+      },
+      "data": {
+        "type": "image-ad",
+        "label": "Imagem Ad",
+        "subtitle": "Criativo em imagem"
+      }
+    },
+    {
+      "id": "node_1779126432036",
+      "type": "custom",
+      "position": {
+        "x": 1017.8506501823977,
+        "y": 173.55029164496892
+      },
+      "data": {
+        "type": "evento",
+        "label": "Entrou em Conto",
+        "subtitle": "Evento customizado — Purchase, Lead, ViewContent…"
+      }
+    },
+    {
+      "id": "node_1779126649774",
+      "type": "custom",
+      "position": {
+        "x": 1812.6095860157966,
+        "y": 952.3150240021946
+      },
+      "data": {
+        "type": "evento",
+        "label": "Lead Compra",
+        "subtitle": "Evento customizado — Purchase, Lead, ViewContent…"
+      }
+    },
+    {
+      "id": "node_1779126674757",
+      "type": "custom",
+      "position": {
+        "x": 1578.732451650631,
+        "y": 670.405524710559
+      },
+      "data": {
+        "type": "evento",
+        "label": "Lead Qualificado",
+        "subtitle": "Evento customizado — Purchase, Lead, ViewContent…"
+      }
+    },
+    {
+      "id": "node_1779126811658",
+      "type": "custom",
+      "position": {
+        "x": 1811.7799501592785,
+        "y": 470.12389409174
+      },
+      "data": {
+        "type": "ia-bot",
+        "label": "IA / Iara",
+        "subtitle": "Bot de IA — qualificação e follow-up automático"
+      }
+    },
+    {
+      "id": "node_1779126977993",
+      "type": "custom",
+      "position": {
+        "x": 495.7955925000789,
+        "y": 182.35324574837443
+      },
+      "data": {
+        "type": "image-ad",
+        "label": "Imagem Ad",
+        "subtitle": "Criativo em imagem"
+      }
+    },
+    {
+      "id": "node_1779126997025",
+      "type": "custom",
+      "position": {
+        "x": 495.79559250007895,
+        "y": 582.5559655976439
+      },
+      "data": {
+        "type": "image-ad",
+        "label": "Imagem Ad",
+        "subtitle": "Criativo em imagem"
+      }
+    },
+    {
+      "id": "node_1779127008524",
+      "type": "custom",
+      "position": {
+        "x": 495.79559250007884,
+        "y": 379.46801821144743
+      },
+      "data": {
+        "type": "gtm",
+        "label": "GTM de quem Viu mas não entrou ",
+        "subtitle": "Google Tag Manager — gerencia todas as tags",
+        "copy": "",
+        "notes": ""
+      }
+    },
+    {
+      "id": "node_1779127278524",
+      "type": "custom",
+      "position": {
+        "x": 1282.8526940992022,
+        "y": 1579.4601954042812
+      },
+      "data": {
+        "type": "gtm",
+        "label": "GTM",
+        "subtitle": "Google Tag Manager — gerencia todas as tags"
+      }
+    },
+    {
+      "id": "node_1779127280574",
+      "type": "custom",
+      "position": {
+        "x": 1451.9527081228034,
+        "y": 1579.3490347526008
+      },
+      "data": {
+        "type": "pixel-meta",
+        "label": "Pixel Meta",
+        "subtitle": "Pixel do Meta — rastreia eventos e conversões"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124651856",
+      "sourceHandle": "bottom",
+      "target": "node_1779125028455",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779124651856bottom-node_1779125028455top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125028455",
+      "sourceHandle": "bottom",
+      "target": "node_1779125052274",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779125028455bottom-node_1779125052274top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125302555",
+      "sourceHandle": "right",
+      "target": "node_1779124873556",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125302555right-node_1779124873556left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125028455",
+      "sourceHandle": "right",
+      "target": "node_1779125803569",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125028455right-node_1779125803569left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125803569",
+      "sourceHandle": "right",
+      "target": "node_1779125211556",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125803569right-node_1779125211556left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124651856",
+      "sourceHandle": "bottom",
+      "target": "node_1779125837654",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124651856bottom-node_1779125837654left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125837654",
+      "sourceHandle": "right",
+      "target": "node_1779125358872",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125837654right-node_1779125358872left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125358872",
+      "sourceHandle": "right",
+      "target": "node_1779125302555",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125358872right-node_1779125302555left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125153627",
+      "sourceHandle": "right",
+      "target": "node_1779125302555",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125153627right-node_1779125302555left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126021536",
+      "sourceHandle": "right",
+      "target": "node_1779125302555",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126021536right-node_1779125302555left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125699424",
+      "sourceHandle": "right",
+      "target": "node_1779125153627",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125699424right-node_1779125153627left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125886938",
+      "sourceHandle": "right",
+      "target": "node_1779126021536",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125886938right-node_1779126021536left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125028455",
+      "sourceHandle": "right",
+      "target": "node_1779126137805",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125028455right-node_1779126137805left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126137805",
+      "sourceHandle": "right",
+      "target": "node_1779126153004",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126137805right-node_1779126153004left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125211556",
+      "sourceHandle": "right",
+      "target": "node_1779126171488",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779125211556right-node_1779126171488left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126153004",
+      "sourceHandle": "right",
+      "target": "node_1779126171488",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126153004right-node_1779126171488left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124651856",
+      "sourceHandle": "right",
+      "target": "node_1779126432036",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124651856right-node_1779126432036left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126432036",
+      "sourceHandle": "right",
+      "target": "node_1779124873556",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126432036right-node_1779124873556left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126432036",
+      "sourceHandle": "bottom",
+      "target": "node_1779125837654",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126432036bottom-node_1779125837654left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126432036",
+      "sourceHandle": "bottom",
+      "target": "node_1779125699424",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126432036bottom-node_1779125699424left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126432036",
+      "sourceHandle": "bottom",
+      "target": "node_1779125886938",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126432036bottom-node_1779125886938left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124651856",
+      "sourceHandle": "bottom",
+      "target": "node_1779125886938",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124651856bottom-node_1779125886938left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124651856",
+      "sourceHandle": "bottom",
+      "target": "node_1779125699424",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124651856bottom-node_1779125699424left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125071657",
+      "sourceHandle": "bottom",
+      "target": "node_1779126649774",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779125071657bottom-node_1779126649774top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126649774",
+      "sourceHandle": "bottom",
+      "target": "node_1779125052274",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779126649774bottom-node_1779125052274top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126674757",
+      "sourceHandle": "right",
+      "target": "node_1779125071657",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126674757right-node_1779125071657left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124873556",
+      "sourceHandle": "bottom",
+      "target": "node_1779126811658",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779124873556bottom-node_1779126811658top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126811658",
+      "sourceHandle": "bottom",
+      "target": "node_1779126674757",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779126811658bottom-node_1779126674757top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126171488",
+      "sourceHandle": "right",
+      "target": "node_1779125071657",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126171488right-node_1779125071657left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124611565",
+      "sourceHandle": "right",
+      "target": "node_1779124923282",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124611565right-node_1779124923282left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779124923282",
+      "sourceHandle": "right",
+      "target": "node_1779126977993",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779124923282right-node_1779126977993left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126977993",
+      "sourceHandle": "right",
+      "target": "node_1779124651856",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126977993right-node_1779124651856left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126977993",
+      "sourceHandle": "bottom",
+      "target": "node_1779127008524",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779126977993bottom-node_1779127008524top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779127008524",
+      "sourceHandle": "bottom",
+      "target": "node_1779126997025",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779127008524bottom-node_1779126997025top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126997025",
+      "sourceHandle": "right",
+      "target": "node_1779124651856",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126997025right-node_1779124651856left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126674757",
+      "sourceHandle": "bottom",
+      "target": "node_1779125803569",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126674757bottom-node_1779125803569left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779126674757",
+      "sourceHandle": "bottom",
+      "target": "node_1779126137805",
+      "targetHandle": "left",
+      "id": "xy-edge__node_1779126674757bottom-node_1779126137805left"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125052274",
+      "sourceHandle": "bottom",
+      "target": "node_1779127278524",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779125052274bottom-node_1779127278524top"
+    },
+    {
+      "type": "smoothstep",
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#3B82F6",
+        "width": 14,
+        "height": 14
+      },
+      "style": {
+        "stroke": "#3B82F6",
+        "strokeWidth": 2
+      },
+      "source": "node_1779125052274",
+      "sourceHandle": "bottom",
+      "target": "node_1779127280574",
+      "targetHandle": "top",
+      "id": "xy-edge__node_1779125052274bottom-node_1779127280574top"
+    }
+  ]
+}

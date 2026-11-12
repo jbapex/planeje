@@ -9,6 +9,9 @@ import '@/lib/customSupabaseClient';
 import { SWRConfig } from 'swr';
 import { MotionConfig } from 'framer-motion';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { captureCrmIaCalendarCallback } from '@/components/crm-ia/crmIaCalendarCallback';
+
+captureCrmIaCalendarCallback();
 
 // Tratamento global de erros não capturados
 window.addEventListener('error', (event) => {
@@ -27,6 +30,15 @@ window.addEventListener('unhandledrejection', (event) => {
 // - Por isso, deixamos o registro DESATIVADO por padrão e controlado por
 //   variável de ambiente. Para reativar, defina VITE_ENABLE_SW=true.
 const enableServiceWorker = import.meta.env.VITE_ENABLE_SW === 'true';
+
+if (!enableServiceWorker && 'serviceWorker' in navigator) {
+  // Remove SW legado que quebrava POST para Supabase Edge Functions
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => {
+      registration.unregister().catch(() => {});
+    });
+  });
+}
 
 if (enableServiceWorker && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -430,6 +430,7 @@ function normalizeCampaignPlanRowFromDb(row) {
           videos: Array.isArray(m.videos) ? m.videos : [],
           stories_ideias: Array.isArray(m.stories_ideias) ? m.stories_ideias : [],
           _legados: Array.isArray(m._legados) ? m._legados : [],
+          _storyRows: Array.isArray(m._storyRows) ? m._storyRows : [],
         };
       }, []);
 

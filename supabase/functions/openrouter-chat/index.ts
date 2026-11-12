@@ -33,82 +33,57 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 1. Busca a API key do OpenRouter - Tenta múltiplas fontes
-    let openrouterApiKey: string | null = null;
-    let sourceUsed = '';
+    const usableKey = (value: string | null | undefined) => {
+      const key = String(value || '').trim();
+      return key.startsWith('sk-') ? key : '';
+    };
 
-    // Método 1: Variável de ambiente da Edge Function (RECOMENDADO)
-    openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY') ?? null;
-    if (openrouterApiKey) {
-      sourceUsed = 'variável de ambiente (OPENROUTER_API_KEY)';
-      console.log('✅ API key obtida da variável de ambiente');
-    }
-
-    // Método 2: Tabela app_secrets via RPC (fallback)
-    if (!openrouterApiKey) {
+    const readSecretCandidates = async (name: string) => {
+      const found: string[] = [];
+      const fromEnv = Deno.env.get(name);
+      if (fromEnv) found.push(fromEnv);
       try {
-        const { data: apiKeyData, error: rpcError } = await supabaseAdmin.rpc('get_encrypted_secret', {
-          p_secret_name: 'OPENROUTER_API_KEY'
-        });
-
-        if (!rpcError && apiKeyData) {
-          openrouterApiKey = apiKeyData;
-          sourceUsed = 'tabela app_secrets (RPC)';
-          console.log('✅ API key obtida da tabela app_secrets via RPC');
-        } else if (rpcError) {
-          console.warn('⚠️ Erro ao buscar API key via RPC:', rpcError.message || rpcError);
-        }
+        const { data, error } = await supabaseAdmin.rpc('get_encrypted_secret', { p_secret_name: name });
+        if (!error && data) found.push(String(data));
       } catch (rpcError) {
-        console.warn('⚠️ Exceção ao buscar API key via RPC:', rpcError);
+        console.warn(`Falha ao ler ${name} via RPC`);
       }
-    }
-
-    // Método 3: Buscar diretamente da tabela app_secrets (último recurso)
-    if (!openrouterApiKey) {
       try {
-        const { data: secretData, error: tableError } = await supabaseAdmin
+        const { data, error } = await supabaseAdmin
           .from('app_secrets')
           .select('secret_value')
-          .eq('name', 'OPENROUTER_API_KEY')
-          .single();
-
-        if (!tableError && secretData?.secret_value) {
-          openrouterApiKey = secretData.secret_value;
-          sourceUsed = 'tabela app_secrets (query direta)';
-          console.log('✅ API key obtida diretamente da tabela app_secrets');
-        } else if (tableError) {
-          console.warn('⚠️ Erro ao buscar da tabela app_secrets:', tableError.message || tableError);
-        }
+          .eq('name', name)
+          .maybeSingle();
+        if (!error && data?.secret_value) found.push(String(data.secret_value));
       } catch (tableError) {
-        console.warn('⚠️ Exceção ao buscar da tabela app_secrets:', tableError);
+        console.warn(`Falha ao ler ${name} na tabela`);
       }
-    }
+      return found;
+    };
 
-    // Se ainda não encontrou, retorna erro detalhado
-    if (!openrouterApiKey) {
-      console.error('❌ OpenRouter API key não encontrada em nenhuma fonte');
-      
-      return new Response(
-        JSON.stringify({ 
-          error: 'Could not retrieve OpenRouter API key. Please ensure it\'s set in the Vault and the function has the correct permissions.',
-          details: {
-            message: 'A chave OPENROUTER_API_KEY deve ser configurada em uma das seguintes formas:',
-            options: [
-              '1. Variável de ambiente na Edge Function (Dashboard → Edge Functions → Settings → Secrets → Adicione OPENROUTER_API_KEY)',
-              '2. Tabela app_secrets via RPC get_encrypted_secret',
-              '3. Tabela app_secrets via query direta'
-            ],
-            instructions: 'Para configurar: Dashboard do Supabase → Edge Functions → Settings → Secrets → Adicione OPENROUTER_API_KEY com sua chave do OpenRouter'
-          }
-        }),
-        { 
-          status: 500, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        }
-      );
-    }
+    // A chave colada em Configurações → Integrações fica em app_secrets.
+    // Texto que não começa com sk- (ambiente ou tabela) é ignorado.
+    const openrouterCandidates = await readSecretCandidates('OPENROUTER_API_KEY');
+    const openaiCandidates = await readSecretCandidates('OPENAI_API_KEY');
+    let provider: 'openrouter' | 'openai' = 'openrouter';
+    let apiKey = openrouterCandidates.map(usableKey).find(Boolean) || '';
+    let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+    const providerNotice = '';
 
-    console.log(`✅ Usando API key de: ${sourceUsed}`);
+    if (!apiKey) {
+      console.warn('OPENROUTER_API_KEY ausente ou inválida; usando OpenAI');
+      apiKey = openaiCandidates.map(usableKey).find(Boolean) || '';
+      if (!apiKey) {
+        return new Response(
+          JSON.stringify({ error: 'Nem o OpenRouter nem a OpenAI têm chave válida. Cole em Configurações → Integrações.' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      provider = 'openai';
+      endpoint = 'https://api.openai.com/v1/chat/completions';
+    } else {
+      console.log('Usando chave OpenRouter válida (ambiente ou Configurações)');
+    }
 
     // 2. Extrai os parâmetros do body da requisição
     let requestBody = await req.json();
@@ -122,6 +97,12 @@ serve(async (req) => {
         });
       }
     }
+    if (requestBody?.probe === true) {
+      return new Response(JSON.stringify({ provider, ready: provider === 'openrouter' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const {
       messages,
       model = 'openai/gpt-4o',
@@ -140,13 +121,17 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processando chat com ${messages.length} mensagens, modelo: ${model}`);
+    const usedModel = provider === 'openai'
+      ? (String(model).startsWith('openai/') ? String(model).slice('openai/'.length) : 'gpt-4o-mini')
+      : model;
+    const usedStream = provider === 'openai' ? false : stream;
+    console.log(`Processando chat com ${messages.length} mensagens, modelo: ${usedModel}, provedor: ${provider}`);
 
-    // 3. Prepara o body da requisição para OpenRouter
+    // 3. Prepara o body da requisição
     const openrouterBody: any = {
-      model,
+      model: usedModel,
       messages,
-      stream,
+      stream: usedStream,
     };
 
     if (temperature !== undefined) {
@@ -157,18 +142,44 @@ serve(async (req) => {
     }
 
     // 4. Chama a API do OpenRouter (compatível com OpenAI)
-    const openrouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const openrouterResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openrouterApiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': supabaseUrl, // Opcional mas recomendado pelo OpenRouter
-        'X-Title': 'JB APEX - Assistente de Projetos', // Opcional
+        ...(provider === 'openrouter' ? {
+          'HTTP-Referer': supabaseUrl,
+          'X-Title': 'JB APEX - Assistente de Projetos',
+        } : {}),
       },
       body: JSON.stringify(openrouterBody),
     });
 
-    // 5. Verifica se a resposta do OpenRouter foi bem-sucedida
+    // 5. Chave OpenRouter recusada: a conversa segue na OpenAI já salva.
+    if (!openrouterResponse.ok && provider === 'openrouter' && (openrouterResponse.status === 401 || openrouterResponse.status === 403)) {
+      const openaiKey = openaiCandidates.map(usableKey).find(Boolean) || '';
+      if (openaiKey) {
+        console.warn('OpenRouter recusou a chave; respondendo com OpenAI');
+        const fallbackModel = String(model).startsWith('openai/') ? String(model).slice('openai/'.length) : 'gpt-4o-mini';
+        const fallback = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ...openrouterBody, model: fallbackModel, stream: false }),
+        });
+        if (fallback.ok) {
+          const data = await fallback.json();
+          const content = data?.choices?.[0]?.message?.content ?? '';
+          return new Response(JSON.stringify({ content }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+    }
+
+    // 5. Verifica se a resposta foi bem-sucedida
     if (!openrouterResponse.ok) {
       const errorText = await openrouterResponse.text();
       let errorData;
@@ -205,7 +216,7 @@ serve(async (req) => {
     }
 
     // 6. Retorno conforme o modo
-    if (stream) {
+    if (usedStream) {
       // Stream SSE para o cliente
       return new Response(openrouterResponse.body, {
         headers: {
@@ -219,7 +230,7 @@ serve(async (req) => {
 
     // Sem stream: retorna JSON com o conteúdo completo
     const data = await openrouterResponse.json();
-    const content = data?.choices?.[0]?.message?.content ?? '';
+    const content = `${providerNotice}${data?.choices?.[0]?.message?.content ?? ''}`;
     return new Response(JSON.stringify({ content }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

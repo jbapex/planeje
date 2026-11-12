@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
     import { motion } from 'framer-motion';
+    import { format, parseISO } from 'date-fns';
+    import { ptBR } from 'date-fns/locale';
     import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-    import { DollarSign, BarChart, Edit, Trash2, MoreHorizontal, User, Rocket, Layers } from 'lucide-react';
+    import { DollarSign, BarChart, Edit, Trash2, MoreHorizontal, User, Rocket, Layers, Link2, AlertTriangle } from 'lucide-react';
+    import { TooltipCustom } from '@/components/ui/tooltip-custom';
     import { Button } from '@/components/ui/button';
     import { Badge } from '@/components/ui/badge';
     import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
     import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
     import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
     import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+    import { cn } from '@/lib/utils';
+    import { isMetaAdDeactivatedOnMeta } from '@/lib/paidTrafficKanbanRules';
+    import { resolvePrimaryCampaignTaskId } from '@/lib/paidCampaignTaskLinks';
 
     const KpiDisplay = ({ kpis }) => (
       <Popover>
@@ -36,10 +42,58 @@ import React, { useState } from 'react';
       </Popover>
     );
 
-    const CampaignCard = ({ campaign, onOpenDetails, onDelete, userRole }) => {
+    const CampaignCard = ({ campaign, onOpenDetails, onDelete, userRole, tasksById = {} }) => {
       const assignee = campaign.profiles;
       const [isAlertOpen, setIsAlertOpen] = useState(false);
-      
+
+      const mainAd = campaign.ad_sets?.[0]?.ads?.[0];
+      const linkedTaskId = resolvePrimaryCampaignTaskId(campaign);
+      const taskTitle = linkedTaskId ? tasksById[linkedTaskId]?.title : null;
+
+      const metaTooltip = useMemo(() => {
+        if (!mainAd?.meta_ad_id) return null;
+        const lines = [];
+        if (mainAd.meta_account_id) lines.push(`Conta: ${mainAd.meta_account_id}`);
+        if (mainAd.meta_campaign_name) lines.push(`Campanha: ${mainAd.meta_campaign_name}`);
+        if (mainAd.meta_adset_name || mainAd.meta_adset_id) {
+          lines.push(`Conjunto: ${mainAd.meta_adset_name || mainAd.meta_adset_id}`);
+        }
+        if (mainAd.meta_ad_synced_at) {
+          try {
+            lines.push(
+              `Sincronizado: ${format(parseISO(mainAd.meta_ad_synced_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}`
+            );
+          } catch {
+            lines.push(`Sincronizado: ${mainAd.meta_ad_synced_at}`);
+          }
+        }
+        if (mainAd.meta_ad_broken) {
+          lines.push('Vínculo quebrado — abra os detalhes para revincular.');
+        } else if (isMetaAdDeactivatedOnMeta(mainAd) && !mainAd.meta_ad_broken) {
+          lines.push(
+            `Estado no Meta: ${mainAd.meta_ad_status || 'inativo'} — não está em veiculação ativa (pausado, finalizado ou aguardando na rede).`
+          );
+        }
+        return (
+          <div className="text-xs space-y-1 max-w-xs">
+            {lines.map((t, i) => (
+              <div key={i}>{t}</div>
+            ))}
+          </div>
+        );
+      }, [mainAd]);
+
+      const metaInactiveOnMeta = useMemo(() => isMetaAdDeactivatedOnMeta(mainAd), [mainAd]);
+
+      const metaBadgeClass =
+        mainAd?.meta_ad_id && !mainAd?.meta_ad_broken && mainAd?.meta_ad_status === 'ACTIVE'
+          ? 'bg-emerald-600/15 text-emerald-700 dark:text-emerald-300 border-emerald-600/30'
+          : mainAd?.meta_ad_id && metaInactiveOnMeta
+            ? 'bg-red-600/15 text-red-800 dark:text-red-200 border-red-600/40'
+            : mainAd?.meta_ad_id
+              ? 'bg-gray-500/15 text-gray-700 dark:text-gray-300 border-gray-500/30'
+              : '';
+
       const campaignDisplayName = campaign.ad_sets && campaign.ad_sets.length > 0 && campaign.ad_sets[0].ads && campaign.ad_sets[0].ads.length > 0
         ? campaign.ad_sets[0].ads[0].name
         : campaign.name;
@@ -52,9 +106,13 @@ import React, { useState } from 'react';
 
       return (
         <motion.div layout>
-          <Card 
+          <Card
             onClick={() => onOpenDetails(campaign)}
-            className="dark:bg-gray-800 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer"
+            className={cn(
+              'dark:bg-gray-800 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer',
+              metaInactiveOnMeta &&
+                'border-2 border-red-500 bg-red-50/95 shadow-sm dark:border-red-500 dark:bg-red-950/45 dark:shadow-red-900/20'
+            )}
           >
             <CardHeader className="flex flex-row items-start justify-between pb-2">
               <CardTitle className="text-base font-semibold dark:text-white">{campaignDisplayName}</CardTitle>
@@ -72,6 +130,23 @@ import React, { useState } from 'react';
             </CardHeader>
             <CardContent className="space-y-3">
               <Badge variant="secondary" className="dark:bg-gray-700 dark:text-gray-300">{campaign.clientes?.empresa || 'Sem cliente'}</Badge>
+              {taskTitle && (
+                <p className="text-xs text-gray-600 dark:text-gray-400 truncate" title={taskTitle}>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Tarefa:</span> {taskTitle}
+                </p>
+              )}
+              {mainAd?.meta_ad_id && (
+                <TooltipCustom content={metaTooltip} side="bottom" className="z-[60]">
+                  <div
+                    className={`inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium cursor-default ${metaBadgeClass}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Link2 className="h-3 w-3 shrink-0" />
+                    <span className="truncate max-w-[160px]">{mainAd.meta_ad_name || mainAd.meta_ad_id}</span>
+                    {mainAd.meta_ad_broken && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />}
+                  </div>
+                </TooltipCustom>
+              )}
               <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{campaign.description}</p>
               <div className="flex justify-between items-center text-sm">
                 <div className="flex items-center font-semibold dark:text-white">
@@ -105,7 +180,7 @@ import React, { useState } from 'react';
       );
     };
 
-    const PaidCampaignKanban = ({ campaigns, statuses, onOpenDetails, onDelete, onUpdateStatus, userRole }) => {
+    const PaidCampaignKanban = ({ campaigns, statuses, onOpenDetails, onDelete, onUpdateStatus, userRole, tasksById = {} }) => {
       const [draggedCampaign, setDraggedCampaign] = useState(null);
       const [dragOverColumn, setDragOverColumn] = useState(null);
 
@@ -113,10 +188,13 @@ import React, { useState } from 'react';
         setDraggedCampaign(campaign);
       };
 
-      const handleDrop = (e, newStatus) => {
+      const handleDrop = async (e, newStatus) => {
         e.preventDefault();
         if (draggedCampaign && draggedCampaign.status !== newStatus) {
-          onUpdateStatus(draggedCampaign.id, newStatus);
+          const result = await onUpdateStatus(draggedCampaign.id, newStatus);
+          if (result === false) {
+            // regra de negócio ou erro — mantém o cartão na coluna atual
+          }
         }
         setDraggedCampaign(null);
         setDragOverColumn(null);
@@ -155,7 +233,13 @@ import React, { useState } from 'react';
               <div className="space-y-3 min-h-[200px] p-3 overflow-y-auto h-[calc(100%-48px)]">
                 {campaigns.filter(c => c.status === column.value).map(campaign => (
                   <div key={campaign.id} draggable onDragStart={(e) => handleDragStart(e, campaign)}>
-                    <CampaignCard campaign={campaign} onOpenDetails={onOpenDetails} onDelete={onDelete} userRole={userRole} />
+                    <CampaignCard
+                      campaign={campaign}
+                      onOpenDetails={onOpenDetails}
+                      onDelete={onDelete}
+                      userRole={userRole}
+                      tasksById={tasksById}
+                    />
                   </div>
                 ))}
               </div>

@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import { createClient } from '@supabase/supabase-js';
+import { attributionEvidence, persistIngressContactAttribution } from '../supabase/functions/_shared/contactAttributionHistory.js';
+
+const receivedAt='2026-10-28T12:00:00Z';
+const tracking={origin_source:'google_ads',utm_campaign:'Campanha A',tracking_data:{gclid:'fixture-gclid',planeje_click_id:'click-fixture',planeje_clicked_at:'2026-10-27T12:00:00Z',secret:'must-not-copy'}};
+const input={source:'chatvolt',messageId:'message-fixture',messageAt:'2026-10-27T12:01:00Z',receivedAt,tracking};
+const first=attributionEvidence(input);
+assert.equal(first?.event_key,'click:click-fixture');
+assert.equal(first.clicked_at,'2026-10-27T12:00:00.000Z');assert.equal(first.message_at,'2026-10-27T12:01:00.000Z');
+assert.equal(first.attribution.gclid,'fixture-gclid');assert.equal(first.attribution.utm_campaign,'Campanha A');
+assert.equal(first.attribution.secret,undefined);assert.equal(first.attribution.raw_payload,undefined);
+assert.equal(attributionEvidence({...input,messageId:'retry-new-envelope'}).event_key,first.event_key);
+assert.notEqual(attributionEvidence({...input,tracking:{...tracking,tracking_data:{...tracking.tracking_data,planeje_click_id:'second-click'}}}).event_key,first.event_key);
+const second=attributionEvidence({...input,source:'meta_cloud',messageAt:null,tracking:{origin_source:'meta_ads',tracking_data:{ctwaClid:'second-ctwa',source_id:'ad-fixture'}}});
+assert.equal(second.event_key,'ctwa:second-ctwa');assert.equal(second.message_at,null);assert.equal(second.received_at,'2026-10-28T12:00:00.000Z');
+assert.equal(second.attribution.ctwa_clid,'second-ctwa');
+assert.equal(attributionEvidence({...input,messageAt:'1793102460'}).message_at,new Date(1793102460000).toISOString(),'provider Unix string is original message time');
+const plain=attributionEvidence({...input,tracking:{origin_source:'site',utm_source:'site'}});
+assert.equal(plain.event_key,'message:chatvolt:message-fixture');
+assert.equal(attributionEvidence({...input,fromMe:true}),null);assert.equal(attributionEvidence({...input,isGroup:true}),null);
+assert.equal(attributionEvidence({...input,tracking:{origin_source:'nao_identificado',tracking_data:{analysis_labels:['x']}}}),null);
+assert.equal(attributionEvidence({...input,messageId:null,tracking:{origin_source:'site'}}),null);
+let requests=[];
+const client=createClient('https://fixture.invalid','fixture-key',{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:async(url,init)=>{
+  assert.equal(new URL(url).hostname,'fixture.invalid');assert.ok(new URL(url).pathname.endsWith('/rpc/persist_ingress_contact_attribution'));assert.equal(init.method,'POST');
+  requests.push(JSON.parse(init.body));return new Response(JSON.stringify({id:'contact-fixture',origin_source:'google_ads',tracking_data:first.attribution}),{headers:{'Content-Type':'application/json'}});
+}}});
+const result=await persistIngressContactAttribution(client,{clienteId:'client-fixture',fromJid:'5511000000001@s.whatsapp.net',contact:{sender_name:'Contato'},evidences:[first,second,null]});
+assert.equal(result.data.origin_source,'google_ads');assert.equal(result.error,null);assert.equal(requests.length,1);
+assert.deepEqual(requests[0].p_evidences,[first,second]);assert.equal(requests[0].p_cliente_id,'client-fixture');
+const failure=await persistIngressContactAttribution({rpc:async()=>({data:null,error:{code:'fixture'}})},{clienteId:'client-fixture',fromJid:'jid',contact:{},evidences:[]});
+assert.equal(failure.error.code,'fixture');
+console.log('PASS attribution evidence: independent dates, stable identity, safe snapshot, both sources and persistence error');

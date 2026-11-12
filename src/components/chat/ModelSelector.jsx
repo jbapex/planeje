@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { fetchOpenRouterModels, getPriceIndicator } from '@/lib/openrouterModels';
 
-const ModelSelector = ({ selectedModel, availableModels, onModelChange, className = '' }) => {
+const ModelSelector = ({ selectedModel, availableModels, onModelChange, className = '', compact = false }) => {
   const [modelsCache, setModelsCache] = useState({});
 
   useEffect(() => {
@@ -39,15 +39,17 @@ const ModelSelector = ({ selectedModel, availableModels, onModelChange, classNam
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <Sparkles className="h-4 w-4 text-muted-foreground" />
+      <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
       <Select value={selectedModel} onValueChange={onModelChange}>
-        <SelectTrigger className="w-[200px] h-8 text-xs">
+        <SelectTrigger className="h-8 w-full min-w-[10rem] text-xs">
           <SelectValue>
             <div className="flex items-center gap-2">
               <span className="truncate">{selectedModelInfo.name}</span>
-              <Badge variant="outline" className="text-xs px-1 py-0">
-                {selectedModelInfo.price}
-              </Badge>
+              {!compact && selectedModelInfo.price ? (
+                <Badge variant="outline" className="text-xs px-1 py-0">
+                  {selectedModelInfo.price}
+                </Badge>
+              ) : null}
             </div>
           </SelectValue>
         </SelectTrigger>
@@ -56,14 +58,13 @@ const ModelSelector = ({ selectedModel, availableModels, onModelChange, classNam
             const modelInfo = getModelInfo(modelId);
             return (
               <SelectItem key={modelId} value={modelId}>
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-sm">{modelInfo.name}</span>
-                    <span className="text-xs text-muted-foreground">{modelInfo.description}</span>
-                  </div>
-                  <Badge variant="outline" className="ml-2 text-xs">
-                    {modelInfo.price}
-                  </Badge>
+                <div className="flex items-center justify-between gap-3 w-full">
+                  <span className="font-medium text-sm">{modelInfo.name}</span>
+                  {!compact && modelInfo.price ? (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      {modelInfo.price}
+                    </Badge>
+                  ) : null}
                 </div>
               </SelectItem>
             );

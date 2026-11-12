@@ -1,0 +1,47 @@
+/* Same opaque column surface and status headers as the Tasks Kanban. */
+.projects-monthly-kanban .projects-kanban-col {
+  background: #f9fafb;
+  border-color: hsl(var(--border));
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
+}
+
+.projects-monthly-kanban .projects-kanban-col.is-drag-over {
+  background: #eff6ff;
+  border-color: hsl(var(--primary) / 0.5);
+}
+
+.projects-monthly-kanban .projects-kanban-col-header:hover {
+  filter: brightness(1.05);
+}
+
+.dark .projects-monthly-kanban .projects-kanban-col {
+  background: hsl(var(--background));
+  border-color: hsl(var(--border) / 0.65);
+  box-shadow: none;
+}
+
+.dark .projects-monthly-kanban .projects-kanban-col.is-drag-over {
+  background: color-mix(in srgb, hsl(var(--primary)) 10%, hsl(var(--background)));
+  border-color: hsl(var(--primary) / 0.5);
+}
+
+.dark .projects-monthly-kanban .projects-kanban-col-header {
+  background: color-mix(in srgb, var(--status-color) 26%, hsl(var(--card))) !important;
+  color: color-mix(in srgb, var(--status-color) 58%, hsl(var(--foreground)));
+  border-bottom: 2px solid color-mix(in srgb, var(--status-color) 52%, transparent);
+}
+
+.dark .projects-monthly-kanban .projects-kanban-count {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.dark .projects-monthly-kanban .projects-kanban-card {
+  background: hsl(217 28% 24%);
+  border-color: rgb(255 255 255 / 0.14);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 4px 14px rgb(0 0 0 / 0.28);
+}
+
+.dark .projects-monthly-kanban .projects-kanban-card:hover {
+  background: hsl(217 28% 27%);
+  border-color: rgb(255 255 255 / 0.2);
+}

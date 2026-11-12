@@ -1,21 +1,27 @@
 {
-  "name": "ApexIA",
-  "short_name": "ApexIA",
-  "description": "ApexIA é o assistente de inteligência artificial da JB APEX, pronto para ajudar.",
-  "start_url": "/chat-launcher",
+  "name": "Planeje",
+  "short_name": "Planeje",
+  "description": "CRM, conversas, tráfego e planejamento — tudo em um só lugar.",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#8B5CF6",
+  "background_color": "#ffffff",
+  "theme_color": "#9333ea",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-192x192.png",
-      "sizes": "192x192",
+      "src": "/brand/icon-256.png",
+      "sizes": "256x256",
       "type": "image/png"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/brand/icon-512.png",
       "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/icon-1024.png",
+      "sizes": "1024x1024",
       "type": "image/png"
     }
   ]

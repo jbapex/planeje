@@ -1,3 +1,5 @@
+import { richTextToPlainText } from './richText.js';
+
 /**
  * Prompts profissionais para geração de conteúdo do Plano de Campanha.
  * Cada prompt usa todo o contexto preenchido até o momento, garantindo
@@ -77,7 +79,7 @@ ${fasesTexto}
 - Orçamento de tráfego: ${orcamento}
 
 ## Contexto Adicional Sobre o Cliente (briefing manual)
-${safe(plan?.contexto_ia, 'Nenhum contexto adicional fornecido.')}
+${safe(richTextToPlainText(plan?.contexto_ia), 'Nenhum contexto adicional fornecido.')}
 `;
 };
 

@@ -1,0 +1,15 @@
+{
+  "repository": "soumatheusgomes/vibe-coding-toolkit",
+  "revision": "de66fe371a49f5a4d3b521759e5c401f390b6424",
+  "license": "MIT",
+  "files": [
+    "templates/eslint/eslint-rules/core-rules.cjs",
+    "templates/eslint/eslint-rules/index.cjs",
+    "templates/eslint/eslint-rules/utils.cjs",
+    "templates/eslint/verify.mjs"
+  ],
+  "adaptations": [
+    "RuleTester parserOptions ecmaVersion latest/sourceType module for ESLint8"
+  ],
+  "configuration": "Generic rules adapted to React18/Vite, Supabase and MCP; no Next/Drizzle/logger layer imposed"
+}

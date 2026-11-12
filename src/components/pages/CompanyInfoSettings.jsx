@@ -88,7 +88,7 @@ const CompanyInfoSettings = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
+      <div className="super-admin-embedded-hide">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
           <Building2 className="h-8 w-8" />
           Informações da Empresa para IA

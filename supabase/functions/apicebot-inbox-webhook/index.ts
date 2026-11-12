@@ -17,7 +17,15 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
+import { attachStoredThumbnail } from '../_shared/persistAdThumbnail.ts';
+import { attributionEvidence, persistIngressContactAttribution } from '../_shared/contactAttributionHistory.js';
+import {
+  claimTrackableClickMatch,
+  extractMatchCode,
+  hasCtwaTrackingSignal,
+  trackingFromMatchedClick,
+} from '../_shared/rastreamentoTrackableLink.ts';
+import { maybeSendGoogleLeadSubmitted } from '../_shared/googleAdsClickConversion.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -38,7 +46,7 @@ function extractPhoneFromJid(jid: string): string {
 }
 
 type TrackingResult = {
-  origin_source: 'meta_ads' | 'nao_identificado';
+  origin_source: 'meta_ads' | 'google_ads' | 'site' | 'nao_identificado';
   utm_source: string | null;
   utm_medium: string | null;
   utm_campaign: string | null;
@@ -69,6 +77,7 @@ function extractTrackingFromPayload(body: Record<string, unknown>): TrackingResu
   const utm_content = getVal(body, 'utm_content') ?? getVal(payload, 'utm_content') ?? null;
   const utm_term = getVal(body, 'utm_term') ?? getVal(payload, 'utm_term') ?? null;
   const fbclid = getVal(body, 'fbclid', 'fbclid') ?? getVal(payload, 'fbclid') ?? (chat ? getVal(chat, 'fbclid') : null);
+  const gclid = getVal(body, 'gclid') ?? getVal(payload, 'gclid') ?? (chat ? getVal(chat, 'gclid') : null);
   const source_id = getVal(externalAdReply ?? null, 'sourceID', 'source_id', 'sourceId', 'source_Id') ?? getVal(body, 'sourceID', 'source_id', 'sourceId') ?? getVal(payload, 'sourceID', 'source_id', 'sourceId') ?? (chat ? getVal(chat, 'sourceID', 'source_id', 'sourceId') : null);
   const sourceApp = getVal(externalAdReply ?? null, 'sourceApp', 'source_app') ?? getVal(body, 'sourceApp', 'source_app') ?? getVal(payload, 'sourceApp', 'source_app') ?? (chat ? getVal(chat, 'sourceApp', 'source_app') : null);
   const ctwaClid = getVal(externalAdReply ?? null, 'ctwaClid', 'ctwa_clid') ?? getVal(body, 'ctwaClid', 'ctwa_clid') ?? getVal(payload, 'ctwaClid', 'ctwa_clid') ?? (chat ? getVal(chat, 'ctwaClid', 'ctwa_clid') : null);
@@ -77,9 +86,19 @@ function extractTrackingFromPayload(body: Record<string, unknown>): TrackingResu
   const sourceURL = getVal(externalAdReply ?? null, 'sourceURL', 'source_url') ?? getVal(body, 'sourceURL', 'source_url') ?? getVal(payload, 'sourceURL', 'source_url') ?? null;
   const thumbnailURL = getVal(externalAdReply ?? null, 'thumbnailURL', 'thumbnail_url') ?? getVal(body, 'thumbnailURL', 'thumbnail_url') ?? getVal(payload, 'thumbnailURL', 'thumbnail_url') ?? null;
   const metaIndicators = ['facebook', 'meta', 'fb', 'meta_ads', 'meta ads', 'facebook_ads', 'fb_ads'];
+  const googleIndicators = ['google', 'googleads', 'google_ads', 'adwords', 'gads'];
   const utmIsMeta = utm_source && metaIndicators.some((m) => utm_source.toLowerCase().includes(m));
+  const utmIsGoogle = utm_source && googleIndicators.some((m) => utm_source.toLowerCase().includes(m));
+  const utmMediumIsCpc = utm_medium && /cpc|ppc|paid/i.test(utm_medium);
   const conversionSourceIsMeta = conversionSource && metaIndicators.some((m) => conversionSource.toLowerCase().includes(m));
-  const origin_source: 'meta_ads' | 'nao_identificado' = utmIsMeta || !!fbclid || !!source_id || !!sourceApp || !!ctwaClid || conversionSourceIsMeta ? 'meta_ads' : 'nao_identificado';
+  let origin_source: 'meta_ads' | 'google_ads' | 'site' | 'nao_identificado' = 'nao_identificado';
+  if (utmIsMeta || !!fbclid || !!source_id || !!sourceApp || !!ctwaClid || conversionSourceIsMeta) {
+    origin_source = 'meta_ads';
+  } else if (!!gclid || utmIsGoogle || (utmMediumIsCpc && utmIsGoogle)) {
+    origin_source = 'google_ads';
+  } else if (utm_source && /^(site|website|organic)$/i.test(utm_source)) {
+    origin_source = 'site';
+  }
   const tracking_data: Record<string, unknown> = {};
   if (utm_source) tracking_data.utm_source = utm_source;
   if (utm_medium) tracking_data.utm_medium = utm_medium;
@@ -87,6 +106,7 @@ function extractTrackingFromPayload(body: Record<string, unknown>): TrackingResu
   if (utm_content) tracking_data.utm_content = utm_content;
   if (utm_term) tracking_data.utm_term = utm_term;
   if (fbclid) tracking_data.fbclid = fbclid;
+  if (gclid) tracking_data.gclid = gclid;
   if (source_id) tracking_data.source_id = source_id;
   if (sourceApp) tracking_data.sourceApp = sourceApp;
   if (ctwaClid) tracking_data.ctwaClid = ctwaClid;
@@ -94,6 +114,11 @@ function extractTrackingFromPayload(body: Record<string, unknown>): TrackingResu
   if (entryPointConversionExternalSource) tracking_data.entryPointConversionExternalSource = entryPointConversionExternalSource;
   if (sourceURL) tracking_data.sourceURL = sourceURL;
   if (thumbnailURL) tracking_data.thumbnailURL = thumbnailURL;
+  const ownerPhone =
+    getVal(body, 'owner') ??
+    getVal(payload, 'owner') ??
+    (chat ? getVal(chat, 'owner') : null);
+  if (ownerPhone) tracking_data.owner_phone = ownerPhone;
   return {
     origin_source,
     utm_source: utm_source || null,
@@ -181,7 +206,7 @@ serve(async (req) => {
 
   const { data: config, error: configError } = await supabase
     .from('cliente_whatsapp_config')
-    .select('webhook_secret')
+    .select('id, name, webhook_secret')
     .eq('cliente_id', clienteId)
     .eq('webhook_secret', secret)
     .maybeSingle();
@@ -370,8 +395,29 @@ serve(async (req) => {
     } else {
       console.log('[apicebot-inbox-webhook] Evento registrado + mensagem na inbox:', eventType, fromJid, bodyText?.slice(0, 50));
     }
-    // Contato: identificar origem (Meta Ads ou não identificado) e upsert; preservar tracking existente se o contato já tiver dados
+    // Contato: identificar origem e upsert; preservar tracking existente se o contato já tiver dados
     const tracking = extractTrackingFromPayload(body);
+    const matchCode = extractMatchCode(bodyText);
+    if (matchCode && !hasCtwaTrackingSignal(tracking.tracking_data)) {
+      try {
+        const matched = await claimTrackableClickMatch(supabase, {
+          matchCode,
+          clienteId,
+          fromJid,
+        });
+        if (matched) {
+          tracking.origin_source = matched.origin_resolved;
+          tracking.utm_source = matched.utm_source ?? tracking.utm_source;
+          tracking.utm_medium = matched.utm_medium ?? tracking.utm_medium;
+          tracking.utm_campaign = matched.utm_campaign ?? tracking.utm_campaign;
+          tracking.utm_content = matched.utm_content ?? tracking.utm_content;
+          tracking.utm_term = matched.utm_term ?? tracking.utm_term;
+          tracking.tracking_data = trackingFromMatchedClick(matched, tracking.tracking_data);
+        }
+      } catch (e) {
+        console.error('[apicebot-inbox-webhook] trackable link match failed', e);
+      }
+    }
     const now = new Date().toISOString();
 
     const { data: existingContact } = await supabase
@@ -407,37 +453,50 @@ serve(async (req) => {
       }
       return updatedEventsByDate.length > 0 ? { events_by_date: updatedEventsByDate } : null;
     })();
-    const finalOrigin = existingHasTracking ? (existingContact!.origin_source ?? tracking.origin_source) : tracking.origin_source;
-    const finalUtm = existingHasTracking
-      ? {
-          utm_source: existingContact!.utm_source ?? tracking.utm_source,
-          utm_medium: existingContact!.utm_medium ?? tracking.utm_medium,
-          utm_campaign: existingContact!.utm_campaign ?? tracking.utm_campaign,
-          utm_content: existingContact!.utm_content ?? tracking.utm_content,
-          utm_term: existingContact!.utm_term ?? tracking.utm_term,
-        }
-      : { utm_source: tracking.utm_source, utm_medium: tracking.utm_medium, utm_campaign: tracking.utm_campaign, utm_content: tracking.utm_content, utm_term: tracking.utm_term };
-
-    const { error: contactError } = await supabase.from('cliente_whatsapp_contact').upsert(
-      {
+    const instanceName = config.name?.trim() || null;
+    let trackingWithThumb = await attachStoredThumbnail(supabase, finalTracking as Record<string, unknown> | null, supabaseUrl);
+    const {data: persistedContact, error: contactError } = await persistIngressContactAttribution(supabase, {
+      clienteId,fromJid,contact:{
         cliente_id: clienteId,
         from_jid: fromJid,
         phone: phone || null,
         sender_name: senderName || null,
-        origin_source: finalOrigin,
-        utm_source: finalUtm.utm_source,
-        utm_medium: finalUtm.utm_medium,
-        utm_campaign: finalUtm.utm_campaign,
-        utm_content: finalUtm.utm_content,
-        utm_term: finalUtm.utm_term,
-        tracking_data: finalTracking,
+        sender_name_is_fallback: !name,
+        ...tracking,
+        tracking_data: existingHasTracking ? tracking.tracking_data : trackingWithThumb,
+        instance_name: instanceName,
+        whatsapp_config_id: config.id,
         first_seen_at: firstSeenIso,
         last_message_at: lastSeenIso,
         updated_at: now,
-      },
-      { onConflict: 'cliente_id,from_jid', updateColumns: ['phone', 'sender_name', 'origin_source', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'tracking_data', 'first_seen_at', 'last_message_at', 'updated_at'] }
-    );
+      },evidences:[attributionEvidence({source:'apicebot',messageId:messageId.startsWith(fromJid+'_')?null:messageId,
+        messageAt:tsRaw,receivedAt:now,tracking,fromMe:false,isGroup})],
+    });
+    if (contactError || !persistedContact) {
+      console.error('[apicebot-inbox-webhook] contact history persistence failed',contactError?.code || 'database');
+      return new Response(JSON.stringify({error:'Não foi possível registrar o contato e seu histórico.'}),{status:500,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    }
+    trackingWithThumb = persistedContact.tracking_data;
     if (contactError) console.error('[apicebot-inbox-webhook] Contact upsert error', contactError);
+    else if (!isGroup) {
+      const { data: contactRow } = await supabase
+        .from('cliente_whatsapp_contact')
+        .select('id')
+        .eq('cliente_id', clienteId)
+        .eq('from_jid', fromJid)
+        .maybeSingle();
+      if (contactRow?.id) {
+        void maybeSendGoogleLeadSubmitted({
+          supabase,
+          supabaseUrl,
+          serviceKey: supabaseServiceKey,
+          clienteId,
+          contactId: contactRow.id,
+          tracking: trackingWithThumb as Record<string, unknown> | null,
+          fromMe: false,
+        }).catch((e) => console.error('[apicebot-inbox-webhook] google conversion failed', e));
+      }
+    }
   } else {
     console.log('[apicebot-inbox-webhook] Evento registrado (sem remetente):', eventType, Object.keys(body));
   }

@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Calendar as CalendarIcon, User, Plus, FileText, Trash2, ChevronDown, ChevronUp, Clock, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Calendar as CalendarIcon, User, Plus, FileText, Trash2, ChevronDown, ChevronUp, Clock, CheckCircle2, ListChecks, ArrowUpRight } from 'lucide-react';
 import { format, differenceInDays, isPast, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -21,10 +22,15 @@ const OnboardingTaskItemInline = ({
   onUpdate,
   onDelete,
   onAddSubtask,
+  onPromote,
+  userRole,
+  currentUserId,
   profiles,
   isSubtask = false,
   level = 0
 }) => {
+  const navigate = useNavigate();
+  const [promoting, setPromoting] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState(item.title);
   const [isEditingNote, setIsEditingNote] = useState(false);
@@ -325,6 +331,33 @@ const OnboardingTaskItemInline = ({
 
           {/* Ações - sempre visíveis na mesma linha */}
           <div className="flex items-center gap-1">
+            {!isSubtask && item.task_id && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-violet-600"
+                title="Abrir tarefa"
+                onClick={() => navigate(`/tasks/list/${item.task_id}`)}
+              >
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {!isSubtask && !item.task_id && !item.is_completed && (userRole === 'superadmin' || userRole === 'admin' || item.assignee_id === currentUserId) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                title="Virar tarefa"
+                disabled={promoting}
+                onClick={async () => {
+                  if (!onPromote || promoting) return;
+                  setPromoting(true);
+                  try { await onPromote(checklistId, item); } finally { setPromoting(false); }
+                }}
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {/* Adicionar Nota */}
             <Button
               variant="ghost"

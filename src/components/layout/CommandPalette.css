@@ -1,0 +1,12 @@
+.planeje-command-dialog {
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
+  max-width: 40rem;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+}
+
+.planeje-command-dialog > button {
+  display: none;
+}

@@ -1,0 +1,9 @@
+/* Fill the actual workspace: its height already accounts for the shell and mobile navigation. */
+.atlas-office-page{flex:1 1 0%;align-self:stretch;width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column;background:#eef0f4;border:0;border-radius:0;overflow:hidden;color:#30303a}
+.atlas-office-page--expanded{position:fixed;inset:0;z-index:60;width:100%;height:100dvh;background:#eef0f4;border-radius:0}
+.atlas-office-page iframe{display:block;width:100%;height:100%;min-height:0;flex:1 1 0%;border:0;background:#eef0f4}
+.atlas-office-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;padding:10px 16px;border-bottom:1px solid #e4e7ec;font-size:12px;flex-shrink:0}
+.atlas-office-toolbar>span{font-weight:600}.atlas-office-toolbar>div{display:flex;gap:8px}.atlas-office-toolbar button{display:flex;align-items:center;gap:6px;font:inherit;font-size:11px;padding:6px 9px;border:1px solid #e4d8f8;border-radius:7px;color:#7440c6;background:#f7f2ff;cursor:pointer}.atlas-office-toolbar button:hover{background:#efe5ff}.atlas-office-toolbar button:focus-visible{outline:2px solid #9333ea;outline-offset:3px}
+.atlas-office-error{display:flex;gap:8px;align-items:center;flex-shrink:0;font-size:12px;background:#fff6e9;border-bottom:1px solid #e9d0b0;padding:10px 14px;color:#997039}
+.atlas-office-loading{flex:1;display:flex;align-items:center;justify-content:center;gap:12px;padding:24px;color:#8a7061;font-size:13px}
+@media(max-width:767px){.atlas-office-toolbar{padding:8px;font-size:10px}.atlas-office-toolbar>div{gap:5px}.atlas-office-toolbar button{font-size:10px;padding:6px}.atlas-office-toolbar button:first-child{font-size:0;gap:0}}

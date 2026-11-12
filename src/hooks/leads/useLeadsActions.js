@@ -2,6 +2,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { normalizePhoneNumber, getPhoneVariations } from '@/lib/leadUtils';
+import { applyEtiquetaConversionRules } from '@/lib/applyRastreamentoConversionRules';
 
 export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, firstStageId = null, firstStageNome = null } = {}) => {
   const { toast } = useToast();
@@ -132,6 +133,11 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
   };
 
   const handleUpdateLead = async (id, updatedFields) => {
+    let previousEtiquetas = null;
+    if (Object.prototype.hasOwnProperty.call(updatedFields || {}, 'etiquetas')) {
+      const { data: previous } = await supabase.from('leads').select('etiquetas').eq('id', id).maybeSingle();
+      previousEtiquetas = previous?.etiquetas;
+    }
     const { data, error } = await supabase
       .from('leads')
       .update(updatedFields)
@@ -144,6 +150,15 @@ export const useLeadsActions = (setLeads, refetchLeads, { pipelineId = null, fir
     }
     setLeads((prev) => prev.map((lead) => (lead.id === id ? data : lead)));
     toast({ title: 'Lead Atualizado!', description: 'As informações do lead foram salvas.' });
+    if (previousEtiquetas != null && data?.cliente_id) {
+      void applyEtiquetaConversionRules({
+        clienteId: data.cliente_id,
+        lead: data,
+        previousEtiquetas,
+        nextEtiquetas: data.etiquetas,
+        showToast: toast,
+      });
+    }
     return { data, error: null };
   };
 

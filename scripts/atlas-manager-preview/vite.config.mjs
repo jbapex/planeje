@@ -1,0 +1,3 @@
+import path from 'node:path';import{fileURLToPath}from'node:url';import{defineConfig}from'vite';import react from'@vitejs/plugin-react';
+const dir=path.dirname(fileURLToPath(import.meta.url)),root=path.resolve(dir,'../..');
+export default defineConfig({root:dir,plugins:[react()],resolve:{alias:[{find:'@/lib/atlasTeam',replacement:path.join(dir,'api.js')},{find:'@/lib/customSupabaseClient',replacement:path.join(dir,'api.js')},{find:'@/contexts/SupabaseAuthContext',replacement:path.join(dir,'auth.js')},{find:'@',replacement:path.join(root,'src')}]},server:{host:'127.0.0.1',port:4336,strictPort:true,fs:{allow:[root]}}});

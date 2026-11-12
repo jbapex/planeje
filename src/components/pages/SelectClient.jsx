@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Users, ArrowLeft, Clock, Building2, MessageSquare, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
+import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { Button } from '@/components/ui/button';
@@ -133,7 +134,7 @@ const SelectClient = () => {
     ];
     const colorIndex = initial.charCodeAt(0) % colors.length;
     const gradient = colors[colorIndex];
-    const logoUrl = client.logo_urls && client.logo_urls.length > 0 ? client.logo_urls[0] : null;
+    const logoUrl = rewritePublicStorageUrl(client.logo_urls?.[0] || '') || null;
 
     return (
       <div

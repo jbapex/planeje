@@ -11,3 +11,46 @@ verify_jwt = false
 # CRM-Apice envia Bearer com secret gerado no Planeje (Canais), não JWT do Supabase.
 [functions.crm-apice-contact-status-webhook]
 verify_jwt = false
+
+# Cron / teste: autenticação via x-briefing-cron-secret ou JWT + body.force (admin) dentro da função.
+[functions.briefing-daily-scheduler]
+verify_jwt = false
+
+# Auth validada dentro da função (getUser + role). Evita 401 do gateway com JWT expirado/mal formatado.
+[functions.uazapi-send-message]
+verify_jwt = false
+
+[functions.uazapi-download-media]
+verify_jwt = false
+
+[functions.uazapi-group-info]
+verify_jwt = false
+
+[functions.uazapi-chat-photo]
+verify_jwt = false
+
+[functions.uazapi-instance-status]
+verify_jwt = false
+
+# Cron diário: header x-atendimento-media-purge-secret ou force admin dentro da função.
+[functions.atendimento-media-purge]
+verify_jwt = false
+
+[functions.admin-client-user]
+verify_jwt = false
+
+[functions.admin-delete-team-user]
+verify_jwt = false
+
+# Link público /r/:slug — grava clique e redireciona ao wa.me (sem JWT).
+[functions.rastreamento-link-redirect]
+verify_jwt = false
+
+# Cron: lembretes WhatsApp agendados em conversas/grupos.
+# [functions.atendimento-planejamento-scheduler]
+# verify_jwt = false
+
+# Cron: envia Instagram na hora marcada (a Graph não agenda).
+[functions.social-publish-scheduler]
+verify_jwt = false
+

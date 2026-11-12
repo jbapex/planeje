@@ -1,88 +1,45 @@
 import React from 'react';
-    import { NavLink, useLocation, Routes, Route, Navigate } from 'react-router-dom';
-    import ModuleManagement from './ModuleManagement';
-    import ClientFieldPermissions from './ClientFieldPermissions';
-    import { ShieldCheck, Settings, Users, GitBranch, BarChart2, Sparkles, Bot, LayoutDashboard, Share2 } from 'lucide-react';
-    import DiagnosticLeads from '@/components/admin/DiagnosticLeads';
-    import AiAgentsManager from './AiAgentsManager';
-    import DiagnosticSettings from './DiagnosticSettings';
-    import ChatLimitsManager from './ChatLimitsManager';
-    import DiagnosticTemplatesManager from './DiagnosticTemplatesManager';
-import DashboardSettings from './DashboardSettings';
-import CompanyInfoSettings from './CompanyInfoSettings';
-import ApexIAClientPersonalitySettings from './ApexIAClientPersonalitySettings';
-import AssistantProjectModelSettings from './AssistantProjectModelSettings';
-import ClientUsersSuperAdmin from './ClientUsersSuperAdmin';
-import ClientApexIASettings from './ClientApexIASettings';
-import ContentPlatformsSettings from './ContentPlatformsSettings';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import ModuleManagement from '@/components/pages/ModuleManagement';
+import ClientFieldPermissions from '@/components/pages/ClientFieldPermissions';
+import DashboardSettings from '@/components/pages/DashboardSettings';
+import ClientUsersSuperAdmin from '@/components/pages/ClientUsersSuperAdmin';
+import ContentPlatformsSettings from '@/components/pages/ContentPlatformsSettings';
+import SuperAdminHub from '@/components/superadmin/SuperAdminHub';
+import SuperAdminSidebar from '@/components/superadmin/SuperAdminSidebar';
+import SuperAdminTabbedHub from '@/components/superadmin/SuperAdminTabbedHub';
+import SuperAdminLegacyRedirect from '@/components/superadmin/SuperAdminLegacyRedirect';
+import {
+  SUPER_ADMIN_IA_HUB,
+  SUPER_ADMIN_DIAGNOSTIC_HUB,
+  SUPER_ADMIN_LEGACY_REDIRECTS,
+} from '@/lib/superAdminHubs';
+import '@/components/superadmin/SuperAdmin.css';
 
-    const SuperAdmin = () => {
-        const location = useLocation();
+const SuperAdmin = () => (
+  <div className="planeje-super-admin">
+    <SuperAdminSidebar />
+    <main className="planeje-super-admin-main">
+      <Routes>
+        <Route index element={<SuperAdminHub />} />
+        <Route path="modules" element={<ModuleManagement />} />
+        <Route path="client-permissions" element={<ClientFieldPermissions />} />
+        <Route path="client-users" element={<ClientUsersSuperAdmin />} />
+        <Route path="dashboard-settings" element={<DashboardSettings />} />
+        <Route path="content-platforms" element={<ContentPlatformsSettings />} />
+        <Route path="ia" element={<SuperAdminTabbedHub hub={SUPER_ADMIN_IA_HUB} />} />
+        <Route path="diagnostico" element={<SuperAdminTabbedHub hub={SUPER_ADMIN_DIAGNOSTIC_HUB} />} />
+        {Object.keys(SUPER_ADMIN_LEGACY_REDIRECTS).map((segment) => (
+          <Route
+            key={segment}
+            path={segment}
+            element={<SuperAdminLegacyRedirect segment={segment} />}
+          />
+        ))}
+        <Route path="*" element={<Navigate to="/super-admin" replace />} />
+      </Routes>
+    </main>
+  </div>
+);
 
-        const navItems = [
-            { path: '/super-admin/modules', label: 'Gerenciar Módulos', icon: <Settings className="h-4 w-4" /> },
-            { path: '/super-admin/client-permissions', label: 'Permissões de Campos', icon: <ShieldCheck className="h-4 w-4" /> },
-            { path: '/super-admin/client-users', label: 'Usuários de Cliente', icon: <Users className="h-4 w-4" /> },
-            { path: '/super-admin/dashboard-settings', label: 'Config. Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
-            { path: '/super-admin/company-info', label: 'Info. Empresa (IA)', icon: <Users className="h-4 w-4" /> },
-            { path: '/super-admin/diagnostic-leads', label: 'Leads do Diagnóstico', icon: <BarChart2 className="h-4 w-4" /> },
-            { path: '/super-admin/diagnostic-templates', label: 'Templates Diagnóstico', icon: <Settings className="h-4 w-4" /> },
-            { path: '/super-admin/diagnostic-settings', label: 'Config. Diagnóstico', icon: <Settings className="h-4 w-4" /> },
-            { path: '/super-admin/ai-agents', label: 'Agentes de IA', icon: <Sparkles className="h-4 w-4" /> },
-            { path: '/super-admin/apexia-client-personality', label: 'Personalidade ApexIA', icon: <Bot className="h-4 w-4" /> },
-            { path: '/super-admin/chat-limits', label: 'Limites do Chat IA', icon: <Bot className="h-4 w-4" /> },
-            { path: '/super-admin/assistant-project-models', label: 'Modelos Assistente', icon: <Sparkles className="h-4 w-4" /> },
-            { path: '/super-admin/client-apexia-settings', label: 'Config. ApexIA Clientes', icon: <Bot className="h-4 w-4" /> },
-            { path: '/super-admin/content-platforms', label: 'Plataformas de conteúdo', icon: <Share2 className="h-4 w-4" /> },
-        ];
-        
-        return (
-            <div className="flex h-full">
-                <aside className="w-64 flex-shrink-0 border-r dark:border-gray-700 p-4">
-                    <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <ShieldCheck className="h-6 w-6" />
-                        Painel Super Admin
-                    </h2>
-                    <nav className="flex flex-col space-y-2">
-                        {navItems.map(item => (
-                            <NavLink
-                                key={item.path}
-                                to={item.path}
-                                className={({ isActive }) =>
-                                    `flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                                        isActive
-                                            ? 'bg-primary text-primary-foreground'
-                                            : 'text-muted-foreground hover:bg-muted'
-                                    }`
-                                }
-                            >
-                                {item.icon}
-                                {item.label}
-                            </NavLink>
-                        ))}
-                    </nav>
-                </aside>
-                <main className="flex-1 p-0 overflow-auto">
-                   <Routes>
-                        <Route path="modules" element={<ModuleManagement />} />
-                        <Route path="client-permissions" element={<ClientFieldPermissions />} />
-                        <Route path="client-users" element={<ClientUsersSuperAdmin />} />
-                        <Route path="dashboard-settings" element={<DashboardSettings />} />
-                        <Route path="company-info" element={<CompanyInfoSettings />} />
-                        <Route path="diagnostic-leads" element={<DiagnosticLeads />} />
-                        <Route path="diagnostic-templates" element={<DiagnosticTemplatesManager />} />
-                        <Route path="diagnostic-settings" element={<DiagnosticSettings />} />
-                        <Route path="ai-agents" element={<AiAgentsManager />} />
-                        <Route path="apexia-client-personality" element={<ApexIAClientPersonalitySettings />} />
-                        <Route path="chat-limits" element={<ChatLimitsManager />} />
-                        <Route path="assistant-project-models" element={<AssistantProjectModelSettings />} />
-                        <Route path="client-apexia-settings" element={<ClientApexIASettings />} />
-                        <Route path="content-platforms" element={<ContentPlatformsSettings />} />
-                        <Route index element={<Navigate to="modules" replace />} />
-                   </Routes>
-                </main>
-            </div>
-        );
-    };
-
-    export default SuperAdmin;
+export default SuperAdmin;

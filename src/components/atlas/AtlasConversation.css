@@ -1,0 +1,236 @@
+.atlas-page.atlas-converse {
+  --atlas-bg: #fff;
+  --atlas-ease: cubic-bezier(.22, 1, .36, 1);
+  --atlas-surface: #fff;
+  --atlas-raised: #f3f2f5;
+  --atlas-border: #e4e3e7;
+  --atlas-text: #232229;
+  --atlas-muted: #605f69;
+  --atlas-soft: #52416b;
+  --atlas-accent: #7556a8;
+  --foreground: 250 9% 15%;
+  --muted-foreground: 245 5% 38%;
+  --background: 0 0% 100%;
+  --border: 255 18% 88%;
+  --muted: 255 24% 96%;
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: var(--atlas-bg);
+  color: var(--atlas-text);
+  color-scheme: light;
+}
+.atlas-converse :is(button,a) { color: inherit; text-decoration: none; }
+.atlas-converse-nav {
+  width: var(--jb-sidebar-width-expanded);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: #eff1f0;
+  border-right: 1px solid #e5e8e6;
+  gap: 10px;
+  min-height: 0;
+  transition: width 240ms var(--atlas-ease);
+}
+.atlas-converse-nav-head,.atlas-converse-brand,.atlas-converse-account { display: flex; align-items: center; gap: 8px; }
+.atlas-converse-nav-head { justify-content: space-between; min-height: 40px; }
+.atlas-converse-brand img,.atlas-converse-account img { width: 31px; height: 31px; object-fit: contain; }
+.atlas-converse-icon { display: grid; place-items: center; width: 35px; height: 35px; flex: none; background: transparent; border: 0; border-radius: 11px; }
+.atlas-converse-icon:hover,.atlas-converse-icon[aria-current] { background: white; box-shadow: 0 1px 4px #221c2a12; }
+.atlas-converse-new { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 40px; border: 1px solid #dedfe0; border-radius: 14px; background: white; box-shadow: 0 1px 3px #221c2a12; }
+.atlas-converse-new:hover { border-color: #a58abb; }
+.atlas-converse-shortcuts { display: flex; gap: 3px; background: #e5e8e6; padding: 4px; border-radius: 14px; }
+.atlas-converse-history { display: flex; flex: 1; flex-direction: column; gap: 10px; min-height: 0; min-width: 224px; }
+.atlas-converse-nav[data-collapsed=false] .atlas-converse-history { animation: atlas-converse-appear 200ms var(--atlas-ease) both; }
+.atlas-converse-filters { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 11px; background: #e5e8e6; }
+.atlas-converse-filters button { flex: 1; padding: 5px 3px; min-height: 30px; border: 0; border-radius: 8px; font-size: 12px; background: transparent; color: var(--atlas-muted); }
+.atlas-converse-filters button[aria-pressed=true] { background: white; color: var(--atlas-text); box-shadow: 0 1px 4px #1b1c2914; }
+.atlas-converse-search { display: flex; align-items: center; gap: 6px; background: #e5e8e6; color: var(--atlas-muted); border-radius: 11px; padding: 0 9px; }
+.atlas-converse-search input { width: 100%; min-width: 0; min-height: 37px; border: 0; background: transparent; padding: 0 2px; }
+.atlas-converse-history-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.atlas-converse-history-list h2 { margin: 8px 0 6px 8px; font-size: 10px; font-weight: 550; color: var(--atlas-muted); text-transform: uppercase; letter-spacing: .09em; }
+.atlas-converse-history-list p { margin: 10px 7px; color: var(--atlas-muted); font-size: 12px; }
+.atlas-converse-session { display: flex; position: relative; border-radius: 9px; }
+.atlas-converse-session:hover,.atlas-converse-session[data-current=true] { background: #e5e8e6; }
+.atlas-converse-session-open { display: flex; align-items: center; width: 100%; min-width: 0; gap: 6px; padding: 8px; text-align: left; border: 0; border-radius: 8px; background: transparent; font-size: 12px; }
+.atlas-converse-session-open span,.atlas-converse-account strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-converse-session-open small { margin-left: auto; color: var(--atlas-muted); font-size: 10px; white-space: nowrap; }
+.atlas-converse-favorite { flex: none; color: #785811; fill: #f1c971; }
+.atlas-converse-session-actions { display: flex; align-items: center; position: absolute; top: 2px; bottom: 2px; right: 3px; gap: 1px; padding: 2px; border: 1px solid #e1e1e3; border-radius: 8px; background: white; opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
+.atlas-converse-session:is(:hover,:focus-within) .atlas-converse-session-actions { opacity: 1; pointer-events: auto; }
+.atlas-converse-session-actions button { display: grid; place-items: center; padding: 3px 6px; height: 100%; background: transparent; border: 0; border-radius: 5px; }
+.atlas-converse-session-actions button:hover { background: #f1edf7; }
+.atlas-converse-squad { max-height: 180px; overflow: auto; }
+.atlas-converse-squad summary { padding: 3px 8px; color: var(--atlas-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; cursor: pointer; }
+.atlas-converse-squad button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 4px 7px; border: 0; border-radius: 8px; background: transparent; text-align: left; font-size: 12px; }
+.atlas-converse-squad button:hover { background: #e5e8e6; }
+.atlas-converse-squad-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.atlas-converse-squad-links a { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+.atlas-converse-squad-links a:hover { background: #e5e8e6; }
+.atlas-converse-agent-avatar,.atlas-converse-agent-mark { width: 26px; height: 26px; object-fit: contain; border-radius: 50%; flex: none; }
+.atlas-converse-agent-mark { display: grid; place-items: center; background: #f0e9fa; color: #5c3983; }
+.atlas-converse-agent-mark[data-agent=clientes] { background: #fcf0d7; color: #775518; }
+.atlas-converse-agent-mark[data-agent=operacao] { background: #dff0e8; color: #236448; }
+.atlas-converse-agent-mark[data-agent=trafego] { background: #dfeafa; color: #234c88; }
+.atlas-converse-agent-mark[data-agent=resultados] { background: #f8e5ed; color: #7d3659; }
+.atlas-converse-account { border-top: 1px solid #dde2de; padding: 9px 4px 1px; min-width: 0; }
+.atlas-converse-account span { display: grid; min-width: 0; font-size: 12px; }
+.atlas-converse-account small { color: var(--atlas-muted); }
+.atlas-converse-nav[data-collapsed=true] { width: var(--jb-sidebar-width); }
+.atlas-converse-nav[data-collapsed=true] :is(.atlas-converse-brand strong,.atlas-converse-new span,.atlas-converse-history) { display: none; }
+.atlas-converse-nav[data-collapsed=true] .atlas-converse-nav-head { flex-direction: column; }
+.atlas-converse-nav[data-collapsed=true] .atlas-converse-shortcuts { flex-direction: column; align-items: center; }
+.atlas-converse-shortcuts .atlas-converse-icon { position: relative; transition: background 120ms ease, transform 120ms ease; }
+.atlas-converse-shortcuts .atlas-converse-icon[aria-pressed=true] { background: white; box-shadow: 0 1px 4px #221c2a12; }
+.atlas-converse-shortcuts .atlas-converse-icon:active,.atlas-converse-send-actions .atlas-send:active { transform: scale(.94); }
+.atlas-converse-shortcuts small { position: absolute; right: 0; top: 1px; min-width: 14px; padding: 0 2px; border-radius: 10px; background: #a84949; color: white; font-size: 9px; line-height: 14px; text-align: center; }
+
+.atlas-converse .atlas-workspace { flex: 1; display: flex; flex-direction: column; align-self: stretch; height: auto; min-height: 0; margin: 0; border: 0; border-radius: 0; background: transparent; overflow-y: auto; }
+.atlas-converse-top { position: relative; display: flex; align-items: center; min-height: 70px; padding: 14px 48px 14px 30px; }
+.atlas-converse-top[data-welcome=true] { min-height: 42px; }
+.atlas-converse-top h1 { margin: 0; color: var(--atlas-text); font-size: clamp(17px, 2.3vw, 23px); font-weight: 650; line-height: 1.2; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.atlas-converse-voice { position: absolute; right: 8px; top: 9px; z-index: 4; }
+.atlas-converse-voice summary { display: grid; place-items: center; width: 35px; min-height: 41px; cursor: pointer; list-style: none; }
+.atlas-converse-voice summary::-webkit-details-marker { display: none; }
+.atlas-converse-voice .atlas-voice { position: absolute; right: 0; top: 100%; width: min(275px, calc(100vw - 70px)); margin: 0; padding: 10px; background: white; border: 1px solid var(--atlas-border); box-shadow: 0 8px 24px #25212922; }
+.atlas-converse-voice .atlas-start-voice,.atlas-converse-voice .atlas-voice-actions button { background: #f2edf7; color: var(--atlas-soft); }
+.atlas-converse-voice .atlas-voice small,.atlas-converse-voice .atlas-voice-state,.atlas-converse-voice .atlas-start-voice span { color: var(--atlas-muted); }
+.atlas-converse .atlas-workspace > .atlas-conversation { flex: 1 1 0; min-height: 300px; width: min(100%, 768px); align-self: center; padding: 0 clamp(12px, 3vw, 26px) 12px; }
+.atlas-converse .atlas-conversation.is-empty { flex-basis: auto; justify-content: center; width: min(100%, 812px); padding-top: clamp(30px, 12vh, 128px); padding-bottom: 36px; }
+.atlas-converse-welcome { text-align: center; margin: 0 0 28px; }
+.atlas-converse-welcome img { display: block; margin: 0 auto 19px; object-fit: contain; filter: drop-shadow(0 9px 8px #26223119); animation: atlas-converse-emblem 650ms var(--atlas-ease) both; }
+.atlas-converse-welcome h2 { margin: 0; overflow: hidden; font-size: clamp(21px, 3vw, 30px); line-height: 1.25; font-weight: 640; letter-spacing: -.035em; }
+.atlas-converse-welcome h2 span { display: block; animation: atlas-converse-title 600ms var(--atlas-ease) 70ms both; }
+.atlas-converse-welcome p { margin: 7px 0 0; color: var(--atlas-muted); animation: atlas-converse-appear 480ms var(--atlas-ease) 150ms both; }
+.atlas-converse .atlas-messages { flex: 1; min-height: 150px; max-height: none; padding: 20px 5px; overflow-y: auto; }
+.atlas-converse .atlas-messages[hidden] { display: none; }
+.atlas-converse .atlas-message { color: var(--atlas-text); background: transparent; border: 0; padding: 10px 0; animation: atlas-converse-appear 320ms var(--atlas-ease) both; }
+.atlas-converse .atlas-message-author { display: flex; align-items: center; gap: 6px; color: var(--atlas-soft); }
+.atlas-converse .atlas-message-author img { object-fit: contain; }
+.atlas-converse .atlas-message-user { width: fit-content; max-width: 95%; margin-left: auto; padding: 10px 14px; background: #f3f2f3; border-radius: 19px; }
+.atlas-converse .atlas-message-status,.atlas-converse .atlas-message-content,.atlas-converse .atlas-message-content :is(strong,a) { color: inherit; }
+.atlas-converse .atlas-message-content a { text-decoration: underline; }
+.atlas-converse .atlas-text-button { color: var(--atlas-soft); }
+.atlas-converse .atlas-client-question { background: #f5f0fc; border-color: #d8c9ea; color: #332748; }
+.atlas-converse .atlas-client-question p { color: #52416b; }
+.atlas-converse .atlas-loading-history,.atlas-converse .atlas-waiting,.atlas-converse .atlas-context-note { color: var(--atlas-muted); }
+.atlas-converse .atlas-background-work { color: var(--atlas-soft); background: #f3edf9; border-color: #dfd4ec; margin: 0 0 8px; }
+.atlas-converse .atlas-missions-panel,.atlas-converse .atlas-memory-panel,.atlas-converse .atlas-preferences { max-width: 810px; width: 100%; margin-inline: auto; }
+.atlas-converse .atlas-mission,.atlas-converse .atlas-memory-item,.atlas-converse .atlas-memory-form,.atlas-converse .atlas-empty-state { color: var(--atlas-text); background: #f7f4fa; border-color: #e4ddec; }
+.atlas-converse .atlas-memory-form :is(textarea,select) { color: var(--atlas-text); background: white; border-color: #e4ddec; }
+.atlas-converse .atlas-mission :is(.atlas-steps p,time,.atlas-step-status,.atlas-usage),.atlas-converse .atlas-panel-heading p { color: var(--atlas-muted); }
+
+.atlas-converse .atlas-converse-composer { position: relative; padding: 15px 17px; background: white; border: 1px solid #dedce3; border-radius: 25px; box-shadow: 0 10px 24px #2622310e; transition: box-shadow 160ms ease, border-color 160ms ease; }
+.atlas-converse .atlas-converse-composer::before { content: ''; position: absolute; pointer-events: none; width: min(120px,40%); height: 24px; top: -1px; left: -1px; border-top: 1px solid #a99ac2; border-left: 1px solid #a99ac2; border-top-left-radius: inherit; opacity: .7; }
+.atlas-converse .atlas-converse-composer:focus-within { border-color: #ad97c9; box-shadow: 0 8px 24px #5c3d751c; }
+.atlas-converse .atlas-converse-composer textarea { min-height: 47px; max-height: 180px; color: var(--atlas-text); font-size: 16px; resize: none; outline: none; }
+.atlas-converse .is-empty .atlas-converse-composer textarea { min-height: 72px; }
+.atlas-converse .atlas-converse-composer textarea::placeholder { color: #6e6b74; }
+.atlas-converse-composer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.atlas-converse-token,.atlas-converse-mode { display: flex; align-items: center; min-width: 0; max-width: 100%; min-height: 34px; border: 1px solid #e9e7eb; border-radius: 24px; background: #fafafa; font-size: 12px; }
+.atlas-converse-token:has(.atlas-converse-remove) { animation: atlas-converse-pop 260ms cubic-bezier(.18,.89,.32,1.2) both; }
+.atlas-converse-chip,.atlas-converse-remove { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 32px; border: 0; border-radius: inherit; background: transparent; padding: 3px 8px; font-size: 12px !important; }
+.atlas-converse-remove { flex: none; padding-inline: 5px 8px; }
+.atlas-converse-remove:hover,.atlas-converse-chip:hover { background: #eeeaf3; }
+.atlas-converse-chip :is(img,.atlas-converse-agent-mark) { width: 23px; height: 23px; }
+.atlas-converse-chip > span:not(.atlas-converse-agent-mark) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-converse-chip svg { flex: none; }
+.atlas-converse-mode { padding-inline: 10px; background: #f0edf4; border-color: transparent; }
+.atlas-converse-version { color: var(--atlas-muted); font: 10px ui-monospace, monospace; letter-spacing: .09em; text-transform: uppercase; }
+.atlas-converse-send-actions { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.atlas-converse .atlas-send { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; width: 37px; height: 37px; min-height: 37px; background: #201a28; color: white; transition: background 120ms ease, transform 120ms ease; }
+.atlas-converse .atlas-send:disabled { background: #e5e3e8; color: #46434c; }
+.atlas-converse .atlas-dictation { margin: 0; color: var(--atlas-muted); }
+.atlas-converse .atlas-dictation button { background: transparent; border: 0; }
+.atlas-converse-picker { position: absolute; z-index: 3; left: 0; bottom: calc(100% + 6px); width: min(350px, 100%); padding: 7px; background: white; border: 1px solid var(--atlas-border); border-radius: 17px; box-shadow: 0 9px 25px #25212922; transform-origin: left bottom; animation: atlas-converse-pop 280ms cubic-bezier(.18,.89,.32,1.2) both; }
+.atlas-converse-picker > div { max-height: min(250px, 34dvh); overflow-y: auto; }
+.atlas-converse-picker p { padding: 5px 7px 7px; margin: 0; color: var(--atlas-muted); font: 10px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .05em; }
+.atlas-converse-picker p span { float: right; }
+.atlas-converse-picker button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; min-height: 39px; padding: 5px 8px; border: 0; border-radius: 9px; background: white; overflow-wrap: anywhere; }
+.atlas-converse-picker button:hover,.atlas-converse-picker button[data-active=true] { background: #f1edf7; }
+.atlas-converse-picker-empty { display: block; padding: 7px; color: var(--atlas-muted); }
+.atlas-converse-examples { position: relative; margin: 19px 0 13px; padding-bottom: 10px; }
+.atlas-converse-examples-rail { overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent); }
+.atlas-converse-examples-track { display: flex; position: relative; width: max-content; }
+.atlas-converse-examples-set { display: flex; gap: 10px; padding: 5px 10px 9px 0; }
+.atlas-converse-examples-set button { display: flex; flex: 0 0 246px; flex-direction: column; gap: 5px; min-height: 147px; align-items: flex-start; text-align: left; padding: 16px 18px; border: 1px solid var(--atlas-border); border-radius: 23px; background: white; line-height: 1.35; transition: transform 140ms var(--atlas-ease), box-shadow 140ms var(--atlas-ease); }
+.atlas-converse-examples-set button:is(:hover,:focus-visible) { transform: translateY(-2px); border-color: #c4b6d4; box-shadow: 0 6px 14px #24192e10; }
+.atlas-converse-example-agent { display: flex; gap: 8px; align-items: center; width: 100%; margin-bottom: auto; color: var(--atlas-muted); font-size: 12px; }
+.atlas-converse-example-agent > svg { margin-left: auto; opacity: 0; transition: opacity 140ms ease; }
+.atlas-converse-examples-set button:is(:hover,:focus-visible) .atlas-converse-example-agent > svg { opacity: 1; }
+.atlas-converse-examples-set small { color: var(--atlas-muted); }
+.atlas-converse-motion-toggle { position: absolute; z-index: 1; bottom: -15px; right: 4px; display: grid; place-items: center; width: 31px; height: 29px; min-height: 29px; border: 1px solid var(--atlas-border); border-radius: 12px; background: white; color: var(--atlas-muted); }
+.atlas-converse-footnote { margin: 8px 0 0; color: var(--atlas-muted); text-align: center; font-size: 11px; }
+.atlas-converse .atlas-converse-inbox { display: flex; align-items: center; gap: 6px; margin: 4px auto; color: var(--atlas-muted); font-size: 12px; }
+.atlas-converse .atlas-converse-inbox:hover { text-decoration: underline; }
+.atlas-converse-trace { margin: 10px 0; color: var(--atlas-muted); font-size: 12px; }
+.atlas-converse-trace summary { cursor: pointer; width: fit-content; padding: 5px 0; }
+.atlas-converse-trace[open] ol { animation: atlas-converse-appear 220ms var(--atlas-ease) both; }
+.atlas-converse-trace ol { margin: 4px 0; padding-left: 22px; }
+.atlas-converse-trace li { margin: 6px 0; }
+.atlas-converse-trace p { margin: 2px 0; }
+.atlas-converse .atlas-converse-prepare-task { margin-top: 4px; padding: 7px 10px; border: 1px solid #ded4eb; border-radius: 8px; }
+.atlas-converse-task { margin: 10px 0; padding: 12px; border: 1px solid #ded4eb; border-radius: 14px; background: #fbf9fd; animation: atlas-converse-appear 280ms var(--atlas-ease) both; }
+.atlas-converse-task-heading { display: flex; align-items: flex-start; gap: 8px; color: var(--atlas-soft); }
+.atlas-converse-task-heading div { display: grid; min-width: 0; }
+.atlas-converse-task-heading small { color: var(--atlas-muted); }
+.atlas-converse-task p[role=alert] { color: #9d2445; }
+.atlas-converse-task .atlas-demand-review { margin-top: 10px; animation: atlas-converse-appear 240ms var(--atlas-ease) both; }
+.atlas-converse-task :is(button,select) { font-size: 12px; }
+.atlas-converse-task select { background: white; color: var(--atlas-text); border-color: #ded4eb; }
+.atlas-converse-task .atlas-demand-button.is-primary { color: white; }
+.atlas-converse .atlas-converse-refuse { color: #852447; margin-left: 12px; }
+.atlas-converse-task .atlas-demand-review-options,.atlas-converse-task .atlas-demand-grid { grid-template-columns: repeat(auto-fit,minmax(min(130px,100%),1fr)); }
+
+@keyframes atlas-converse-appear {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes atlas-converse-title {
+  from { opacity: 0; transform: translateY(95%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes atlas-converse-emblem {
+  from { opacity: 0; transform: translateY(13px) scale(.86) rotate(-8deg); }
+  to { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+@keyframes atlas-converse-pop {
+  from { opacity: 0; transform: translateY(5px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes atlas-converse-drawer {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (max-width: 700px) {
+  .atlas-page.atlas-converse { position: relative; }
+  .atlas-converse-nav,.atlas-converse-nav[data-collapsed=true] { padding: 7px; width: var(--jb-sidebar-width); }
+  .atlas-converse-nav .atlas-converse-icon { width: 40px; height: 42px; }
+  .atlas-converse-nav-head { flex-direction: column; }
+  .atlas-converse-nav .atlas-converse-shortcuts { flex-direction: column; align-items: center; }
+  .atlas-converse-nav :is(.atlas-converse-new span,.atlas-converse-brand strong) { display: none; }
+  .atlas-converse-nav[data-collapsed=false] .atlas-converse-history { position: absolute; z-index: 5; top: 0; bottom: 0; left: var(--jb-sidebar-width); width: min(var(--jb-sidebar-width-expanded), calc(100% - var(--jb-sidebar-width))); min-width: 0; padding: 12px; background: #eff1f0; box-shadow: 6px 0 20px #26223122; animation-name: atlas-converse-drawer; }
+  .atlas-converse-scrim { position: absolute; z-index: 4; inset: 0 0 0 var(--jb-sidebar-width); background: #29203230; border: 0; animation: atlas-converse-appear 180ms var(--atlas-ease) both; }
+  .atlas-converse-session-open { min-height: 42px; padding-right: 63px; }
+  .atlas-converse-session-open small { display: none; }
+  .atlas-converse-session-actions { opacity: 1; pointer-events: auto; }
+  .atlas-converse-session-actions button { min-height: 32px; }
+  .atlas-converse-top { min-height: 58px; padding-left: 12px; }
+  .atlas-converse .atlas-workspace > .atlas-conversation { padding-inline: 11px; }
+  .atlas-converse .atlas-conversation.is-empty { padding-top: 34px; }
+  .atlas-converse .atlas-converse-composer { padding: 12px; border-radius: 21px; }
+  .atlas-converse-chip,.atlas-converse-remove { min-height: 36px; }
+  .atlas-converse-version { display: none; }
+  .atlas-converse-examples-set button { flex-basis: 183px; padding: 12px; min-height: 136px; }
+  .atlas-converse-picker p span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-converse *, .atlas-converse *::before, .atlas-converse *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .atlas-converse-examples-set[aria-hidden=true], .atlas-converse .atlas-converse-motion-toggle { display: none; }
+  .atlas-converse-examples-rail { mask-image: none; scrollbar-width: thin; }
+}

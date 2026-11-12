@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { AnimatePresence, motion } from 'framer-motion';
-    import { Plus, List, LayoutGrid, GitCommit, Settings, Filter, Bot, Calendar, Timer } from 'lucide-react';
-    import { useParams, useNavigate } from 'react-router-dom';
+    import { Plus, List, LayoutGrid, GitCommit, Settings, Filter, Bot, Calendar, Timer, Users, Building2 } from 'lucide-react';
+    import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom';
     import { Button } from '@/components/ui/button';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
     import TaskDetail from '@/components/tasks/TaskDetail';
     import ListView from '@/components/tasks/ListView';
     import KanbanView from '@/components/tasks/KanbanView';
@@ -17,6 +18,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import TaskAutomations from '@/components/tasks/automations/TaskAutomations';
     import CalendarView from '@/components/tasks/CalendarView';
     import TimeTrackingSettings from '@/components/tasks/TimeTrackingSettings';
+    import TeamCapacityView from '@/components/tasks/TeamCapacityView';
     import { useDataCache } from '@/hooks/useDataCache';
 import {
   executeAutomation,
@@ -24,13 +26,20 @@ import {
   getAutomationErrorMessages,
 } from '@/lib/workflow';
 import { cn } from '@/lib/utils';
+import { isTerminalTaskStatus, normalizeTaskPriority, sortTasksByWorkOrder } from '@/lib/taskUrgency';
+import { checkTaskPublicationCompletion, contentSocialArchiveBlockers, isContentTaskType } from '@/lib/taskChannelPublications';
+import '@/components/tasks/Tasks.css';
+import { TASK_RELATIONS_SELECT, upsertTaskWithRelations, readTaskAfterAutomations } from '@/lib/taskRelations';
+import { NEXT_ACTIONS } from '@/lib/trafegoProximaAcao';
+import { updateDecision } from '@/components/gestor-ia/gestorIaDecisionLog';
+import { confirmCsTaskClient, csTaskClientId, csTaskReturn, isCsBoardTask } from '@/lib/csIaTaskNavigation';
 
 /** Mesmo estilo visual das abas do painel operacional de Projetos (TabsList / TabsTrigger). */
 const tasksTabBar = cn(
-  'inline-flex h-auto w-full flex-shrink-0 flex-wrap items-center justify-center gap-1 rounded-full border border-gray-300/90 bg-gray-200/95 p-1 text-muted-foreground dark:border-gray-600 dark:bg-gray-900'
+  'tasks-tab-bar inline-flex h-auto w-full flex-shrink-0 flex-wrap items-center justify-center gap-1 rounded-full border border-gray-300/90 bg-gray-200/95 p-1 text-muted-foreground dark:border-gray-600 dark:bg-gray-900'
 );
 const tasksTabTrigger = cn(
-  'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:text-gray-400 dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
+  'tasks-tab-trigger inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm dark:text-gray-400 dark:data-[state=active]:bg-gray-800 dark:data-[state=active]:text-white'
 );
 
     const Tasks = () => {
@@ -40,7 +49,6 @@ const tasksTabTrigger = cn(
       const [projects, setProjects] = useState([]);
       const [users, setUsers] = useState([]);
       const [selectedTask, setSelectedTask] = useState(null);
-      const [isNewTask, setIsNewTask] = useState(false);
       const [loading, setLoading] = useState(true);
       const [scheduleLoading, setScheduleLoading] = useState(true);
       const [isStatusSettingsOpen, setStatusSettingsOpen] = useState(false);
@@ -48,25 +56,57 @@ const tasksTabTrigger = cn(
       const [statusOptions, setStatusOptions] = useState([]);
       const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
       const [filtersExpanded, setFiltersExpanded] = useState(false);
+      const [operationalFunctions, setOperationalFunctions] = useState([]);
+      const [workflowTemplates, setWorkflowTemplates] = useState([]);
 
 
       const { toast } = useToast();
-      const { user, profile } = useAuth();
-      const { moduleAccess } = useModuleSettings();
+      const { user, profile, canViewField } = useAuth();
+      const { moduleAccess, moduleSettings } = useModuleSettings();
       const userRole = profile?.role;
       const tasksAccessLevel = moduleAccess.tasks || 'all';
       const { view: activeTabFromUrl = 'list', id: taskIdFromUrl } = useParams();
+      const isNewTask = taskIdFromUrl === 'new';
+      const location = useLocation();
+      const [searchParams] = useSearchParams();
+      const clientIdFromUrl = searchParams.get('client_id');
+      const typeFromUrl = searchParams.get('type');
+      const isPaidTrafficDraft = isNewTask && typeFromUrl === 'paid_traffic';
+      const csTask = Boolean(location.state?.csTask);
+      const csClient = csTaskClientId(location.state, clientIdFromUrl, user, profile, moduleSettings);
+      const csScopeKey = csClient ? JSON.stringify([location.key, csClient, user.id]) : null;
+      const [csAccess, setCsAccess] = useState(null);
+      const csVerified = Boolean(csScopeKey && csAccess?.key === csScopeKey && csAccess.allowed);
+      const csReturnTo = csVerified ? csTaskReturn(csClient, location.state.csTask.room) : null;
+      const skipInitialDueDateAutomation = csTask || location.state?.csTaskView === true || Boolean(taskIdFromUrl && location.state?.gestorIa === true);
       const navigate = useNavigate();
+      const backOnCloseRef = useRef(false);
+
+      useEffect(() => {
+        backOnCloseRef.current = false;
+      }, [location.key]);
+
+      useEffect(() => {
+        if (!csScopeKey) return;
+        let active = true;
+        confirmCsTaskClient(supabase, csClient).then(allowed => {
+          if (active) setCsAccess({ key: csScopeKey, allowed });
+        });
+        return () => { active = false; };
+      }, [csClient, csScopeKey]);
       
       // Hook de cache com chave única por usuário e role
-      const cacheKey = `tasks_${user?.id}_${userRole}_${tasksAccessLevel}`;
+      const cacheKey = `tasks_channels_v2_${user?.id}_${userRole}_${tasksAccessLevel}`;
       const { data: cachedData, setCachedData, shouldFetch } = useDataCache(cacheKey);
       
       // Ref para controlar se já fez o fetch inicial (evita re-fetch ao voltar para aba)
       const hasFetchedRef = useRef(false);
+      const localKanbanUpdateRef = useRef(new Map());
+      const relationsRef = useRef({ clients, projects });
+      relationsRef.current = { clients, projects };
       
       const activeTab = useMemo(() => {
-        if (isMobile && !['list', 'automations'].includes(activeTabFromUrl)) {
+        if (isMobile && !['list', 'automations', 'capacity'].includes(activeTabFromUrl)) {
           return 'list';
         }
         return activeTabFromUrl;
@@ -76,7 +116,7 @@ const tasksTabTrigger = cn(
         const handleResize = () => {
           const mobile = window.innerWidth < 768;
           setIsMobile(mobile);
-          if (mobile && !['list', 'automations'].includes(activeTab)) {
+          if (mobile && !['list', 'automations', 'capacity'].includes(activeTab)) {
             navigate('/tasks/list', { replace: true });
           }
         };
@@ -91,10 +131,15 @@ const tasksTabTrigger = cn(
       const [statusFilter, setStatusFilter] = useState(() => getInitialFilter('status', 'all'));
       const [assigneeFilter, setAssigneeFilter] = useState(() => getInitialFilter('assignee', 'all'));
       const [scheduleClientFilter, setScheduleClientFilter] = useState('all');
+      const [agencyView, setAgencyView] = useState(() => getInitialFilter('agency_view', 'false') === 'true');
 
       useEffect(() => {
         if (user?.id) localStorage.setItem(`task_filter_${user.id}_client`, clientFilter);
       }, [clientFilter, user?.id]);
+
+      useEffect(() => {
+        if (clientIdFromUrl && !isNewTask && !csTask) setClientFilter(clientIdFromUrl);
+      }, [clientIdFromUrl, isNewTask, csTask]);
 
       useEffect(() => {
         if (user?.id) localStorage.setItem(`task_filter_${user.id}_status`, statusFilter);
@@ -103,6 +148,30 @@ const tasksTabTrigger = cn(
       useEffect(() => {
         if (user?.id) localStorage.setItem(`task_filter_${user.id}_assignee`, assigneeFilter);
       }, [assigneeFilter, user?.id]);
+
+      useEffect(() => {
+        if (user?.id) localStorage.setItem(`task_filter_${user.id}_agency_view`, String(agencyView));
+      }, [agencyView, user?.id]);
+
+      useEffect(() => {
+        if (!agencyView && assigneeFilter !== 'all') setAssigneeFilter('all');
+      }, [agencyView, assigneeFilter]);
+
+      useEffect(() => {
+        if (!user?.id) return;
+        let cancelled = false;
+        const loadOperationalView = async () => {
+          const [functionResult, templateResult] = await Promise.all([
+            supabase.from('task_operational_functions').select('id,name,assignee_ids,is_active').eq('is_active', true).order('name'),
+            supabase.from('task_workflow_templates').select('id,stages,is_active').eq('is_active', true),
+          ]);
+          if (cancelled) return;
+          if (!functionResult.error) setOperationalFunctions(functionResult.data || []);
+          if (!templateResult.error) setWorkflowTemplates(templateResult.data || []);
+        };
+        void loadOperationalView();
+        return () => { cancelled = true; };
+      }, [user?.id]);
 
       const fetchStatusOptions = useCallback(async () => {
         const { data, error } = await supabase.from('task_statuses').select('*').order('sort_order');
@@ -117,7 +186,7 @@ const tasksTabTrigger = cn(
       const fetchScheduleData = useCallback(async () => {
         if (!user) return;
         setScheduleLoading(true);
-        const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select('*, clientes(id, empresa), projetos(name)').not('post_date', 'is', null);
+        const { data: tasksData, error: tasksError } = await supabase.from('tarefas').select(TASK_RELATIONS_SELECT).not('post_date', 'is', null);
         if (tasksError) {
           toast({ title: "Erro ao buscar agendamentos", description: tasksError.message, variant: "destructive" });
         } else {
@@ -126,19 +195,54 @@ const tasksTabTrigger = cn(
         setScheduleLoading(false);
       }, [toast, user]);
 
-      const fetchData = useCallback(async () => {
+      const patchTaskInState = useCallback((taskId, patch, options = {}) => {
+        const incoming = { ...patch, id: taskId };
+        const relations = { ...relationsRef.current, ...options };
+        const mainOptions = { ...relations, insert: options.insert === true, include: task => task.type !== 'social_media' };
+        setTasks(prev => upsertTaskWithRelations(prev, incoming, mainOptions));
+        setScheduleTasks(prev => upsertTaskWithRelations(prev, incoming, {
+          ...relations, include: task => Boolean(task.post_date),
+        }));
+        setCachedData(prev => prev ? {
+          ...prev, tasks: upsertTaskWithRelations(prev.tasks || [], incoming, mainOptions),
+        } : prev);
+      }, [setCachedData]);
+
+      const runTaskAutomationAndRefresh = useCallback(async (task, trigger, eventData) => {
+        let result;
+        try {
+          result = await executeAutomation(task.id, trigger, eventData);
+        } catch (error) {
+          result = { error, results: [] };
+        }
+        const errors = getAutomationErrorMessages(result);
+        if (errors.length) toast({ title: 'Automação', description: errors[0], variant: 'destructive' });
+        // Read after ALL matching rules, including partial failures and moves to Social.
+        const final = await readTaskAfterAutomations(result, () => supabase
+          .from('tarefas').select(TASK_RELATIONS_SELECT).eq('id', task.id).single(), task);
+        if (final.task) patchTaskInState(task.id, final.task);
+        if (final.error) toast({
+          title: 'Tarefa salva',
+          description: 'Não foi possível conferir a atualização final. Atualize a lista para conferir.',
+        });
+      }, [patchTaskInState, toast]);
+
+      const fetchData = useCallback(async ({ silent = false, runDueDateAutomation = true } = {}) => {
         if (!user) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         // Busca statusOptions primeiro e usa o resultado diretamente
         const fetchedStatusOptions = await fetchStatusOptions();
         await fetchScheduleData();
         
-        let tasksQuery = supabase.from('tarefas').select('*, clientes(empresa), projetos(name)').or('type.is.null,type.neq.social_media,type.eq.paid_traffic');
+        let tasksQuery = supabase.from('tarefas').select(TASK_RELATIONS_SELECT).or('type.is.null,type.neq.social_media,type.eq.paid_traffic');
         if (userRole === 'colaborador' && tasksAccessLevel === 'responsible') {
             tasksQuery = tasksQuery.contains('assignee_ids', [user.id]);
         }
 
         const { data: tasksData, error: tasksError } = await tasksQuery;
+        const { data: publicationData, error: publicationError } = await supabase
+          .from('task_channel_publications')
+          .select('id, task_id, channel, status, scheduled_for');
         const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('id, empresa');
         const { data: projectsData, error: projectsError } = await supabase.from('projetos').select('id, name, client_id');
         // Importante: cliente (role='cliente') não pode ser responsável por nada no sistema.
@@ -148,12 +252,20 @@ const tasksTabTrigger = cn(
           .select('id, full_name, avatar_url')
           .neq('role', 'cliente');
 
-        if (tasksError || clientsError || projectsError || usersError) {
-          toast({ title: "Erro ao buscar dados", description: tasksError?.message || clientsError?.message || projectsError?.message || usersError?.message, variant: "destructive" });
+        if (tasksError || clientsError || projectsError || usersError || publicationError) {
+          toast({ title: "Erro ao buscar dados", description: tasksError?.message || clientsError?.message || projectsError?.message || usersError?.message || publicationError?.message, variant: "destructive" });
         } else {
+          const publicationsByTask = (publicationData || []).reduce((groups, publication) => {
+            (groups[publication.task_id] ||= []).push(publication);
+            return groups;
+          }, {});
+          const tasksWithPublications = (tasksData || []).map((task) => ({
+            ...task,
+            _channel_publications: publicationsByTask[task.id] || [],
+          }));
           // Salva no cache usando os statusOptions recém-buscados
           const dataToCache = {
-            tasks: tasksData || [],
+            tasks: tasksWithPublications,
             clients: clientsData || [],
             projects: projectsData || [],
             users: usersData || [],
@@ -164,9 +276,9 @@ const tasksTabTrigger = cn(
           setClients(dataToCache.clients);
           setProjects(dataToCache.projects);
           setUsers(dataToCache.users);
-          await runDueDateArrivedAutomations(dataToCache.tasks);
+          if (runDueDateAutomation) await runDueDateArrivedAutomations(dataToCache.tasks);
         }
-        setLoading(false);
+        if (!silent) setLoading(false);
       }, [toast, fetchStatusOptions, fetchScheduleData, user, userRole, tasksAccessLevel, setCachedData]);
 
       // Sempre atualiza statusOptions quando o componente é montado (dados pequenos e críticos para UI)
@@ -185,7 +297,7 @@ const tasksTabTrigger = cn(
         }
         
         // Se tem cache válido, usa ele (statusOptions já foi atualizado no useEffect acima)
-        if (!shouldFetch() && cachedData) {
+        if (!csTask && !shouldFetch() && cachedData) {
           setTasks(cachedData.tasks);
           setClients(cachedData.clients);
           setProjects(cachedData.projects);
@@ -193,16 +305,16 @@ const tasksTabTrigger = cn(
           // Não usa statusOptions do cache, pois já foi atualizado no useEffect acima
           setLoading(false);
           hasFetchedRef.current = true;
-          void runDueDateArrivedAutomations(cachedData.tasks || []);
+          if (!skipInitialDueDateAutomation) void runDueDateArrivedAutomations(cachedData.tasks || []);
           return;
         }
 
         // Se não tem cache ou está expirado, faz fetch apenas uma vez
         if (!hasFetchedRef.current) {
           hasFetchedRef.current = true;
-          fetchData();
+          fetchData({ runDueDateAutomation: !skipInitialDueDateAutomation });
         }
-      }, [user, shouldFetch, cachedData, fetchData]); // Removido fetchStatusOptions para evitar loop
+      }, [user, shouldFetch, cachedData, fetchData, csTask, skipInitialDueDateAutomation]); // Removido fetchStatusOptions para evitar loop
 
       // Subscription para atualizações em tempo real - ATUALIZA TODOS OS USUÁRIOS SIMULTANEAMENTE
       useEffect(() => {
@@ -235,102 +347,21 @@ const tasksTabTrigger = cn(
                 const newTask = payload.new;
                 const { data, error } = await supabase
                   .from('tarefas')
-                  .select('*, clientes(empresa), projetos(name)')
+                  .select(TASK_RELATIONS_SELECT)
                   .eq('id', newTask.id)
                   .single();
                 
                 if (!error && data) {
-                  setTasks(prev => {
-                    // Verifica se a tarefa já existe (evita duplicatas)
-                    if (prev.find(t => t.id === data.id)) {
-                      return prev;
-                    }
-                    return [...prev, data];
-                  });
-                  
-                  // Atualiza scheduleTasks se for tarefa agendada
-                  if (data.post_date) {
-                    setScheduleTasks(prev => {
-                      if (prev.find(t => t.id === data.id)) {
-                        return prev.map(t => t.id === data.id ? data : t);
-                      }
-                      return [...prev, data];
-                    });
-                  }
-                  
-                  // Atualiza cache
-                  setCachedData(prev => prev ? {
-                    ...prev,
-                    tasks: [...(prev.tasks || []), data]
-                  } : null);
+                  patchTaskInState(data.id, data, { insert: true, relationsOnlyIfExists: true });
                 }
               } else if (payload.eventType === 'UPDATE') {
-                // Tarefa atualizada - ATUALIZAÇÃO IMEDIATA usando payload + busca relacionamentos se necessário
                 const updatedTask = payload.new;
-                
-                // Atualiza imediatamente o estado local com os dados do payload
-                setTasks(prev => {
-                  const existingTask = prev.find(t => t.id === updatedTask.id);
-                  if (existingTask) {
-                    // Mescla os dados atualizados mantendo relacionamentos existentes
-                    return prev.map(t => 
-                      t.id === updatedTask.id 
-                        ? { ...t, ...updatedTask, clientes: t.clientes, projetos: t.projetos }
-                        : t
-                    );
-                  }
-                  // Se não existe, mantém como está (será atualizado pela busca em background)
-                  return prev;
-                });
-                
-                // Atualiza scheduleTasks se for tarefa agendada
-                if (updatedTask.post_date) {
-                  setScheduleTasks(prev => {
-                    const existingTask = prev.find(t => t.id === updatedTask.id);
-                    if (existingTask) {
-                      return prev.map(t => 
-                        t.id === updatedTask.id 
-                          ? { ...t, ...updatedTask, clientes: t.clientes, projetos: t.projetos }
-                          : t
-                      );
-                    }
-                    // Se não existe e tem post_date, busca dados completos
-                    return prev;
-                  });
-                } else {
-                  // Remove de scheduleTasks se não tem mais post_date
-                  setScheduleTasks(prev => prev.filter(t => t.id !== updatedTask.id));
+                const localTs = localKanbanUpdateRef.current.get(updatedTask.id);
+                if (localTs && Date.now() - localTs < 4000) {
+                  localKanbanUpdateRef.current.delete(updatedTask.id);
+                  return;
                 }
-                
-                // Busca dados relacionados em background para garantir que estão atualizados
-                supabase
-                  .from('tarefas')
-                  .select('*, clientes(empresa), projetos(name)')
-                  .eq('id', updatedTask.id)
-                  .single()
-                  .then(({ data, error }) => {
-                    if (!error && data) {
-                      // Atualiza com dados completos quando disponíveis
-                      setTasks(prev => prev.map(t => t.id === data.id ? data : t));
-                      
-                      // Atualiza scheduleTasks se necessário
-                      if (data.post_date) {
-                        setScheduleTasks(prev => {
-                          const existing = prev.find(t => t.id === data.id);
-                          if (existing) {
-                            return prev.map(t => t.id === data.id ? data : t);
-                          }
-                          return [...prev, data];
-                        });
-                      }
-                      
-                      // Atualiza cache
-                      setCachedData(prev => prev ? {
-                        ...prev,
-                        tasks: (prev.tasks || []).map(t => t.id === data.id ? data : t)
-                      } : null);
-                    }
-                  });
+                patchTaskInState(updatedTask.id, updatedTask);
               } else if (payload.eventType === 'DELETE') {
                 // Tarefa deletada
                 const deletedTask = payload.old;
@@ -358,42 +389,90 @@ const tasksTabTrigger = cn(
           console.log('🔌 Removendo subscription de tarefas');
           supabase.removeChannel(tasksChannel);
         };
-      }, [user, userRole, tasksAccessLevel, setCachedData]);
+      }, [user, userRole, tasksAccessLevel, setCachedData, patchTaskInState]);
 
       useEffect(() => {
-        if (taskIdFromUrl && tasks.length > 0 && !isNewTask) {
+        if (taskIdFromUrl && !isNewTask && tasks.length > 0) {
           const task = tasks.find(t => t.id === taskIdFromUrl);
           if (task) {
             setSelectedTask(task);
-            setIsNewTask(false);
+          } else if (csTask) {
+            setSelectedTask(null);
           } else {
             toast({ title: "Tarefa não encontrada", variant: "destructive" });
             navigate(`/tasks/${activeTab}`);
           }
-        } else if (taskIdFromUrl === 'new') {
-          handleNewTask();
         } else {
           setSelectedTask(null);
-          setIsNewTask(false);
         }
-      }, [taskIdFromUrl, tasks, navigate, toast, isNewTask, activeTab]);
+      }, [taskIdFromUrl, tasks, navigate, toast, isNewTask, activeTab, csTask]);
+
+      const myOperationalFunctions = useMemo(() => operationalFunctions.filter((item) =>
+        (item.assignee_ids || []).includes(user?.id)), [operationalFunctions, user?.id]);
+      const myFunctionIds = useMemo(() => new Set(myOperationalFunctions.map((item) => item.id)), [myOperationalFunctions]);
+
+      const taskBelongsToMyWork = useCallback((task) =>
+        myFunctionIds.has(task.operational_function_id) || (task.assignee_ids || []).includes(user?.id),
+      [myFunctionIds, user?.id]);
+
+      const scopedTasks = useMemo(() => {
+        const taskList = Array.isArray(tasks) ? tasks : [];
+        return agencyView ? taskList : taskList.filter(taskBelongsToMyWork);
+      }, [tasks, agencyView, taskBelongsToMyWork]);
 
       const filteredTasks = useMemo(() => {
-        const taskList = Array.isArray(tasks) ? tasks : [];
-        let currentTasks = [...taskList];
+        let currentTasks = [...scopedTasks];
         if (clientFilter !== 'all') currentTasks = currentTasks.filter(task => task.client_id === clientFilter);
         if (statusFilter !== 'all') currentTasks = currentTasks.filter(task => task.status === statusFilter);
         if (assigneeFilter !== 'all') currentTasks = currentTasks.filter(task => task.assignee_ids?.includes(assigneeFilter));
-        return currentTasks;
-      }, [tasks, clientFilter, statusFilter, assigneeFilter]);
+        if (typeFromUrl === 'paid_traffic') currentTasks = currentTasks.filter(task => task.type === 'paid_traffic');
+        currentTasks = currentTasks.filter((task) => task.type !== 'paid_traffic' || !isTerminalTaskStatus(task.status, statusOptions));
+        return sortTasksByWorkOrder(currentTasks, { statusOptions });
+      }, [scopedTasks, clientFilter, statusFilter, assigneeFilter, typeFromUrl, statusOptions]);
+
+      const visibleStatusOptions = useMemo(() => {
+        if (agencyView) return statusOptions;
+        const values = new Set(scopedTasks.map((task) => task.status));
+        for (const template of workflowTemplates) {
+          for (const stage of Array.isArray(template.stages) ? template.stages : []) {
+            if (myFunctionIds.has(stage.function_id)) values.add(stage.status_value);
+          }
+        }
+        return statusOptions.filter((status) => values.has(status.value));
+      }, [agencyView, statusOptions, scopedTasks, workflowTemplates, myFunctionIds]);
+
+      useEffect(() => {
+        if (statusFilter !== 'all' && !visibleStatusOptions.some((status) => status.value === statusFilter)) setStatusFilter('all');
+      }, [statusFilter, visibleStatusOptions]);
 
       const filteredScheduleTasks = useMemo(() => {
         const list = Array.isArray(scheduleTasks) ? scheduleTasks : [];
-        return list.filter(task => scheduleClientFilter === 'all' || task.client_id === scheduleClientFilter);
-      }, [scheduleTasks, scheduleClientFilter]);
+        return list.filter(task => (agencyView || taskBelongsToMyWork(task)) && (scheduleClientFilter === 'all' || task.client_id === scheduleClientFilter));
+      }, [scheduleTasks, agencyView, taskBelongsToMyWork, scheduleClientFilter]);
+
+      const canPublishTask = async (taskId, nextStatus) => {
+        try {
+          const { blocking } = await checkTaskPublicationCompletion(supabase, taskId, nextStatus);
+          if (!blocking.length) return true;
+          toast({
+            title: 'Ainda existem canais pendentes',
+            description: `${blocking.length} publicação(ões) ainda precisam ser publicadas ou canceladas. Abra a tarefa e confira “Publicações por canal”.`,
+            variant: 'destructive',
+          });
+          return false;
+        } catch (error) {
+          toast({ title: 'Não foi possível conferir os canais', description: error.message, variant: 'destructive' });
+          return false;
+        }
+      };
 
       const handleSaveTask = async (taskData, isNew) => {
-        const { subtasks, ...restOfTaskData } = taskData;
+        if (csTask && (!csVerified || isNew !== isNewTask || taskData.client_id !== csClient ||
+          (!isNew && taskData.id !== taskIdFromUrl) || !(await confirmCsTaskClient(supabase, csClient)))) {
+          toast({ title: 'A ficha ou tarefa mudou de escopo', description: 'Volte ao CS IA e abra a tarefa novamente.', variant: 'destructive' });
+          return false;
+        }
+        const { subtasks, _channel_publications, ...restOfTaskData } = taskData;
         const dataToSave = { ...restOfTaskData, owner_id: user.id };
 
         const dueRaw = dataToSave.due_date;
@@ -411,6 +490,9 @@ const tasksTabTrigger = cn(
         if (dataToSave.client_id === '') dataToSave.client_id = null;
         if (dataToSave.project_id === '') dataToSave.project_id = null;
         if (dataToSave.plataforma === '' || dataToSave.plataforma == null) dataToSave.plataforma = null;
+        dataToSave.priority = normalizeTaskPriority(dataToSave.priority);
+
+        if (!isNew && !(await canPublishTask(taskData.id, dataToSave.status))) return false;
         
         if (isNew) {
           dataToSave.status_history = [
@@ -422,31 +504,37 @@ const tasksTabTrigger = cn(
             }
           ];
           delete dataToSave.id;
-          const { data: newTask, error } = await supabase.from('tarefas').insert(dataToSave).select().single();
+          const { data: newTask, error } = await supabase.from('tarefas').insert(dataToSave).select(TASK_RELATIONS_SELECT).single();
           if (error) {
             toast({ title: "Erro ao criar tarefa", description: error.message, variant: "destructive" });
             return false;
           }
           toast({ title: "Tarefa criada!" });
           setCachedData(null); // Limpa cache para forçar refresh
-          setTasks(prev => [...prev, newTask]);
-          try {
-            await executeAutomation(newTask.id, 'task_created', { task: newTask });
-          } catch (err) {
-            console.error('Error executing automation for new task:', err);
-          }
-          navigate(`/tasks/${activeTab}`);
+          patchTaskInState(newTask.id, newTask, { insert: true });
+          await runTaskAutomationAndRefresh(newTask, 'task_created', { task: newTask });
+          const draft = location.state;
+          const decision = isPaidTrafficDraft && draft?.gestorIa === true && draft.draftOwnerId === user.id && draft.gestorIaDecision;
+          if (decision && draft.draftClientId === newTask.client_id && newTask.type === 'paid_traffic') {
+            try { await updateDecision(supabase, decision, { task_id: newTask.id }); }
+            catch (failure) { toast({ title: 'Tarefa criada. Vincule-a pelo quadro de decisões.', description: failure.message }); }
+            navigate(`/gestor-ia/clientes/${encodeURIComponent(newTask.client_id)}?tab=decisoes`);
+          } else if (csReturnTo) navigate(csReturnTo, { replace: true });
+          else navigate(`/tasks/${activeTab}`);
           return true;
         } else {
           delete dataToSave.clientes;
           delete dataToSave.projetos;
           
-          const { data: oldData, error: fetchError } = await supabase.from('tarefas').select('status, time_logs, status_history, assignee_ids').eq('id', taskData.id).single();
+          let previous = supabase.from('tarefas').select('status, time_logs, status_history, assignee_ids').eq('id', taskData.id);
+          if (csTask) previous = previous.eq('client_id', csClient);
+          const { data: oldData, error: fetchError } = await previous.single();
           if (fetchError) {
             toast({ title: "Erro ao buscar tarefa antiga", description: fetchError.message, variant: "destructive" });
             return false;
           }
 
+          dataToSave.status_history = oldData.status_history || [];
           if (oldData.status !== dataToSave.status || JSON.stringify(oldData.assignee_ids) !== JSON.stringify(dataToSave.assignee_ids)) {
             const newHistoryEntry = {
               status: dataToSave.status,
@@ -457,50 +545,23 @@ const tasksTabTrigger = cn(
             dataToSave.status_history = [...(oldData.status_history || []), newHistoryEntry];
           }
           
-          const { data: updatedTask, error: updateError } = await supabase.from('tarefas').update(dataToSave).eq('id', taskData.id).select().single();
+          let update = supabase.from('tarefas').update(dataToSave).eq('id', taskData.id);
+          if (csTask) update = update.eq('client_id', csClient);
+          const { data: updatedTask, error: updateError } = await update.select(TASK_RELATIONS_SELECT).single();
           if (updateError) {
             toast({ title: "Erro ao atualizar tarefa", description: updateError.message, variant: "destructive" });
             return false;
           }
           toast({ title: "Tarefa atualizada!" });
           setCachedData(null); // Limpa cache para forçar refresh
-          setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+          patchTaskInState(updatedTask.id, updatedTask);
           if (oldData.status !== updatedTask.status) {
-            const eventData = { old_status: oldData.status, new_status: updatedTask.status };
-            try {
-              const result = await executeAutomation(updatedTask.id, 'status_change', eventData);
-              const errMsgs = getAutomationErrorMessages(result);
-              if (errMsgs.length > 0) {
-                toast({
-                  title: 'Automação',
-                  description: errMsgs[0],
-                  variant: 'destructive',
-                });
-              } else {
-                const updatedTaskFromAutomation = result?.results?.find(
-                  (r) => r.result?.updatedTask
-                )?.result?.updatedTask;
-                if (updatedTaskFromAutomation) {
-                  setTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === updatedTask.id ? { ...t, ...updatedTaskFromAutomation } : t
-                    )
-                  );
-                }
-              }
-            } catch (err) {
-              console.error('Error executing automation for status change:', err);
-              toast({
-                title: 'Automação',
-                description: err?.message || String(err),
-                variant: 'destructive',
-              });
-            } finally {
-              setCachedData(null);
-              await fetchData();
-            }
+            await runTaskAutomationAndRefresh(updatedTask, 'status_change', {
+              old_status: oldData.status, new_status: updatedTask.status,
+            });
           }
-          navigate(`/tasks/${activeTab}`);
+          if (csReturnTo) navigate(csReturnTo, { replace: true });
+          else navigate(`/tasks/${activeTab}`);
           return true;
         }
       };
@@ -521,6 +582,8 @@ const tasksTabTrigger = cn(
       const handleUpdateTaskStatus = async (taskId, newStatus) => {
         const taskToUpdate = tasks.find(t => t.id === taskId);
         if (!taskToUpdate) return;
+
+        if (!(await canPublishTask(taskId, newStatus))) return;
 
         // IMPORTANTE: Verifica regras do STATUS DE DESTINO (novo status), não o atual
         // Isso garante que todas as condições sejam atendidas antes de entrar no novo status
@@ -561,10 +624,61 @@ const tasksTabTrigger = cn(
                     description: `Para entrar neste status, conclua: ${missingSteps.map(s => s.title).join(', ')}`,
                     variant: "destructive",
                 });
-                fetchData();
                 return;
             }
         }
+
+        if (newStatus === 'completed' && isContentTaskType(taskToUpdate.type) && taskToUpdate.type !== 'social_media') {
+            let clientPosts = Boolean(taskToUpdate.clientes?.postagem_do_cliente);
+            try {
+                const { data: publications, error: publicationError } = await supabase
+                    .from('task_channel_publications')
+                    .select('id, status, channel, evidence_url')
+                    .eq('task_id', taskId);
+                if (publicationError) throw publicationError;
+                if (!clientPosts && taskToUpdate.client_id) {
+                    const { data: clientRow } = await supabase
+                        .from('clientes')
+                        .select('postagem_do_cliente')
+                        .eq('id', taskToUpdate.client_id)
+                        .maybeSingle();
+                    clientPosts = Boolean(clientRow?.postagem_do_cliente);
+                }
+                const blockers = contentSocialArchiveBlockers(publications, { clientPosts });
+                if (blockers.length) {
+                    toast({
+                        title: 'A tarefa continua onde está',
+                        description: blockers[0],
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+            } catch (error) {
+                toast({ title: 'Não foi possível conferir as publicações', description: error.message, variant: 'destructive' });
+                return;
+            }
+
+            const { error: moveError } = await supabase.rpc('move_task_to_social_media', { task_id: taskId });
+            if (moveError) {
+                toast({ title: 'Não foi possível concluir', description: moveError.message, variant: 'destructive' });
+                return;
+            }
+            const { data: moved } = await supabase.from('tarefas').select(TASK_RELATIONS_SELECT).eq('id', taskId).maybeSingle();
+            if (moved) patchTaskInState(taskId, moved);
+            else {
+                setTasks((prev) => prev.filter((task) => task.id !== taskId));
+                setScheduleTasks((prev) => prev.filter((task) => task.id !== taskId));
+            }
+            setCachedData(null);
+            toast({
+                title: 'Tarefa foi para Redes Sociais',
+                description: clientPosts ? 'O cliente publica; está em Concluídos, sem link.' : 'Ela está em Concluídos.',
+            });
+            return;
+        }
+
+        localKanbanUpdateRef.current.set(taskId, Date.now());
+        setTimeout(() => localKanbanUpdateRef.current.delete(taskId), 5000);
 
         // ATUALIZAÇÃO OTIMISTA: atualiza o estado local imediatamente para feedback visual instantâneo
         const originalTasks = [...tasks];
@@ -599,67 +713,48 @@ const tasksTabTrigger = cn(
         };
         const newStatusHistory = [...(oldData.status_history || []), newHistoryEntry];
         
-        const { data: updatedTask, error: updateError } = await supabase.from('tarefas').update({ status: newStatus, status_history: newStatusHistory }).eq('id', taskId).select().single();
+        const { data: updatedTask, error: updateError } = await supabase.from('tarefas').update({ status: newStatus, status_history: newStatusHistory }).eq('id', taskId).select(TASK_RELATIONS_SELECT).single();
         if (updateError) {
-            toast({ title: "Erro ao atualizar status", variant: "destructive" });
+            toast({ title: "Não foi possível avançar a tarefa", description: updateError.message, variant: "destructive" });
             setTasks(originalTasks);
             setScheduleTasks(originalScheduleTasks);
         } else {
-            // A subscription do Realtime vai atualizar automaticamente para todos os usuários
-            // Mas garantimos que o estado local está correto
-            setTasks(currentTasks => 
-                currentTasks.map(task => 
-                    task.id === updatedTask.id ? { ...task, ...updatedTask } : task
-                )
-            );
-            
+            patchTaskInState(taskId, updatedTask);
+
             if (oldData.status !== newStatus) {
-                const eventData = { old_status: oldData.status, new_status: newStatus };
-                try {
-                  const result = await executeAutomation(taskId, 'status_change', eventData);
-                  const errMsgs = getAutomationErrorMessages(result);
-                  if (errMsgs.length > 0) {
-                    toast({
-                      title: 'Automação',
-                      description: errMsgs[0],
-                      variant: 'destructive',
-                    });
-                  } else {
-                    const merged = result?.results?.find((r) => r.result?.updatedTask)?.result
-                      ?.updatedTask;
-                    if (merged) {
-                      setTasks((currentTasks) =>
-                        currentTasks.map((task) =>
-                          task.id === taskId ? { ...task, ...merged } : task
-                        )
-                      );
-                    }
-                  }
-                } catch (err) {
-                  console.error('Error executing automation for status change:', err);
-                  toast({
-                    title: 'Automação',
-                    description: err?.message || String(err),
-                    variant: 'destructive',
-                  });
-                } finally {
-                  setCachedData(null);
-                  await fetchData();
-                }
+                await runTaskAutomationAndRefresh(updatedTask, 'status_change', {
+                  old_status: oldData.status, new_status: newStatus,
+                });
             }
         }
     };
 
-      const handleOpenTask = (task) => navigate(`/tasks/${activeTab}/${task.id}`);
+      const handleOpenTask = (task) => {
+        if (task.type === 'social_media' || ['post', 'reels', 'story'].includes(task.type)) {
+          navigate(`/social-media?task=${task.id}`);
+          return;
+        }
+        navigate(`/tasks/${activeTab}/${task.id}`);
+      };
       const handleNewTask = () => {
-        setIsNewTask(true);
-        setSelectedTask(null);
         navigate(`/tasks/${activeTab}/new`);
       };
       const handleCloseTask = () => {
-        setIsNewTask(false);
+        if (csTask) {
+          navigate(csReturnTo || '/cs-ia/carteira', { replace: true });
+          return;
+        }
+        if (isPaidTrafficDraft && location.state?.backOnClose === true) {
+          // O botão e o drawer podem disparar o fechamento no mesmo clique.
+          if (!backOnCloseRef.current) {
+            backOnCloseRef.current = true;
+            navigate(-1);
+          }
+          return;
+        }
         setSelectedTask(null);
         navigate(`/tasks/${activeTab}`);
+        void fetchData({ silent: true });
       };
 
       const handleTabChange = (newTab) => {
@@ -671,6 +766,7 @@ const tasksTabTrigger = cn(
         { value: 'kanban', label: 'Kanban', icon: LayoutGrid, mobile: false },
         { value: 'timeline', label: 'Linha do Tempo', icon: GitCommit, mobile: false },
         { value: 'schedule', label: 'Calendário', icon: Calendar, mobile: false },
+        { value: 'capacity', label: 'Fila da equipe', icon: Users },
         { value: 'automations', label: 'Automações', icon: Bot, adminOnly: true },
       ];
 
@@ -681,25 +777,58 @@ const tasksTabTrigger = cn(
       });
 
       const viewComponents = { list: ListView, kanban: KanbanView, timeline: TimelineView };
-      const commonProps = { tasks: filteredTasks, clients, projects, users, statusOptions, onOpenTask: handleOpenTask, onUpdateStatus: handleUpdateTaskStatus, onDelete: handleDeleteTask, fetchData, userRole };
+      const commonProps = { tasks: filteredTasks, clients, projects, users, statusOptions: visibleStatusOptions, onOpenTask: handleOpenTask, onUpdateStatus: handleUpdateTaskStatus, onDelete: handleDeleteTask, fetchData, userRole };
+
+      const draftClientId = isPaidTrafficDraft && clients.some(client => client.id === clientIdFromUrl) ? clientIdFromUrl : '';
+      const { draftOwnerId, draftClientId: sourceClientId, draftSignal, draftDecision, gestorIa } = location.state || {};
+      const canApplySignal = draftClientId && sourceClientId === draftClientId && user?.id && draftOwnerId === user.id && canViewField?.('meta_resumo') === true;
+      const draftAction = canApplySignal && typeof draftSignal === 'string' && Object.hasOwn(NEXT_ACTIONS, draftSignal) ? NEXT_ACTIONS[draftSignal] : null;
+      const aiTitle = typeof draftDecision?.title === 'string' ? draftDecision.title.trim() : '';
+      const aiPlan = typeof draftDecision?.description === 'string' ? draftDecision.description.trim() : '';
+      const canApplyDecision = gestorIa === true && canApplySignal && aiTitle && aiTitle.length <= 110 && aiPlan && aiPlan.length <= 1000;
+      const editorTask = isNewTask ? {
+        title: draftAction?.title || (canApplyDecision ? aiTitle : ''),
+        description: draftAction?.action || (canApplyDecision ? aiPlan : ''),
+        status: statusOptions[0]?.value || 'todo',
+        client_id: csVerified ? csClient : draftClientId,
+        project_id: '',
+        assignee_ids: userRole === 'colaborador' ? [user.id] : [],
+        due_date: '',
+        post_date: '',
+        type: isPaidTrafficDraft ? 'paid_traffic' : '',
+        plataforma: '',
+        priority: 'medium',
+        time_logs: [],
+        status_history: [],
+      } : selectedTask;
+      const csEditorAllowed = csVerified && !loading && clients.some(client => client.id === csClient) &&
+        (isNewTask || selectedTask?.id === taskIdFromUrl && selectedTask.client_id === csClient && isCsBoardTask(selectedTask));
+      const showTaskEditor = editorTask && (csTask ? csEditorAllowed : (!isPaidTrafficDraft || !clientIdFromUrl || !loading));
       
       return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="planeje-tasks flex flex-col h-full overflow-hidden">
           <div className="flex-shrink-0 mb-6">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Tarefas</h1>
+            <WorkspacePageHeader
+              title="Tarefas"
+              label="Execução"
+              help="A visão pessoal mostra as etapas das suas funções e as tarefas atribuídas diretamente a você. Ative a Visão da agência para consultar o quadro completo. Status, funções e responsáveis continuam seguindo as automações configuradas."
+              actions={<>
                 {(userRole === 'superadmin' || userRole === 'admin') && activeTab !== 'schedule' && (
-                  <div className="hidden md:flex">
-                    <Button variant="ghost" size="icon" onClick={() => setStatusSettingsOpen(true)} className="dark:text-gray-300 dark:hover:bg-gray-700"><Settings className="h-5 w-5" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => setTimeTrackingSettingsOpen(true)} className="dark:text-gray-300 dark:hover:bg-gray-700"><Timer className="h-5 w-5" /></Button>
+                  <div className="hidden items-center gap-1 md:flex">
+                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setStatusSettingsOpen(true)} aria-label="Configurar status"><Settings className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setTimeTrackingSettingsOpen(true)} aria-label="Configurar apontamentos"><Timer className="h-4 w-4" /></Button>
                   </div>
                 )}
-              </div>
-              {activeTab !== 'automations' && <Button onClick={handleNewTask}><Plus className="mr-2 h-4 w-4" /> Nova Tarefa</Button>}
-            </div>
+              {!['automations', 'capacity'].includes(activeTab) && <>
+                <Button type="button" size="sm" className="h-9 rounded-xl px-3 text-xs" variant={agencyView ? 'default' : 'secondary'} onClick={() => setAgencyView((value) => !value)}>
+                  <Building2 className="mr-1.5 h-3.5 w-3.5" />Visão da agência: {agencyView ? 'Ativa' : 'Desativada'}
+                </Button>
+                <Button size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={handleNewTask}><Plus className="mr-1.5 h-3.5 w-3.5" />Nova tarefa</Button>
+              </>}
+              </>}
+            />
 
-            {activeTab !== 'automations' && activeTab !== 'schedule' && (
+            {!['automations', 'schedule', 'capacity'].includes(activeTab) && (
               <div className="mt-4">
                 {/* Botão para expandir/recolher filtros no mobile */}
                 {isMobile && (
@@ -723,8 +852,11 @@ const tasksTabTrigger = cn(
                       transition={{ duration: 0.2 }}
                       className={isMobile ? 'overflow-hidden' : ''}
                     >
-                      <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                      <div className="tasks-filters-bar flex flex-col md:flex-row md:flex-wrap items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                         <Filter className="text-gray-500 dark:text-gray-400 hidden md:block" />
+                        {!agencyView && <div className="w-full rounded-md bg-violet-50 px-3 py-2 text-sm text-violet-800 dark:bg-violet-950/30 dark:text-violet-200 md:w-auto">
+                          <strong>Minhas funções:</strong> {myOperationalFunctions.map((item) => item.name).join(', ') || 'somente atribuições diretas'}
+                        </div>}
                         <Select value={clientFilter} onValueChange={setClientFilter}>
                           <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por cliente" /></SelectTrigger>
                           <SelectContent>
@@ -736,16 +868,19 @@ const tasksTabTrigger = cn(
                           <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por status" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Todos os Status</SelectItem>
-                            {statusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                            {visibleStatusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                           </SelectContent>
                         </Select>
-                        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                        {agencyView && <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                           <SelectTrigger className="w-full md:w-[180px] whitespace-nowrap"><SelectValue placeholder="Filtrar por responsável" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="all">Todos os Responsáveis</SelectItem>
                             {users.map(u => <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>)}
                           </SelectContent>
-                        </Select>
+                        </Select>}
+                        <p className="tasks-due-legend w-full text-xs text-muted-foreground md:ml-auto md:w-auto">
+                          Ordem: atrasadas e o que é para hoje primeiro. <span className="font-medium text-amber-600 dark:text-amber-400">Amarelo</span> = chega em até 3 dias. <span className="font-medium text-red-600 dark:text-red-400">Vermelho</span> = hoje ou atrasada.
+                        </p>
                       </div>
                     </motion.div>
                   )}
@@ -754,7 +889,7 @@ const tasksTabTrigger = cn(
             )}
             {activeTab === 'schedule' && (
               <div className="mt-4">
-                <div className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                <div className="tasks-filters-bar flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                   <Filter className="text-gray-500 dark:text-gray-400" />
                   <Select value={scheduleClientFilter} onValueChange={setScheduleClientFilter}>
                     <SelectTrigger className="w-full md:w-[220px] dark:bg-gray-800 dark:border-gray-700"><SelectValue placeholder="Selecione um cliente" /></SelectTrigger>
@@ -791,7 +926,7 @@ const tasksTabTrigger = cn(
                   tasks={filteredScheduleTasks}
                   onOpenTask={handleOpenTask}
                   onDeleteTask={(userRole === 'superadmin' || userRole === 'admin') ? handleDeleteTask : undefined}
-                  statusOptions={statusOptions}
+                  statusOptions={visibleStatusOptions}
                   clients={clients}
                   showClientIndicator={scheduleClientFilter === 'all'}
                   forcedDateType="post_date"
@@ -804,33 +939,43 @@ const tasksTabTrigger = cn(
                   statusOptions={statusOptions}
                   users={users}
                   onTasksMutated={async () => {
-                    setCachedData(null);
-                    await fetchData();
+                    await fetchData({ silent: true });
                   }}
                 />
               )}
             </TabsContent>
+            <TabsContent value="capacity" className="flex-grow mt-2 overflow-y-auto">
+              <TeamCapacityView users={users} userRole={userRole} onOpenTask={handleOpenTask} />
+            </TabsContent>
           </Tabs>
 
           <AnimatePresence>
-            {(selectedTask || isNewTask) && (
+            {csTask && !showTaskEditor && (
+              loading || csScopeKey && csAccess?.key !== csScopeKey
+                ? <p role="status">Conferindo a tarefa do cliente…</p>
+                : <div role="alert">Tarefa ou cliente indisponível para esta ficha. <Button type="button" onClick={handleCloseTask}>Voltar ao CS IA</Button></div>
+            )}
+            {showTaskEditor && (
               <TaskDetail
-                task={selectedTask || { title: '', description: '', status: statusOptions.length > 0 ? statusOptions[0].value : 'todo', client_id: '', project_id: '', assignee_ids: userRole === 'colaborador' ? [user.id] : [], due_date: '', post_date: '', type: '', plataforma: '', time_logs: [], status_history: [] }}
+                key={isNewTask ? `${location.key}:${draftAction?.code || (canApplyDecision ? 'gestor-ia' : '')}` : selectedTask.id}
+                task={editorTask}
                 onClose={handleCloseTask}
                 onSave={handleSaveTask}
-                onDelete={handleDeleteTask}
+                onDelete={csTask ? undefined : handleDeleteTask}
                 clients={clients}
                 projects={projects}
                 users={users}
                 statusOptions={statusOptions}
                 userRole={userRole}
+                ephemeralDraft={csTask && isNewTask || isPaidTrafficDraft && gestorIa === true}
+                lockClient={csTask}
                 requireDueDate
               />
             )}
           </AnimatePresence>
           <AnimatePresence>
             {isStatusSettingsOpen && (
-              <StatusSettings isOpen={isStatusSettingsOpen} onClose={() => { setStatusSettingsOpen(false); fetchData(); }} />
+              <StatusSettings isOpen={isStatusSettingsOpen} onClose={() => { setStatusSettingsOpen(false); fetchData({ silent: true }); }} />
             )}
           </AnimatePresence>
           <AnimatePresence>

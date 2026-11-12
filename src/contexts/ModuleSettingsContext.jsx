@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { buildGlobalSettingsMap } from '@/lib/moduleManagementConfig';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -10,11 +11,12 @@ export const ModuleSettingsProvider = ({ children }) => {
   const [moduleSettings, setModuleSettings] = useState({});
   const [moduleAccess, setModuleAccess] = useState({});
   const [loading, setLoading] = useState(true);
+  const [loadedProfileId, setLoadedProfileId] = useState(null);
   const { session, profile } = useAuth();
   const hasFetchedRef = useRef(false);
   const lastProfileIdRef = useRef(null);
 
-  const fetchModuleSettings = useCallback(async () => {
+  const fetchModuleSettings = useCallback(async (force = false) => {
     if (!profile?.id) {
         setLoading(false);
         setModuleSettings({});
@@ -22,9 +24,9 @@ export const ModuleSettingsProvider = ({ children }) => {
         return;
     }
 
-    // Se já fez fetch para este profile, não seta loading como true
-    if (hasFetchedRef.current && lastProfileIdRef.current === profile.id) {
-      return; // Não recarrega se já tem dados
+    // Evita refetch no mesmo perfil; force=true depois de Atualizar ou ao voltar à aba.
+    if (!force && hasFetchedRef.current && lastProfileIdRef.current === profile.id) {
+      return;
     }
 
     // Só seta loading como true na primeira vez
@@ -40,10 +42,7 @@ export const ModuleSettingsProvider = ({ children }) => {
       console.error('Error fetching global module settings:', globalError);
     }
     
-    const globalSettingsMap = globalSettings?.reduce((acc, setting) => {
-        acc[setting.module_name] = setting.is_enabled;
-        return acc;
-    }, {}) || {};
+    const globalSettingsMap = buildGlobalSettingsMap(globalSettings);
 
     const { data: userPermissions, error: userError } = await supabase
       .from('user_module_permissions')
@@ -78,6 +77,7 @@ export const ModuleSettingsProvider = ({ children }) => {
     setModuleAccess(accessMap);
 
     setLoading(false);
+    setLoadedProfileId(profile.id);
     hasFetchedRef.current = true;
     lastProfileIdRef.current = profile.id;
   }, [profile?.id]);
@@ -100,10 +100,21 @@ export const ModuleSettingsProvider = ({ children }) => {
     }
   }, [session, profile?.id]); // Removido fetchModuleSettings das dependências
 
+  useEffect(() => {
+    if (!session || !profile?.id) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchModuleSettings(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [session, profile?.id, fetchModuleSettings]);
+
   const value = {
     moduleSettings,
     moduleAccess,
-    loading,
+    // Auth may commit profile+loading together. Routes must wait for this
+    // profile's module lookup before treating an empty map as a denial.
+    loading: loading || Boolean(session && profile?.id && loadedProfileId !== profile.id),
     fetchModuleSettings,
   };
 

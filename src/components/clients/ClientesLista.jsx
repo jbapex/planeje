@@ -5,13 +5,17 @@ import React, { useMemo, useState } from 'react';
     import { Button } from "@/components/ui/button";
     import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
     import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-    import { Trash2, Plus, X, Edit, MoreHorizontal, DollarSign, Calendar, Tag, Building, FileText, MessageSquare, Copy, ExternalLink, User } from 'lucide-react';
+    import { Trash2, Plus, X, Edit, MoreHorizontal, DollarSign, Calendar, Tag, Building, FileText, Copy, ExternalLink, User, LayoutDashboard } from 'lucide-react';
     import { format, differenceInDays, parseISO } from 'date-fns';
     import { useToast } from '@/components/ui/use-toast';
     import { supabase } from '@/lib/customSupabaseClient';
     import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
     import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
     import { Badge } from "@/components/ui/badge";
+    import { ClienteMetaResumoInline } from '@/components/traffic/ClienteMetaResumoCell';
+    import { readClienteMetaResumo } from '@/lib/clienteMetaSnapshot';
+    import ClientQuickActions from '@/components/clients/ClientQuickActions';
+import { ClienteEtiquetaAssign } from '@/components/clients/ClienteEtiquetas';
     import { Card, CardContent, CardHeader } from "@/components/ui/card";
     import { useAuth } from '@/contexts/SupabaseAuthContext';
 
@@ -22,12 +26,6 @@ import React, { useMemo, useState } from 'react';
       { value: 'negotiation', label: 'Negociação', color: 'bg-orange-500 text-white' },
       { value: 'closed', label: 'Fechado', color: 'bg-green-500 text-white' },
       { value: 'lost', label: 'Perdido', color: 'bg-red-500 text-white' }
-    ];
-
-    const ETIQUETAS = [
-      { value: 'vip', label: 'VIP', color: 'bg-purple-500 text-white' },
-      { value: 'inativo', label: 'Inativo', color: 'bg-gray-600 text-white' },
-      { value: 'novo', label: 'Novo', color: 'bg-cyan-500 text-white' },
     ];
 
     const VencimentoCell = ({ value }) => {
@@ -59,7 +57,7 @@ import React, { useMemo, useState } from 'react';
       return <span className={colorClass}>{display}</span>;
     };
 
-    const ClientesLista = ({ clients, users, onUpdateField, onAddClient, onEdit, onOpenDocument, onOpenUserManager, selectedClients, setSelectedClients, fetchClients, userRole }) => {
+    const ClientesLista = ({ clients, users, onUpdateField, onAddClient, onEdit, onOpen, onOpenDocument, onOpenUserManager, selectedClients, setSelectedClients, fetchClients, userRole, pulseById, etiquetaCatalog = [], onCreateEtiqueta }) => {
       const { toast } = useToast();
       const { canViewField } = useAuth();
       
@@ -83,6 +81,7 @@ import React, { useMemo, useState } from 'react';
         const url = `${window.location.origin}/#/chat/${clientId}`;
         window.open(url, '_blank', 'noopener,noreferrer');
       };
+
       
       const handleSelectAll = (checked) => {
         setSelectedClients(checked ? clients.map(c => c.id) : []);
@@ -164,7 +163,7 @@ import React, { useMemo, useState } from 'react';
       };
 
       return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden relative">
+        <div className="planeje-clients-table-wrap relative">
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader className="dark:bg-gray-800">
@@ -175,7 +174,10 @@ import React, { useMemo, useState } from 'react';
                   <TableHead className="min-w-[180px] dark:text-white">Responsável</TableHead>
                   {canViewField('vencimento') && <TableHead className="dark:text-white">Vencimento</TableHead>}
                   {canViewField('valor') && <TableHead className="dark:text-white">Valor (R$)</TableHead>}
+                  <TableHead className="dark:text-white">Saúde</TableHead>
+                  <TableHead className="min-w-[220px] dark:text-white">Tráfego Meta</TableHead>
                   <TableHead className="dark:text-white">Etiquetas</TableHead>
+                  <TableHead className="min-w-[140px] dark:text-white">Atalhos</TableHead>
                   {(userRole === 'superadmin' || userRole === 'admin') && <TableHead className="w-[50px] text-right dark:text-white">Ações</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -183,33 +185,71 @@ import React, { useMemo, useState } from 'react';
                 {clients.map(client => {
                   const primaryLogo = client.logo_urls && client.logo_urls.length > 0 ? client.logo_urls[0] : null;
                   return (
-                  <TableRow key={client.id} className="group dark:border-gray-700 dark:hover:bg-gray-700/50">
-                    {(userRole === 'superadmin' || userRole === 'admin') && <TableCell><Checkbox checked={selectedClients.includes(client.id)} onCheckedChange={(checked) => handleSelectRow(client.id, checked)} /></TableCell>}
+                  <TableRow
+                    key={client.id}
+                    className="group dark:border-gray-700 dark:hover:bg-gray-700/50 cursor-pointer"
+                    onClick={() => (onOpen || onEdit)(client)}
+                  >
+                    {(userRole === 'superadmin' || userRole === 'admin') && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox checked={selectedClients.includes(client.id)} onCheckedChange={(checked) => handleSelectRow(client.id, checked)} />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium dark:text-white">
-                        <div className="flex items-center gap-3">
-                            <Avatar className="h-9 w-9">
-                                <AvatarImage src={primaryLogo} alt={client.empresa} />
-                                <AvatarFallback className="bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                    <Building size={18} />
+                        <div className="planeje-clients-row-name">
+                            <div className="planeje-clients-row-avatar">
+                              <Avatar className="h-full w-full rounded-none">
+                                <AvatarImage src={primaryLogo} alt={client.empresa} className="object-cover" />
+                                <AvatarFallback className="bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-none">
+                                    <Building size={16} />
                                 </AvatarFallback>
-                            </Avatar>
-                            {client.empresa}
+                              </Avatar>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate">{client.empresa}</div>
+                              {(client.nome_contato || client.cidade || client.estado) && (
+                                <div className="planeje-clients-row-sub truncate">
+                                  {[client.nome_contato, [client.cidade, client.estado].filter(Boolean).join(' · ')].filter(Boolean).join(' · ')}
+                                </div>
+                              )}
+                            </div>
                         </div>
                     </TableCell>
-                    <TableCell><EtapaSelector value={client.etapa} onSelect={(val) => onUpdateField(client.id, 'etapa', val)} /></TableCell>
-                    <TableCell><ResponsavelSelector value={client.responsavel} onSelect={(val) => onUpdateField(client.id, 'responsavel', val)} /></TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}><EtapaSelector value={client.etapa} onSelect={(val) => onUpdateField(client.id, 'etapa', val)} /></TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}><ResponsavelSelector value={client.responsavel} onSelect={(val) => onUpdateField(client.id, 'responsavel', val)} /></TableCell>
                     {canViewField('vencimento') && <TableCell><VencimentoCell value={client.vencimento} /></TableCell>}
                     {canViewField('valor') && <TableCell className="dark:text-gray-300">{client.valor ? parseFloat(client.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}</TableCell>}
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {client.etiquetas?.map(etiqueta => {
-                          const etiquetaInfo = ETIQUETAS.find(e => e.value === etiqueta);
-                          return etiquetaInfo ? <Badge key={etiqueta} variant="secondary" className={`${etiquetaInfo.color}`}>{etiquetaInfo.label}</Badge> : null;
-                        })}
-                      </div>
+                      {(() => {
+                        const accountPulse = pulseById?.get(client.id);
+                        if (!accountPulse) return <span className="text-xs text-muted-foreground">—</span>;
+                        return (
+                          <span className={`planeje-clients-health is-${accountPulse.mood.tone}`}>
+                            {accountPulse.score}
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {readClienteMetaResumo(client) ? (
+                        <ClienteMetaResumoInline snapshot={readClienteMetaResumo(client)} />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Atualize no painel de tráfego</span>
+                      )}
+                    </TableCell>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <ClienteEtiquetaAssign
+                        client={client}
+                        catalog={etiquetaCatalog}
+                        onCreate={onCreateEtiqueta}
+                        onChange={(next) => onUpdateField(client.id, 'etiquetas', next)}
+                      />
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <ClientQuickActions clientId={client.id} compact />
                     </TableCell>
                     {(userRole === 'superadmin' || userRole === 'admin') && (
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" className="h-8 w-8 p-0 opacity-50 group-hover:opacity-100 dark:text-gray-300 dark:hover:bg-gray-700">
@@ -218,6 +258,7 @@ import React, { useMemo, useState } from 'react';
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="dark:bg-gray-800 dark:border-gray-700">
+                              <DropdownMenuItem onClick={() => (onOpen || onEdit)(client)} className="dark:text-white dark:hover:bg-gray-700"><LayoutDashboard className="mr-2 h-4 w-4" /> Abrir conta</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => onEdit(client)} className="dark:text-white dark:hover:bg-gray-700"><Edit className="mr-2 h-4 w-4" /> Editar Detalhes</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => onOpenDocument(client)} className="dark:text-white dark:hover:bg-gray-700"><FileText className="mr-2 h-4 w-4" /> Documento</DropdownMenuItem>
                               {onOpenUserManager && <DropdownMenuItem onClick={() => onOpenUserManager(client)} className="dark:text-white dark:hover:bg-gray-700"><User className="mr-2 h-4 w-4" /> Gerenciar Login</DropdownMenuItem>}
@@ -238,7 +279,7 @@ import React, { useMemo, useState } from 'react';
                 )})}
                 {(userRole === 'superadmin' || userRole === 'admin') && (
                  <TableRow className="dark:border-gray-700">
-                    <TableCell colSpan={8} className="p-0">
+                    <TableCell colSpan={11} className="p-0">
                         <Button variant="ghost" className="w-full justify-start text-gray-500 dark:text-gray-400 dark:hover:bg-gray-700/50" onClick={onAddClient}><Plus className="mr-2 h-4 w-4" /> Adicionar Cliente</Button>
                     </TableCell>
                 </TableRow>
@@ -290,13 +331,17 @@ import React, { useMemo, useState } from 'react';
                     </div>
                     {canViewField('vencimento') && <div className="flex items-center gap-1.5"><Calendar className="h-3 w-3 text-gray-400" /><VencimentoCell value={client.vencimento} /></div>}
                     {canViewField('valor') && <div className="flex items-center gap-1.5"><DollarSign className="h-3 w-3 text-gray-400" /><span className="dark:text-gray-300">{client.valor ? parseFloat(client.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '-'}</span></div>}
-                    <div className="flex items-center gap-1.5 flex-wrap"><Tag className="h-3 w-3 text-gray-400" />
-                      {client.etiquetas?.map(etiqueta => {
-                        const etiquetaInfo = ETIQUETAS.find(e => e.value === etiqueta);
-                        return etiquetaInfo ? <Badge key={etiqueta} variant="secondary" className={`${etiquetaInfo.color} text-xs`}>{etiquetaInfo.label}</Badge> : null;
-                      })}
-                      {(!client.etiquetas || client.etiquetas?.length === 0) && <span className="text-gray-500 dark:text-gray-400">-</span>}
+                    <ClienteMetaResumoInline snapshot={readClienteMetaResumo(client)} />
+                    <div className="flex items-center gap-1.5 flex-wrap" onClick={(event) => event.stopPropagation()}>
+                      <Tag className="h-3 w-3 text-gray-400" />
+                      <ClienteEtiquetaAssign
+                        client={client}
+                        catalog={etiquetaCatalog}
+                        onCreate={onCreateEtiqueta}
+                        onChange={(next) => onUpdateField(client.id, 'etiquetas', next)}
+                      />
                     </div>
+                    <ClientQuickActions clientId={client.id} className="mt-2" />
                   </CardContent>
                 </Card>
               )
@@ -312,7 +357,7 @@ import React, { useMemo, useState } from 'react';
                 initial={{ y: 100, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 100, opacity: 0 }}
-                className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 w-auto bg-gray-800 text-white rounded-lg shadow-2xl flex items-center gap-4 p-3 z-50"
+                className="planeje-clients-bulk-bar"
               >
                 <span className="text-sm font-medium">{selectedClients.length} cliente(s) selecionado(s)</span>
                 <AlertDialog>
@@ -326,6 +371,7 @@ import React, { useMemo, useState } from 'react';
               </motion.div>
             )}
           </AnimatePresence>
+
         </div>
       );
     };

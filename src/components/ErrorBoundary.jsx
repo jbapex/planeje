@@ -14,17 +14,6 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('ErrorBoundary capturou um erro:', error, errorInfo);
-
-    try {
-      if (typeof sessionStorage !== 'undefined' && !sessionStorage.getItem(ERROR_BOUNDARY_RELOAD_FLAG)) {
-        sessionStorage.setItem(ERROR_BOUNDARY_RELOAD_FLAG, '1');
-        window.location.reload();
-        return;
-      }
-    } catch (_) {
-      /* ignore */
-    }
-
     this.setState({ error, errorInfo });
   }
 
@@ -34,8 +23,14 @@ class ErrorBoundary extends React.Component {
     } catch (_) {
       /* ignore */
     }
-    this.setState({ hasError: false, error: null, errorInfo: null });
-    window.location.reload();
+    try {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('v');
+      next.searchParams.set('r', Date.now().toString(36));
+      window.location.replace(`${next.pathname}?${next.searchParams.toString()}${next.hash}`);
+    } catch (_) {
+      window.location.reload();
+    }
   };
 
   render() {
@@ -43,7 +38,7 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
           <p className="max-w-md text-sm text-muted-foreground">
-            Algo saiu do esperado. Tente recarregar a página.
+            Esta versão da tela quebrou. Recarregar busca a versão atual do Planeje.
           </p>
           {this.state.error ? (
             <pre className="max-w-lg max-h-32 overflow-auto rounded-md border bg-muted/50 p-2 text-left text-xs text-muted-foreground">

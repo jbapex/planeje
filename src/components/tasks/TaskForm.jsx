@@ -19,7 +19,7 @@ const TaskForm = ({ task, clients, projects, onSave, onDelete, onClose }) => {
   const { toast } = useToast();
 
   const statuses = ['todo', 'production', 'review', 'approve', 'scheduled', 'published'];
-  const priorities = ['low', 'medium', 'high'];
+  const priorities = ['low', 'medium', 'high', 'urgent'];
 
   useEffect(() => {
     if (task) {

@@ -11,6 +11,8 @@ import { marked } from 'marked';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { getDateTimeContext } from '@/lib/utils';
+import { projectPeriodLabel } from '@/lib/projectPeriod';
+import { richTextToPlainText } from '@/lib/richText';
 
 // Estilo global para espaçamento de parágrafos no chat
 const chatParagraphStyle = `
@@ -56,6 +58,7 @@ const AiChatDialog = ({
     plannerModel,
     onPlannerModelChange,
     plannerModelOptions,
+    initialPrompt = '',
 }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -71,6 +74,7 @@ const AiChatDialog = ({
 
     useEffect(() => {
         if (open) {
+            if (initialPrompt) setInput(initialPrompt);
             const savedHistory = localStorage.getItem(getChatHistoryKey());
             if (savedHistory) {
                 const { messages: savedMessages, timestamp } = JSON.parse(savedHistory);
@@ -85,7 +89,7 @@ const AiChatDialog = ({
                 setMessages([{ role: 'assistant', content: `Olá! Sou seu assistente de campanha para "${project.name}". Como posso ajudar a planejar hoje?` }]);
             }
         }
-    }, [open, project.id, project.name]);
+    }, [open, project.id, project.name, initialPrompt]);
 
     useEffect(() => {
         if (messages.length > 0) {
@@ -180,9 +184,12 @@ setInput('');
         - Sobre a empresa: ${client?.sobre_empresa || 'N/A'}
 
         Plano de Campanha Atual:
+        - Período: ${projectPeriodLabel(project)}. O projeto pode durar vários meses. Cada material deve indicar mes_referencia em AAAA-MM-01; a data de produção pode ficar no mês anterior à publicação.
+        - Documento livre do plano: ${richTextToPlainText(plan?.contexto_ia) || 'Não definido'}
         - Objetivo: ${plan?.objetivo || 'Não definido'}
         - Estratégia: ${plan?.estrategia_comunicacao ? JSON.stringify(plan.estrategia_comunicacao) : 'Não definida'}
         - Fases de Conteúdo: ${plan?.conteudo_criativos?.fases ? JSON.stringify(plan.conteudo_criativos.fases) : 'Não definidas'}
+        - Itens já planejados: ${plan?.materiais ? JSON.stringify(plan.materiais) : 'Nenhum'}
 
         Sua tarefa é ajudar a preencher e refinar o plano de campanha.
         Quando você sugerir preencher campos, formate sua resposta para incluir um bloco JSON especial no final.
@@ -192,11 +199,23 @@ setInput('');
           "action": "fill_plan",
           "fields": {
             "objetivo": "Novo objetivo...",
-            "estrategia_comunicacao.tom_voz": "Novo tom de voz..."
+            "estrategia_comunicacao.tom_voz": "Novo tom de voz...",
+            "materiais": [
+              {
+                "tipo": "video",
+                "descricao": "Título do vídeo",
+                "detalhes": "Briefing para produção",
+                "roteiro": "Roteiro ou estrutura quando houver",
+                "legenda": "Legenda quando houver",
+                "cta": "Chamada para ação quando houver",
+                "canais": ["Instagram", "Facebook"]
+              }
+            ]
           }
         }
         \`\`\`
         Use a notação de ponto para campos aninhados (ex: 'estrategia_comunicacao.tom_voz').
+        Ao extrair materiais do documento, inclua apenas o que estiver explícito ou claramente solicitado. Não invente datas, responsáveis, aprovações nem tarefas.
         Apresente a sugestão no texto e, se o usuário concordar, ele poderá clicar em um botão para aplicar as mudanças.
         Responda em português do Brasil.
 

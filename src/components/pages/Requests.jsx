@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
     import RequestForm from '@/components/forms/RequestForm';
     import ConvertToTaskDialog from '@/components/requests/ConvertToTaskDialog';
     import { useDataCache } from '@/hooks/useDataCache';
+    import WorkspacePageHeader from '@/components/layout/WorkspacePageHeader';
 
     const STATUS_STYLES = {
       aberta: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-700',
@@ -132,13 +133,30 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         
         setShowForm(false);
         setEditingRequest(null);
+        await fetchData();
       };
 
       const handleDeleteRequest = async (requestId) => {
-        const { error } = await supabase.from('solicitacoes').delete().eq('id', requestId);
-        if (error) toast({ title: "Erro ao remover solicitação", description: error.message, variant: "destructive" });
-        else {
-          toast({ title: "Solicitação removida" });
+        const { data, error } = await supabase.from('solicitacoes').delete().eq('id', requestId).select('id');
+        if (error) {
+          toast({ title: "Erro ao remover solicitação", description: error.message, variant: "destructive" });
+          return;
+        }
+        if (!data?.length) {
+          toast({
+            title: "Não foi possível excluir",
+            description: "Sem permissão para apagar este registro (comum em solicitações da ApexIA sem responsável).",
+            variant: "destructive",
+          });
+          return;
+        }
+        toast({ title: "Solicitação removida" });
+        setRequests((prev) => prev.filter((r) => r.id !== requestId));
+        if (cachedData) {
+          setCachedData({
+            ...cachedData,
+            requests: (cachedData.requests || []).filter((r) => r.id !== requestId),
+          });
         }
       };
 
@@ -162,18 +180,17 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
         }
         
         setConvertingRequest(null);
+        await fetchData();
       };
 
       return (
-        <div className="p-4 sm:p-6 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Registro de Solicitações</h1>
-            {(userRole === 'superadmin' || userRole === 'admin') && (
-                <Button onClick={() => handleOpenForm()} disabled={clients.length === 0} className="bg-gradient-to-r from-orange-500 to-purple-600 text-white">
-                    <Plus size={16} className="mr-2" />Registrar Solicitação
-                </Button>
-            )}
-          </div>
+        <div className="space-y-5">
+          <WorkspacePageHeader
+            title="Registro de solicitações"
+            label="Pedidos"
+            help="Registre pedidos que ainda precisam ser analisados. Quando a solicitação estiver pronta para execução, converta-a em tarefa para seguir status, função, responsável e prazo."
+            actions={(userRole === 'superadmin' || userRole === 'admin') ? <Button size="sm" className="h-9 rounded-xl px-3 text-xs" onClick={() => handleOpenForm()} disabled={clients.length === 0}><Plus className="mr-1.5 h-3.5 w-3.5" />Registrar solicitação</Button> : null}
+          />
           <Card className="dark:bg-gray-800 dark:border-gray-700">
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row items-center gap-4">

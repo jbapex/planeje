@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { preferredThumbnailUrl, isPlanejeStoredThumb } from '@/lib/adThumbnail';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { useClienteWhatsAppConfig } from '@/hooks/useClienteWhatsAppConfig';
@@ -8,20 +9,50 @@ import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
 import { format, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Users, DollarSign, TrendingUp, Calendar as CalendarIcon, Loader2, RefreshCw, ExternalLink, ImageOff, ChevronDown, ChevronRight } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Users, DollarSign, TrendingUp, Calendar as CalendarIcon, Loader2, RefreshCw, ExternalLink, ImageOff, ChevronDown, ChevronRight, Filter, X, MessageCircle, Tag, UserX } from 'lucide-react';
 import { isMetaAdsContactForStats, isMetaAdsLeadForStats } from '@/lib/contactFromWebhookPayload';
 import { getPhoneVariations } from '@/lib/leadUtils';
+import { isVendaComercial, vendaValorComercial } from '@/lib/leadComercial';
+import LeadComercialInline from '@/components/crm/LeadComercialInline';
+import LeadAnalysisLabels from '@/components/crm/LeadAnalysisLabels';
+import { cn } from '@/lib/utils';
+import { formatFunilSpend } from '@/lib/funilMetrics';
+import { collectAdAccountIds } from '@/lib/hubResultsSummary';
+import {
+  campaignIdFromReportRow,
+  emptyRelatorioSpendIndex,
+  fetchCrmRelatorioMetaSpend,
+  spendForCampaign,
+} from '@/lib/crmRelatorioMetaSpend';
+import {
+  addRelatorioTrackingToGroup,
+  emptyRelatorioGroup,
+  reportCampaignName,
+  selectRelatorioTrackingContacts,
+  summarizeRelatorioTracking,
+} from '@/lib/crmRelatorioMetaTracking';
+import { RastreamentoHelp } from '@/components/crm/RastreamentoUi';
+import { rastreamentoTabHelp } from '@/lib/rastreamentoHub';
+import {
+  bumpAnalysisCounts,
+  catalogFromRows,
+  reportRowHasAnalysisLabel,
+  tallyAnalysisLabels,
+} from '@/lib/rastreamentoAnalysisLabels';
 
 /** Mesmo critério da página Contatos: última mensagem / interação para o filtro de período. */
 const MESSAGE_DATE_FIELD_LAST = 'ultima';
+const FILTER_ALL = '__all__';
 
 const SUPABASE_PAGE_SIZE = 1000;
 
 const CONTACT_SELECT_META =
-  'id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data';
+  'id, from_jid, phone, sender_name, origin_source, utm_source, utm_medium, utm_campaign, utm_content, utm_term, first_seen_at, last_message_at, tracking_data, profile_pic_url, instance_name, whatsapp_config_id, qualificado, comprou, valor_venda';
 
 const LEAD_SELECT_META =
-  'id, nome, whatsapp, origem, status, valor, tracking_data, data_entrada, created_at, updated_at, ultima_interacao, utm_source, utm_medium, utm_campaign, utm_content, utm_term, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome)';
+  'id, nome, whatsapp, origem, status, valor, qualificado, comprou, etiquetas, tracking_data, data_entrada, created_at, updated_at, ultima_interacao, utm_source, utm_medium, utm_campaign, utm_content, utm_term, pipeline:pipeline_id(id, nome), stage:stage_id(id, nome)';
 
 async function fetchAllClienteWhatsappContactsForMeta(supabase, clienteId) {
   const all = [];
@@ -178,7 +209,9 @@ function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
       whatsapp: c.phone || linked?.whatsapp || null,
       data_entrada: linked?.data_entrada ?? c.first_seen_at,
       status: linked?.status ?? null,
-      valor: linked?.valor ?? null,
+      qualificado: linked?.qualificado ?? c.qualificado ?? null,
+      comprou: linked?.comprou ?? c.comprou ?? null,
+      valor: linked?.valor ?? c.valor_venda ?? null,
       utm_source: c.utm_source ?? linked?.utm_source ?? null,
       utm_medium: c.utm_medium ?? linked?.utm_medium ?? null,
       utm_campaign: c.utm_campaign ?? linked?.utm_campaign ?? null,
@@ -188,8 +221,11 @@ function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
       origem: linked?.origem ?? null,
       pipeline: linked?.pipeline,
       stage: linked?.stage,
+      etiquetas: linked?.etiquetas || [],
       _enrichTarget: { type: 'contact', id: c.id },
+      _contactRow: c,
       _detailLead: linked || null,
+      _leadRef: linked || null,
     };
   });
 
@@ -200,6 +236,8 @@ function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
     whatsapp: l.whatsapp,
     data_entrada: l.data_entrada,
     status: l.status,
+    qualificado: l.qualificado,
+    comprou: l.comprou,
     valor: l.valor,
     utm_source: l.utm_source,
     utm_medium: l.utm_medium,
@@ -210,8 +248,10 @@ function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
     origem: l.origem,
     pipeline: l.pipeline,
     stage: l.stage,
+    etiquetas: l.etiquetas || [],
     _enrichTarget: { type: 'lead', id: l.id },
     _detailLead: l,
+    _leadRef: l,
   }));
 
   return [...fromContacts, ...fromFunnel];
@@ -219,17 +259,24 @@ function buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr) {
 
 const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
+function getCampaignIdFromRow(lead) {
+  return campaignIdFromReportRow(lead) || null;
+}
+
 function getCampaignName(lead) {
-  const fromCol = lead?.utm_campaign != null && String(lead.utm_campaign).trim() !== '' ? String(lead.utm_campaign).trim() : '';
-  if (fromCol) return fromCol;
+  return reportCampaignName(lead);
+}
+
+function getAdSetName(lead) {
   const td = lead?.tracking_data;
   if (td && typeof td === 'object') {
-    const fromMeta = td.meta_ad_details?.ad?.campaign?.name;
-    if (fromMeta) return fromMeta;
-    if (td.utm_campaign != null && String(td.utm_campaign).trim() !== '') return String(td.utm_campaign).trim();
-    if (td.campaign_name) return td.campaign_name;
+    const fromMeta = td.meta_ad_details?.ad?.adset?.name;
+    if (fromMeta) return String(fromMeta).trim();
+    if (td.adset_name != null && String(td.adset_name).trim() !== '') return String(td.adset_name).trim();
   }
-  return 'Sem campanha';
+  const fromCol = lead?.utm_medium != null && String(lead.utm_medium).trim() !== '' ? String(lead.utm_medium).trim() : '';
+  if (fromCol) return fromCol;
+  return 'Sem conjunto';
 }
 
 function getAdName(lead) {
@@ -246,6 +293,29 @@ function getAdName(lead) {
   return null;
 }
 
+function getAdFilterKey(lead) {
+  const adIdRaw = getAdId(lead);
+  const adName = getAdName(lead) || (adIdRaw ? `Anúncio ${adIdRaw}` : 'Sem anúncio');
+  const campaignName = getCampaignName(lead);
+  return adIdRaw || `name:${campaignName}::${adName}`;
+}
+
+function getAdFilterLabel(lead) {
+  return getAdName(lead) || (getAdId(lead) ? `Anúncio ${getAdId(lead)}` : 'Sem anúncio');
+}
+
+function sortFilterLabels(names) {
+  const sem = [];
+  const rest = [];
+  names.forEach((n) => {
+    if (n.startsWith('Sem ')) sem.push(n);
+    else rest.push(n);
+  });
+  rest.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  sem.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  return [...rest, ...sem];
+}
+
 function getAdId(lead) {
   const td = lead?.tracking_data;
   if (!td || typeof td !== 'object') return null;
@@ -255,8 +325,7 @@ function getAdId(lead) {
 }
 
 function getAdThumbnailUrl(lead) {
-  const url = lead?.tracking_data?.meta_ad_details?.ad?.thumbnail_url;
-  return (url && typeof url === 'string' && url.trim()) ? url.trim() : null;
+  return preferredThumbnailUrl(lead?.tracking_data);
 }
 
 /** URL do anúncio no Meta (webhook), mesma usada em rastreamento — root ou último evento em events_by_date. */
@@ -293,8 +362,13 @@ function sanitizeHttpUrl(raw) {
   }
 }
 
-function isVenda(lead) {
-  return lead?.status === 'vendeu';
+function isVenda(row) {
+  return isVendaComercial({
+    qualificado: row.qualificado,
+    comprou: row.comprou,
+    valor: row.valor,
+    status: row.status,
+  });
 }
 
 function needsEnrichment(lead) {
@@ -338,22 +412,39 @@ function formatDateSafe(value) {
   }
 }
 
-export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId: effectiveClienteIdProp }) {
+export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId: effectiveClienteIdProp, embeddedInHub = false, dateRange: dateRangeProp, onDateRangeChange }) {
   const { effectiveClienteId: effectiveClienteIdFromHook } = useClienteWhatsAppConfig();
   const effectiveClienteId = effectiveClienteIdProp ?? effectiveClienteIdFromHook;
   const { toast } = useToast();
   const autoEnrichDoneRef = useRef(false);
-  const [dateRange, setDateRange] = useState(() => {
+  const [localDateRange, setLocalDateRange] = useState(() => {
     const now = new Date();
     return { from: startOfMonth(now), to: endOfMonth(now) };
   });
+  const dateRange = onDateRangeChange ? dateRangeProp : localDateRange;
+  const setDateRange = onDateRangeChange || setLocalDateRange;
   useEffect(() => {
     autoEnrichDoneRef.current = false;
   }, [effectiveClienteId, dateRange?.from, dateRange?.to]);
   const [reportRows, setReportRows] = useState([]);
+  const [trackingRows, setTrackingRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
   const [expandedRowKey, setExpandedRowKey] = useState(null);
+  const [filterCampaign, setFilterCampaign] = useState(FILTER_ALL);
+  const [filterAdSet, setFilterAdSet] = useState(FILTER_ALL);
+  const [filterAd, setFilterAd] = useState(FILTER_ALL);
+  const [filterLabel, setFilterLabel] = useState(FILTER_ALL);
+  const [spendIndex, setSpendIndex] = useState(emptyRelatorioSpendIndex);
+  const [loadingSpend, setLoadingSpend] = useState(false);
+  const [spendReady, setSpendReady] = useState(false);
+
+  useEffect(() => {
+    setFilterCampaign(FILTER_ALL);
+    setFilterAdSet(FILTER_ALL);
+    setFilterAd(FILTER_ALL);
+    setFilterLabel(FILTER_ALL);
+  }, [effectiveClienteId, dateRange?.from, dateRange?.to]);
 
   /**
    * Mesmo conjunto da aba Contatos (origem Meta): contatos WhatsApp + leads só no funil.
@@ -362,6 +453,7 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
   const fetchReportRows = useCallback(async () => {
     if (!effectiveClienteId) {
       setReportRows([]);
+      setTrackingRows([]);
       setLoading(false);
       return;
     }
@@ -379,9 +471,15 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
       }
       const rows = buildMetaReportRows(allContacts, allLeads, dateFromStr, dateToStr);
       setReportRows(rows);
+      setTrackingRows(
+        selectRelatorioTrackingContacts(allContacts, (contact) =>
+          rowInMessageDateRange(contact, 'primeira', dateFromStr, dateToStr)
+        )
+      );
     } catch (e) {
       toast({ variant: 'destructive', title: 'Erro ao carregar relatório Meta', description: e?.message });
       setReportRows([]);
+      setTrackingRows([]);
     } finally {
       setLoading(false);
     }
@@ -391,54 +489,245 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
     void fetchReportRows();
   }, [fetchReportRows]);
 
+  const fetchCampaignSpend = useCallback(async () => {
+    if (!effectiveClienteId || !dateRange?.from) {
+      setSpendIndex(emptyRelatorioSpendIndex());
+      setSpendReady(false);
+      return;
+    }
+    const since = format(dateRange.from, 'yyyy-MM-dd');
+    const until = dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : since;
+    setLoadingSpend(true);
+    setSpendReady(false);
+    try {
+      const { data: clienteRow } = await supabase
+        .from('clientes')
+        .select('meta_rastreamento')
+        .eq('id', effectiveClienteId)
+        .maybeSingle();
+      const adAccountIds = collectAdAccountIds(clienteRow?.meta_rastreamento);
+      const next = await fetchCrmRelatorioMetaSpend(
+        (name, opts) => supabase.functions.invoke(name, opts),
+        { clienteId: effectiveClienteId, adAccountIds, since, until },
+      );
+      setSpendIndex(next);
+    } catch {
+      setSpendIndex(emptyRelatorioSpendIndex());
+    } finally {
+      setLoadingSpend(false);
+      setSpendReady(true);
+    }
+  }, [effectiveClienteId, dateRange?.from, dateRange?.to]);
+
+  useEffect(() => {
+    void fetchCampaignSpend();
+  }, [fetchCampaignSpend]);
+
+  const rowsForAdSetOptions = useMemo(() => {
+    const combined = [...reportRows, ...trackingRows];
+    if (filterCampaign === FILTER_ALL) return combined;
+    return combined.filter((r) => getCampaignName(r) === filterCampaign);
+  }, [reportRows, trackingRows, filterCampaign]);
+
+  const rowsForAdOptions = useMemo(() => {
+    let rows = rowsForAdSetOptions;
+    if (filterAdSet !== FILTER_ALL) rows = rows.filter((r) => getAdSetName(r) === filterAdSet);
+    return rows;
+  }, [rowsForAdSetOptions, filterAdSet]);
+
+  const campaignFilterOptions = useMemo(
+    () => sortFilterLabels([...new Set([...reportRows, ...trackingRows].map(getCampaignName))]),
+    [reportRows, trackingRows]
+  );
+
+  const adSetFilterOptions = useMemo(
+    () => sortFilterLabels([...new Set(rowsForAdSetOptions.map(getAdSetName))]),
+    [rowsForAdSetOptions]
+  );
+
+  const adFilterOptions = useMemo(() => {
+    const map = new Map();
+    rowsForAdOptions.forEach((r) => {
+      const key = getAdFilterKey(r);
+      if (!map.has(key)) map.set(key, getAdFilterLabel(r));
+    });
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+      .map(([value, label]) => ({ value, label }));
+  }, [rowsForAdOptions]);
+
+  const filteredRows = useMemo(() => {
+    return reportRows.filter((row) => {
+      if (filterCampaign !== FILTER_ALL && getCampaignName(row) !== filterCampaign) return false;
+      if (filterAdSet !== FILTER_ALL && getAdSetName(row) !== filterAdSet) return false;
+      if (filterAd !== FILTER_ALL && getAdFilterKey(row) !== filterAd) return false;
+      if (filterLabel !== FILTER_ALL && !reportRowHasAnalysisLabel(row, filterLabel)) return false;
+      return true;
+    });
+  }, [reportRows, filterCampaign, filterAdSet, filterAd, filterLabel]);
+
+  const filteredTracking = useMemo(() => {
+    return trackingRows.filter((row) => {
+      if (filterCampaign !== FILTER_ALL && getCampaignName(row) !== filterCampaign) return false;
+      if (filterAdSet !== FILTER_ALL && getAdSetName(row) !== filterAdSet) return false;
+      if (filterAd !== FILTER_ALL && getAdFilterKey(row) !== filterAd) return false;
+      if (filterLabel !== FILTER_ALL && !reportRowHasAnalysisLabel(row, filterLabel)) return false;
+      return true;
+    });
+  }, [trackingRows, filterCampaign, filterAdSet, filterAd, filterLabel]);
+
+  const analysisCatalog = useMemo(() => catalogFromRows(reportRows), [reportRows]);
+  const analysisTalliesUnfiltered = useMemo(
+    () => tallyAnalysisLabels(
+      reportRows.filter((row) => {
+        if (filterCampaign !== FILTER_ALL && getCampaignName(row) !== filterCampaign) return false;
+        if (filterAdSet !== FILTER_ALL && getAdSetName(row) !== filterAdSet) return false;
+        if (filterAd !== FILTER_ALL && getAdFilterKey(row) !== filterAd) return false;
+        return true;
+      }),
+      analysisCatalog,
+    ),
+    [reportRows, filterCampaign, filterAdSet, filterAd, analysisCatalog],
+  );
+
+  const hasActiveFilters =
+    filterCampaign !== FILTER_ALL || filterAdSet !== FILTER_ALL || filterAd !== FILTER_ALL || filterLabel !== FILTER_ALL;
+
+  const clearMetaFilters = useCallback(() => {
+    setFilterCampaign(FILTER_ALL);
+    setFilterAdSet(FILTER_ALL);
+    setFilterAd(FILTER_ALL);
+    setFilterLabel(FILTER_ALL);
+  }, []);
+
+  const handleFilterCampaignChange = useCallback((value) => {
+    setFilterCampaign(value);
+    setFilterAdSet(FILTER_ALL);
+    setFilterAd(FILTER_ALL);
+  }, []);
+
+  const handleFilterAdSetChange = useCallback((value) => {
+    setFilterAdSet(value);
+    setFilterAd(FILTER_ALL);
+  }, []);
+
   const byCampaign = useMemo(() => {
     const map = new Map();
-    reportRows.forEach((l) => {
+    filteredRows.forEach((l) => {
       const name = getCampaignName(l);
-      if (!map.has(name)) map.set(name, { campaignName: name, leads: 0, vendas: 0, valorTotal: 0 });
+      const campaignId = getCampaignIdFromRow(l);
+      if (!map.has(name)) {
+        map.set(name, emptyRelatorioGroup(name, campaignId));
+      }
       const row = map.get(name);
+      if (!row.campaignId && campaignId) row.campaignId = campaignId;
       row.leads += 1;
+      bumpAnalysisCounts(row, l);
       if (isVenda(l)) {
         row.vendas += 1;
         row.valorTotal += Number(l.valor) || 0;
       }
       map.set(name, row);
     });
-    return Array.from(map.values()).sort((a, b) => b.leads - a.leads);
-  }, [reportRows]);
+    filteredTracking.forEach((l) => {
+      const name = getCampaignName(l);
+      map.set(name, addRelatorioTrackingToGroup(map.get(name) || emptyRelatorioGroup(name, getCampaignIdFromRow(l)), l));
+    });
+    return Array.from(map.values())
+      .map((row) => {
+        const spend = spendForCampaign(spendIndex, {
+          campaignId: row.campaignId,
+          campaignName: row.campaignName,
+        });
+        const cpl = row.leads > 0 && spend > 0 ? spend / row.leads : null;
+        const roas = spend > 0 ? row.valorTotal / spend : null;
+        return { ...row, spend, cpl, roas };
+      })
+      .sort((a, b) => (b.realConversations - a.realConversations) || (b.leads - a.leads));
+  }, [filteredRows, filteredTracking, spendIndex]);
 
   const byAd = useMemo(() => {
     const map = new Map();
-    reportRows.forEach((l) => {
+    const ensureAdRow = (l) => {
       const adIdRaw = getAdId(l);
       const adName = getAdName(l) || (adIdRaw ? `Anúncio ${adIdRaw}` : 'Sem anúncio');
       const campaignName = getCampaignName(l);
-      /** Agrupa por ad_id quando existir; senão por campanha + nome (evita fundir anúncios homônimos). */
       const key = adIdRaw || `name:${campaignName}::${adName}`;
-      if (!map.has(key)) map.set(key, { adId: adIdRaw || key, adName, campaignName, thumbnailUrl: null, sourceUrl: null, leads: 0, vendas: 0, valorTotal: 0 });
+      if (!map.has(key)) {
+        map.set(key, {
+          adId: adIdRaw || key,
+          adName,
+          campaignName,
+          thumbnailUrl: null,
+          sourceUrl: null,
+          leads: 0,
+          vendas: 0,
+          valorTotal: 0,
+          realConversations: 0,
+          qualificados: 0,
+          naoResponde: 0,
+          desqualificado: 0,
+        });
+      }
       const row = map.get(key);
-      if (!row.thumbnailUrl) row.thumbnailUrl = getAdThumbnailUrl(l);
+      const nextThumb = getAdThumbnailUrl(l);
+      if (!row.thumbnailUrl || (nextThumb && isPlanejeStoredThumb(nextThumb) && !isPlanejeStoredThumb(row.thumbnailUrl))) {
+        if (nextThumb) row.thumbnailUrl = nextThumb;
+      }
       if (!row.sourceUrl) {
         const rawUrl = getMetaAdSourceUrlFromRow(l);
         const safe = sanitizeHttpUrl(rawUrl);
         if (safe) row.sourceUrl = safe;
       }
+      return { key, row };
+    };
+    filteredRows.forEach((l) => {
+      const { row } = ensureAdRow(l);
       row.leads += 1;
+      bumpAnalysisCounts(row, l);
       if (isVenda(l)) {
         row.vendas += 1;
         row.valorTotal += Number(l.valor) || 0;
       }
-      map.set(key, row);
     });
-    return Array.from(map.values()).sort((a, b) => b.leads - a.leads);
-  }, [reportRows]);
+    filteredTracking.forEach((l) => {
+      const { row } = ensureAdRow(l);
+      row.realConversations += 1;
+      if (l?.qualificado === true) row.qualificados += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => (b.realConversations - a.realConversations) || (b.leads - a.leads));
+  }, [filteredRows, filteredTracking]);
 
   const summary = useMemo(() => {
-    const totalLeads = reportRows.length;
-    const vendas = reportRows.filter(isVenda).length;
-    const valorTotal = reportRows.filter(isVenda).reduce((s, l) => s + (Number(l.valor) || 0), 0);
-    return { totalLeads, vendas, valorTotal };
-  }, [reportRows]);
+    const totalLeads = filteredRows.length;
+    const vendas = filteredRows.filter(isVenda).length;
+    const valorTotal = filteredRows.filter(isVenda).reduce(
+      (s, l) => s + vendaValorComercial({ qualificado: l.qualificado, comprou: l.comprou, valor: l.valor, status: l.status }),
+      0
+    );
+    const tracking = summarizeRelatorioTracking(filteredTracking);
+    const analysis = tallyAnalysisLabels(filteredRows, analysisCatalog);
+    const naoResponde = analysis.find((item) => item.id === 'nao_responde')?.count || 0;
+    const desqualificado = analysis.find((item) => item.id === 'desqualificado')?.count || 0;
+    return {
+      totalLeads,
+      vendas,
+      valorTotal,
+      realConversations: tracking.realConversations,
+      qualificados: tracking.qualificados,
+      naoResponde,
+      desqualificado,
+      analysis,
+    };
+  }, [filteredRows, filteredTracking, analysisCatalog]);
+
+  const summarySpend = useMemo(() => {
+    const matched = byCampaign.reduce((sum, row) => sum + (Number(row.spend) || 0), 0);
+    const total = hasActiveFilters ? matched : (Number(spendIndex.total) || matched);
+    const cpl = summary.totalLeads > 0 && total > 0 ? total / summary.totalLeads : null;
+    const roas = total > 0 ? summary.valorTotal / total : null;
+    return { total, cpl, roas };
+  }, [byCampaign, hasActiveFilters, spendIndex.total, summary]);
 
   const toEnrich = useMemo(() => reportRows.filter(needsEnrichment), [reportRows]);
   const hasEnrichable = toEnrich.length > 0;
@@ -599,21 +888,38 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
     );
   }
 
+  const cardSurface = embeddedInHub
+    ? 'relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_10px_35px_rgba(15,23,42,0.045)] dark:border-white/10 dark:bg-card'
+    : '';
+  const tableWrap = embeddedInHub
+    ? 'rounded-[26px] border border-slate-200/70 dark:border-white/10 overflow-x-auto shadow-[0_14px_45px_rgba(15,23,42,0.055)]'
+    : 'rounded-md border overflow-x-auto';
+
   return (
-    <div className="flex flex-col gap-6 p-4 sm:p-6 pb-8 w-full min-w-0">
+    <div
+      className={
+        embeddedInHub
+          ? 'flex flex-col gap-6 px-5 py-5 sm:px-6 sm:py-6 pb-6 w-full min-w-0'
+          : 'flex flex-col gap-6 p-4 sm:p-6 pb-8 w-full min-w-0'
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Relatório Meta</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          {!embeddedInHub && (
+            <h1 className="text-xl font-semibold text-foreground">Relatório Meta</h1>
+          )}
+          {embeddedInHub ? (
+            <div className="flex items-center gap-0.5">
+              <h2 className="text-lg font-semibold tracking-[-0.025em] text-slate-950 dark:text-white">Relatórios</h2>
+              <RastreamentoHelp label="Sobre os relatórios">{rastreamentoTabHelp('relatorio')}</RastreamentoHelp>
+            </div>
+          ) : null}
+          <p className={`text-sm text-muted-foreground ${embeddedInHub ? 'mt-1' : 'mt-0.5'}`}>
             {dateRange?.from
               ? dateRange.to
                 ? `${format(dateRange.from, "dd 'de' MMM", { locale: ptBR })} – ${format(dateRange.to, "dd 'de' MMM. yyyy", { locale: ptBR })}`
                 : format(dateRange.from, "dd 'de' MMM. yyyy", { locale: ptBR })
               : 'Todos os períodos'}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            Mesma base da aba Contatos (origem Meta): contatos WhatsApp e leads só no funil. O período filtra pela{' '}
-            <span className="font-medium text-foreground/90">última mensagem</span> ou interação.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -663,8 +969,125 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
+      {reportRows.length > 0 && (
+        <div
+          className={
+            embeddedInHub
+              ? 'rounded-lg border border-slate-200/80 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/20 p-4 space-y-3'
+              : 'rounded-lg border bg-muted/20 p-4 space-y-3'
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              Filtrar por campanha, conjunto ou anúncio
+            </p>
+            {hasActiveFilters && (
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs gap-1" onClick={clearMetaFilters}>
+                <X className="h-3.5 w-3.5" />
+                Limpar filtros
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5 min-w-0">
+              <Label className="text-xs text-muted-foreground">Campanha</Label>
+              <Select value={filterCampaign} onValueChange={handleFilterCampaignChange}>
+                <SelectTrigger className="h-9 rounded-lg">
+                  <SelectValue placeholder="Todas as campanhas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FILTER_ALL}>Todas as campanhas</SelectItem>
+                  {campaignFilterOptions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <Label className="text-xs text-muted-foreground">Conjunto</Label>
+              <Select
+                value={filterAdSet}
+                onValueChange={handleFilterAdSetChange}
+                disabled={adSetFilterOptions.length === 0}
+              >
+                <SelectTrigger className="h-9 rounded-lg">
+                  <SelectValue placeholder="Todos os conjuntos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FILTER_ALL}>Todos os conjuntos</SelectItem>
+                  {adSetFilterOptions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <Label className="text-xs text-muted-foreground">Anúncio</Label>
+              <Select
+                value={filterAd}
+                onValueChange={setFilterAd}
+                disabled={adFilterOptions.length === 0}
+              >
+                <SelectTrigger className="h-9 rounded-lg">
+                  <SelectValue placeholder="Todos os anúncios" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FILTER_ALL}>Todos os anúncios</SelectItem>
+                  {adFilterOptions.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-0.5">
+              <Tag className="h-3 w-3" />
+              Análise
+            </span>
+            <Button
+              type="button"
+              variant={filterLabel === FILTER_ALL ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 px-2 text-[11px] rounded-md"
+              onClick={() => setFilterLabel(FILTER_ALL)}
+            >
+              Todas
+            </Button>
+            {analysisTalliesUnfiltered.map((item) => (
+              <Button
+                key={item.id}
+                type="button"
+                variant={filterLabel === item.name ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-[11px] rounded-md gap-1"
+                onClick={() => setFilterLabel((current) => (current === item.name ? FILTER_ALL : item.name))}
+                title="Filtra o relatório. Não envia à Meta."
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                {item.name}
+                <span className="tabular-nums opacity-80">{item.count}</span>
+              </Button>
+            ))}
+          </div>
+          {hasActiveFilters && (
+            <p className="text-xs text-muted-foreground">
+              Exibindo {filteredRows.length} de {reportRows.length} lead(s) e {filteredTracking.length} conversa(s) reais no período.
+              {filteredRows.length === 0 && filteredTracking.length === 0 && ' Ajuste os filtros ou use «Carregar dados do Meta» para preencher campanha e anúncio.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className={cardSurface}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Users className="h-4 w-4" /> Total de leads (Meta)
@@ -674,17 +1097,78 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
             <p className="text-2xl font-bold tabular-nums">{summary.totalLeads}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" /> Conversas reais
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums">{summary.realConversations}</p>
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              Gasto (Meta API)
+              {loadingSpend && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums tracking-[-0.04em]">
+              {spendReady && spendIndex.hasAdAccounts && (summarySpend.total > 0 || !spendIndex.errors.length)
+                ? formatFunilSpend(summarySpend.total)
+                : '—'}
+            </p>
+            {spendReady && !loadingSpend && !spendIndex.hasAdAccounts ? (
+              <p className="mt-1 text-xs text-muted-foreground">Ligue a conta de anúncios em Integrações.</p>
+            ) : null}
+            {spendReady && !loadingSpend && spendIndex.hasAdAccounts && summarySpend.total <= 0 && spendIndex.errors[0] ? (
+              <p className="mt-1 text-xs text-muted-foreground">{String(spendIndex.errors[0]).slice(0, 140)}</p>
+            ) : null}
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              Qualificados
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums tracking-[-0.04em]">{summary.qualificados}</p>
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Tag className="h-4 w-4" /> Não responde
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums tracking-[-0.04em]">{summary.naoResponde}</p>
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <UserX className="h-4 w-4" /> Desqualificado
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums tracking-[-0.04em]">{summary.desqualificado}</p>
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <TrendingUp className="h-4 w-4" /> Vendas
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold tabular-nums">{summary.vendas}</p>
+            <p className="text-2xl font-bold tabular-nums tracking-[-0.04em]">{summary.vendas}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={cardSurface}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <DollarSign className="h-4 w-4" /> Valor total
@@ -694,30 +1178,70 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
             <p className="text-2xl font-bold tabular-nums">{formatCurrency(summary.valorTotal)}</p>
           </CardContent>
         </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">CPL</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums">
+              {summarySpend.cpl != null ? formatFunilSpend(summarySpend.cpl) : '—'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className={cardSurface}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">ROAS</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold tabular-nums">
+              {summarySpend.roas != null ? `${(summarySpend.roas * 100).toFixed(0)}%` : '—'}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Por campanha</h2>
-        <div className="rounded-md border overflow-x-auto">
+        <div className={tableWrap}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
                 <th className="text-left p-3 font-medium">Campanha</th>
                 <th className="text-right p-3 font-medium">Leads</th>
+                <th className="text-right p-3 font-medium">Conversas reais</th>
+                <th className="text-right p-3 font-medium">Qualificados</th>
+                <th className="text-right p-3 font-medium">Não responde</th>
+                <th className="text-right p-3 font-medium">Desqualificado</th>
+                <th className="text-right p-3 font-medium">Gasto</th>
+                <th className="text-right p-3 font-medium">CPL</th>
                 <th className="text-right p-3 font-medium">Vendas</th>
-                <th className="text-right p-3 font-medium">Valor total</th>
+                <th className="text-right p-3 font-medium">Valor</th>
+                <th className="text-right p-3 font-medium">ROAS</th>
               </tr>
             </thead>
             <tbody>
               {byCampaign.length === 0 ? (
-                <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">Nenhuma campanha identificada. Use &quot;Carregar dados do Meta&quot; para preencher.</td></tr>
+                <tr><td colSpan={11} className="p-4 text-center text-muted-foreground">Nenhuma campanha identificada. Use &quot;Carregar dados do Meta&quot; para preencher.</td></tr>
               ) : (
                 byCampaign.map((row) => (
                   <tr key={row.campaignName} className="border-b last:border-0">
                     <td className="p-3">{row.campaignName}</td>
                     <td className="p-3 text-right tabular-nums">{row.leads}</td>
+                    <td className="p-3 text-right tabular-nums">{row.realConversations}</td>
+                    <td className="p-3 text-right tabular-nums">{row.qualificados}</td>
+                    <td className="p-3 text-right tabular-nums">{row.naoResponde}</td>
+                    <td className="p-3 text-right tabular-nums">{row.desqualificado}</td>
+                    <td className="p-3 text-right tabular-nums">
+                      {row.spend > 0 ? formatFunilSpend(row.spend) : '—'}
+                    </td>
+                    <td className="p-3 text-right tabular-nums">
+                      {row.cpl != null ? formatFunilSpend(row.cpl) : '—'}
+                    </td>
                     <td className="p-3 text-right tabular-nums">{row.vendas}</td>
                     <td className="p-3 text-right tabular-nums">{formatCurrency(row.valorTotal)}</td>
+                    <td className="p-3 text-right tabular-nums">
+                      {row.roas != null ? `${(row.roas * 100).toFixed(0)}%` : '—'}
+                    </td>
                   </tr>
                 ))
               )}
@@ -728,7 +1252,7 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Por anúncio</h2>
-        <div className="rounded-md border overflow-x-auto">
+        <div className={tableWrap}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
@@ -736,13 +1260,17 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                 <th className="text-left p-3 font-medium">Anúncio</th>
                 <th className="text-left p-3 font-medium">Campanha</th>
                 <th className="text-right p-3 font-medium">Leads</th>
+                <th className="text-right p-3 font-medium">Conversas reais</th>
+                <th className="text-right p-3 font-medium">Qualificados</th>
+                <th className="text-right p-3 font-medium">Não responde</th>
+                <th className="text-right p-3 font-medium">Desqualificado</th>
                 <th className="text-right p-3 font-medium">Vendas</th>
                 <th className="text-right p-3 font-medium">Valor total</th>
               </tr>
             </thead>
             <tbody>
               {byAd.length === 0 ? (
-                <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">Nenhum anúncio identificado.</td></tr>
+                <tr><td colSpan={10} className="p-4 text-center text-muted-foreground">Nenhum anúncio identificado.</td></tr>
               ) : (
                 byAd.map((row) => (
                   <tr key={row.adId} className="border-b last:border-0">
@@ -788,6 +1316,10 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                     <td className="p-3">{row.adName}</td>
                     <td className="p-3">{row.campaignName}</td>
                     <td className="p-3 text-right tabular-nums">{row.leads}</td>
+                    <td className="p-3 text-right tabular-nums">{row.realConversations}</td>
+                    <td className="p-3 text-right tabular-nums">{row.qualificados}</td>
+                    <td className="p-3 text-right tabular-nums">{row.naoResponde}</td>
+                    <td className="p-3 text-right tabular-nums">{row.desqualificado}</td>
                     <td className="p-3 text-right tabular-nums">{row.vendas}</td>
                     <td className="p-3 text-right tabular-nums">{formatCurrency(row.valorTotal)}</td>
                   </tr>
@@ -800,7 +1332,7 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Leads do Meta (Contatos + funil)</h2>
-        <div className="rounded-md border overflow-x-auto">
+        <div className={tableWrap}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
@@ -809,17 +1341,23 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                 <th className="text-left p-3 font-medium">Telefone</th>
                 <th className="text-left p-3 font-medium">Data entrada</th>
                 <th className="text-left p-3 font-medium">Campanha</th>
+                <th className="text-left p-3 font-medium hidden lg:table-cell">Conjunto</th>
                 <th className="text-left p-3 font-medium">Anúncio</th>
                 <th className="text-left p-3 font-medium">Etapa</th>
-                <th className="text-right p-3 font-medium">Valor</th>
+                <th className="text-left p-3 font-medium min-w-[7rem]">Qualificado</th>
+                <th className="text-left p-3 font-medium min-w-[7rem]">Comprou</th>
+                <th className="text-right p-3 font-medium min-w-[6rem]">Valor (R$)</th>
+                <th className="text-left p-3 font-medium min-w-[10rem]">Etiqueta</th>
                 {onShowLeadDetail && <th className="p-3 w-10" />}
               </tr>
             </thead>
             <tbody>
               {reportRows.length === 0 ? (
-                <tr><td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 text-center text-muted-foreground">Nenhuma linha Meta no período (igual ao filtro da aba Contatos).</td></tr>
+                <tr><td colSpan={onShowLeadDetail ? 13 : 12} className="p-4 text-center text-muted-foreground">Nenhuma linha Meta no período. Marque qualificação e venda em cada linha para alimentar os totais.</td></tr>
+              ) : filteredRows.length === 0 ? (
+                <tr><td colSpan={onShowLeadDetail ? 13 : 12} className="p-4 text-center text-muted-foreground">Nenhum lead corresponde aos filtros selecionados.</td></tr>
               ) : (
-                reportRows.map((l) => {
+                filteredRows.map((l) => {
                   const entradaLabel = (() => {
                     if (!l.data_entrada) return '—';
                     try {
@@ -848,9 +1386,52 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                         <td className="p-3 font-mono text-xs">{l.whatsapp || '—'}</td>
                         <td className="p-3">{entradaLabel}</td>
                         <td className="p-3">{getCampaignName(l)}</td>
+                        <td className="p-3 hidden lg:table-cell text-muted-foreground">{getAdSetName(l)}</td>
                         <td className="p-3">{getAdName(l) || '—'}</td>
                         <td className="p-3">{etapaLabel}</td>
-                        <td className="p-3 text-right tabular-nums">{formatCurrency(l.valor)}</td>
+                        <td className="p-3 align-top">
+                          <LeadComercialInline
+                            field="qualificado"
+                            clienteId={effectiveClienteId}
+                            lead={l._detailLead}
+                            contact={l._contactRow}
+                            compact
+                            disabled={!effectiveClienteId}
+                            onSaved={fetchReportRows}
+                          />
+                        </td>
+                        <td className="p-3 align-top">
+                          <LeadComercialInline
+                            field="comprou"
+                            clienteId={effectiveClienteId}
+                            lead={l._detailLead}
+                            contact={l._contactRow}
+                            compact
+                            disabled={!effectiveClienteId}
+                            onSaved={fetchReportRows}
+                          />
+                        </td>
+                        <td className="p-3 align-top text-right">
+                          <LeadComercialInline
+                            field="valor"
+                            clienteId={effectiveClienteId}
+                            lead={l._detailLead}
+                            contact={l._contactRow}
+                            compact
+                            disabled={!effectiveClienteId}
+                            onSaved={fetchReportRows}
+                          />
+                        </td>
+                        <td className="p-3 align-top">
+                          <LeadAnalysisLabels
+                            clienteId={effectiveClienteId}
+                            contact={l._contactRow}
+                            lead={l._detailLead}
+                            catalog={analysisCatalog}
+                            disabled={!effectiveClienteId}
+                            onSaved={fetchReportRows}
+                          />
+                        </td>
                         {onShowLeadDetail && (
                           <td className="p-3">
                             {l._detailLead ? (
@@ -867,7 +1448,7 @@ export default function CrmRelatorioMeta({ onShowLeadDetail, effectiveClienteId:
                       </tr>
                       {expandedRowKey === l.rowKey && (
                         <tr className="border-b last:border-0 bg-muted/20">
-                          <td colSpan={onShowLeadDetail ? 9 : 8} className="p-4 align-top">
+                          <td colSpan={onShowLeadDetail ? 13 : 12} className="p-4 align-top">
                             {renderTrackingInfo(l)}
                           </td>
                         </tr>

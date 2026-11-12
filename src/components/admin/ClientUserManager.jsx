@@ -4,24 +4,40 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { Plus, Mail, Lock, User, X, Check, Copy, RefreshCw, Settings, LayoutDashboard, MessageSquare, FileText, Activity, ClipboardList } from 'lucide-react';
+import { supabase } from '@/lib/customSupabaseClient';
+import { createOrLinkClientUser } from '@/lib/adminClientUser';
+import { Plus, Mail, Lock, User, X, Check, Copy, RefreshCw, Settings, LayoutDashboard, MessageSquare, Activity, ClipboardList, BarChart2, Headphones } from 'lucide-react';
+import ClienteMetaCtwaAdminPanel from '@/components/crm/ClienteMetaCtwaAdminPanel';
+import MiniCrmConfigCopy from '@/components/admin/MiniCrmConfigCopy';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import {
+  CLIENT_PAGES as CLIENT_PAGE_DEFS,
+  allowedPagesValueToSave,
+  describeAllowedPages,
+  editorKeysFromAllowedPages,
+} from '@/lib/clientAllowedPages';
 
-// Definição das páginas disponíveis na área do cliente
-const CLIENT_PAGES = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'trafego', label: 'Cadastro Diário', icon: FileText },
-  { key: 'campaigns-status', label: 'Status das Campanhas', icon: ClipboardList },
-  { key: 'apexia', label: 'ApexIA', icon: MessageSquare },
-  { key: 'pgm-panel', label: 'Painel PGM', icon: Activity },
-  { key: 'crm', label: 'CRM', icon: Activity },
-];
+const PAGE_ICONS = {
+  dashboard: LayoutDashboard,
+  'campaigns-status': ClipboardList,
+  apexia: MessageSquare,
+  'pgm-panel': Activity,
+  crm: Activity,
+  atendimento: Headphones,
+};
+
+const CLIENT_PAGES = CLIENT_PAGE_DEFS.map((page) => ({
+  ...page,
+  icon: PAGE_ICONS[page.key] || LayoutDashboard,
+}));
 
 const ClientUserManager = ({ clientId, clientName, onClose }) => {
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.role === 'superadmin';
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
@@ -37,8 +53,9 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
   const [funnelStep2Name, setFunnelStep2Name] = useState('Visita Agendada');
   const [funnelStep3Name, setFunnelStep3Name] = useState('Visita Realizada');
   const [savingFunnel, setSavingFunnel] = useState(false);
+  const [showUntracked, setShowUntracked] = useState(false);
+  const [savingMiniCrm, setSavingMiniCrm] = useState(false);
   const { toast } = useToast();
-  const { signUp } = useAuth();
 
   // Buscar usuários vinculados ao cliente
   const fetchUsers = async () => {
@@ -63,20 +80,20 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
       // Inicializar permissões de páginas para cada usuário
       const permissions = {};
       (data || []).forEach(user => {
-        permissions[user.id] = user.allowed_pages || null; // null = todas as páginas
+        permissions[user.id] = editorKeysFromAllowedPages(user.allowed_pages, clientId);
       });
       setUserPagePermissions(permissions);
       console.log('Usuários encontrados:', data?.length || 0, data);
     }
   };
 
-  // Buscar dados do cliente (nomes das etapas do funil)
+  // Buscar dados do cliente (nomes das etapas do funil + Mini CRM)
   const fetchClientData = async () => {
     if (!clientId) return;
 
     const { data, error } = await supabase
       .from('clientes')
-      .select('funnel_step_2_name, funnel_step_3_name')
+      .select('funnel_step_2_name, funnel_step_3_name, mini_crm_show_untracked')
       .eq('id', clientId)
       .single();
 
@@ -85,6 +102,7 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     } else if (data) {
       setFunnelStep2Name(data.funnel_step_2_name || 'Visita Agendada');
       setFunnelStep3Name(data.funnel_step_3_name || 'Visita Realizada');
+      setShowUntracked(Boolean(data.mini_crm_show_untracked));
     }
   };
 
@@ -116,6 +134,33 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     }
   };
 
+  const handleSaveMiniCrmFlag = async (next) => {
+    if (!isSuperAdmin || !clientId) return;
+    setSavingMiniCrm(true);
+    const previous = showUntracked;
+    setShowUntracked(next);
+    try {
+      const { error } = await supabase
+        .from('clientes')
+        .update({ mini_crm_show_untracked: next })
+        .eq('id', clientId);
+      if (error) throw error;
+      toast({
+        title: next ? 'Leads não rastreados liberados' : 'Leads não rastreados ocultos',
+        description: 'Só o login da loja muda. A equipe continua vendo todos.',
+      });
+    } catch (error) {
+      setShowUntracked(previous);
+      toast({
+        title: 'Não salvou a liberação',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingMiniCrm(false);
+    }
+  };
+
   useEffect(() => {
     if (open && clientId) {
       fetchUsers();
@@ -136,136 +181,40 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     }
 
     setLoading(true);
-    
+
     try {
-      // 1. Criar usuário no Supabase Auth via signUp
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email.trim().toLowerCase(),
+      const result = await createOrLinkClientUser({
+        email: formData.email,
         password: formData.password,
-        options: {
-          data: {
-            role: 'cliente',
-            full_name: formData.full_name.trim() || clientName
-          }
-        }
+        fullName: formData.full_name.trim() || clientName,
+        clienteId: clientId,
       });
 
-      if (signUpError) {
-        toast({
-          title: 'Erro ao criar usuário',
-          description: signUpError.message,
-          variant: 'destructive'
-        });
-        setLoading(false);
-        return;
-      }
+      const title = result.linked_existing
+        ? result.already_linked
+          ? 'Login já vinculado'
+          : 'Login vinculado'
+        : 'Login criado com sucesso!';
 
-      if (!signUpData.user) {
-        toast({
-          title: 'Erro ao criar usuário',
-          description: 'Usuário não foi criado',
-          variant: 'destructive'
-        });
-        setLoading(false);
-        return;
-      }
+      const description = result.linked_existing
+        ? result.already_linked
+          ? `O e-mail ${formData.email} já estava vinculado ao cliente ${clientName}. A senha foi atualizada.`
+          : `O e-mail ${formData.email} já existia e foi vinculado ao cliente ${clientName}.`
+        : `Usuário ${formData.email} criado e vinculado ao cliente ${clientName}.`;
 
-      console.log('✅ Usuário criado no auth.users:', signUpData.user.id);
-      
-      // 2. Aguardar um pouco para o profile ser criado automaticamente pelo Supabase
-      // O Supabase cria o profile automaticamente via trigger, mas pode demorar um pouco
-      let profileExists = false;
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      while (!profileExists && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Verificar se o profile já existe
-        const { data: existingProfile, error: checkError } = await supabase
-          .from('profiles')
-          .select('id, role, cliente_id')
-          .eq('id', signUpData.user.id)
-          .single();
-        
-        if (existingProfile) {
-          profileExists = true;
-          console.log('✅ Profile encontrado:', existingProfile);
-        } else if (checkError && checkError.code !== 'PGRST116') {
-          // PGRST116 = não encontrado (esperado se ainda não criou)
-          console.warn('⚠️ Erro ao verificar profile:', checkError);
-        }
-        attempts++;
-      }
-      
-      if (!profileExists) {
-        console.log('⚠️ Profile não foi criado automaticamente, vamos criar manualmente');
-      }
+      toast({ title, description });
 
-      // 3. Criar ou atualizar profile para vincular ao cliente
-      // Se o profile não existir, criamos; se existir, atualizamos
-      const profileData = {
-        id: signUpData.user.id,
-        role: 'cliente',
-        cliente_id: clientId,
-        full_name: formData.full_name.trim() || clientName
-      };
-
-      // Tentar upsert (criar ou atualizar)
-      const { data: profileDataResult, error: profileError } = await supabase
-        .from('profiles')
-        .upsert(profileData, {
-          onConflict: 'id'
-        })
-        .select();
-
-      if (profileError) {
-        console.error('Erro ao vincular cliente (upsert):', profileError);
-        
-        // Se upsert falhou, tentar inserir diretamente
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert(profileData);
-
-        if (insertError) {
-          console.error('Erro ao inserir profile:', insertError);
-          toast({
-            title: 'Erro ao vincular cliente',
-            description: insertError.message || profileError.message,
-            variant: 'destructive'
-          });
-          setLoading(false);
-          return;
-        }
-      } else {
-        console.log('Profile criado/atualizado com sucesso:', profileDataResult);
-      }
-      
-      // 4. Aguardar um pouco mais para garantir que o update foi processado
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      toast({
-        title: 'Login criado com sucesso!',
-        description: `Usuário ${formData.email} criado e vinculado ao cliente ${clientName}.`,
-      });
-
-      // Limpar formulário
       setFormData({ email: '', password: '', full_name: '' });
       setShowCreateForm(false);
-      
-      // Recarregar lista de usuários - aguardar um pouco antes
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log('🔄 Recarregando lista de usuários...');
       await fetchUsers();
-      
     } catch (error) {
       toast({
-        title: 'Erro inesperado',
+        title: 'Erro ao criar usuário',
         description: error.message || 'Erro ao criar login',
-        variant: 'destructive'
+        variant: 'destructive',
       });
     }
-    
+
     setLoading(false);
   };
 
@@ -295,16 +244,10 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
 
   const handleOpenPagePermissions = (user) => {
     setEditingUser(user);
-    // Inicializar permissões: se null, todas as páginas estão permitidas (checkbox marcado)
-    // Se for array, apenas as páginas no array estão permitidas
-    const currentPermissions = userPagePermissions[user.id];
-    if (currentPermissions === null || currentPermissions === undefined) {
-      // Todas as páginas permitidas por padrão
-      setUserPagePermissions(prev => ({
-        ...prev,
-        [user.id]: CLIENT_PAGES.map(p => p.key)
-      }));
-    }
+    setUserPagePermissions(prev => ({
+      ...prev,
+      [user.id]: editorKeysFromAllowedPages(user.allowed_pages, clientId),
+    }));
   };
 
   const handleTogglePagePermission = (userId, pageKey) => {
@@ -326,10 +269,7 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
 
   const handleSavePagePermissions = async (userId) => {
     const permissions = userPagePermissions[userId];
-    
-    // Se todas as páginas estão selecionadas, salvar como null (acesso total)
-    const allPagesSelected = permissions && permissions.length === CLIENT_PAGES.length;
-    const valueToSave = allPagesSelected ? null : permissions;
+    const valueToSave = allowedPagesValueToSave(permissions);
 
     const { error } = await supabase
       .from('profiles')
@@ -352,28 +292,13 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     }
   };
 
-  const getPageLabel = (pageKey) => {
-    const page = CLIENT_PAGES.find(p => p.key === pageKey);
-    return page ? page.label : pageKey;
-  };
-
   const getUserAllowedPagesDisplay = (user) => {
-    const permissions = userPagePermissions[user.id];
-    if (permissions === null || permissions === undefined || (Array.isArray(permissions) && permissions.length === CLIENT_PAGES.length)) {
-      return 'Todas as páginas';
-    }
-    if (Array.isArray(permissions) && permissions.length === 0) {
-      return 'Nenhuma página';
-    }
-    if (Array.isArray(permissions)) {
-      return permissions.map(getPageLabel).join(', ');
-    }
-    return 'Todas as páginas';
+    return describeAllowedPages(user.allowed_pages, clientId);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Gerenciar Login de Cliente</DialogTitle>
           <DialogDescription>
@@ -384,9 +309,14 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsList className={`grid w-full mb-4 ${isSuperAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
             <TabsTrigger value="users">Usuários</TabsTrigger>
-            <TabsTrigger value="funnel">Configurações do Funil</TabsTrigger>
+            <TabsTrigger value="meta-whatsapp" className="gap-1">
+              <BarChart2 className="h-3.5 w-3.5 shrink-0" />
+              Meta WhatsApp
+            </TabsTrigger>
+            <TabsTrigger value="funnel">Funil</TabsTrigger>
+            {isSuperAdmin ? <TabsTrigger value="mini-crm">Mini CRM</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent value="users" className="space-y-4">
@@ -587,6 +517,10 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
             </div>
           </TabsContent>
 
+          <TabsContent value="meta-whatsapp" className="space-y-4 py-1">
+            <ClienteMetaCtwaAdminPanel clienteId={clientId} compact />
+          </TabsContent>
+
           <TabsContent value="funnel" className="space-y-6 py-2">
             <div className="space-y-4">
               <div className="space-y-2">
@@ -628,6 +562,29 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
               </Button>
             </div>
           </TabsContent>
+
+          {isSuperAdmin ? (
+            <TabsContent value="mini-crm" className="space-y-4 py-2">
+              <MiniCrmConfigCopy key={clientId} clientId={clientId} clientName={clientName} />
+              <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                <div className="space-y-1">
+                  <Label htmlFor="mini-crm-show-untracked" className="text-sm font-medium">
+                    Mostrar leads não rastreados no Mini CRM
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Libera para o login da loja. Sem isso, a loja só vê Meta Ads e outras origens.
+                    A equipe do Planeje continua vendo os não rastreados.
+                  </p>
+                </div>
+                <Switch
+                  id="mini-crm-show-untracked"
+                  checked={showUntracked}
+                  disabled={savingMiniCrm}
+                  onCheckedChange={handleSaveMiniCrmFlag}
+                />
+              </div>
+            </TabsContent>
+          ) : null}
         </Tabs>
 
         <div className="flex justify-end gap-2 pt-4 border-t">
