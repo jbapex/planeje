@@ -1,6 +1,5 @@
 import { canUseGestorIa } from './gestorIaAccess';
 import { normalizeRoutineWeek, selectRoutineLeads } from '@/lib/gestorIaRoutine';
-import { periodBoundsSaoPaulo } from '@/lib/rastreamentoPeriod';
 import { shiftDate } from '@/lib/trafficWeeklyReview';
 
 function requireAccess(profile, modules) {
@@ -46,7 +45,7 @@ export async function loadRoutineSummary(db, { profile, modules, clientIds, week
     let offset = 0;
     for (;;) {
       const { data, error } = await db.from('traffic_weekly_reviews')
-        .select('id,client_id,week_start,kind,metric_mode,campaign_metrics,investment,contacts,results,revision,finalized_at,updated_at')
+        .select('id,client_id,week_start,kind,metric_mode,campaign_metrics,investment,contacts,results,revision,finalized_at,updated_at,fill_origin,validation_state')
         .in('client_id', clientIds.slice(start, start + 100)).eq('week_start', weekStart).eq('kind', 'review')
         .order('id').range(offset, offset + 499);
       if (error || !Array.isArray(data)) throw new Error('Não foi possível consultar o preenchimento desta semana.');
@@ -69,18 +68,23 @@ export async function loadRoutineLeads(db, { profile, modules, clientId, weekSta
     if (error || data !== true) throw new Error('Acesso aos leads deste cliente indisponível.');
   };
   await authorize();
-  const bounds = periodBoundsSaoPaulo(weekStart, shiftDate(weekStart, 6));
-  const contacts = [];
-  const { data: config, error: configError } = await db.from('mini_crm_config').select('statuses,columns').eq('cliente_id', clientId).maybeSingle().abortSignal(signal);
-  if (configError) throw new Error('Não foi possível conferir os campos de agendamento.');
-  for (;;) {
-    const { data, error } = await db.from('cliente_whatsapp_contact').select(CONTACT_FIELDS).eq('cliente_id', clientId)
-      .gte('first_seen_at', bounds.sinceIso).lte('first_seen_at', bounds.untilIso)
-      .order('first_seen_at').order('id').range(contacts.length, contacts.length + 499).abortSignal(signal);
-    if (error || !Array.isArray(data)) throw new Error('Não foi possível consultar os leads. Tente novamente.');
-    if (!data.length) break;
-    contacts.push(...data);
-  }
+  const { data, error } = await db.rpc('gestor_ia_routine_leads_data', { p_client: clientId, p_week: weekStart }).abortSignal(signal);
+  if (error || !Array.isArray(data?.contacts) || !Array.isArray(data?.messages)) throw new Error('Não foi possível consultar os leads e as evidências de agendamento. Tente novamente.');
   await authorize();
-  return selectRoutineLeads(contacts, { clientId, weekStart, rows, niche, config, appointmentsOnly });
+  return selectRoutineLeads(data.contacts, { clientId, weekStart, rows, niche: data.niche || niche, config: data.config, appointmentsOnly, messages: data.messages });
+}
+
+/** O contato completo só é consultado quando a pessoa abre a ficha. */
+export async function loadRoutineLeadContact(db, { profile, modules, clientId, contactId, signal }) {
+  requireAccess(profile, modules);
+  if (modules.rastreamento !== true || !clientId || !contactId) throw new Error('Acesso ao contato indisponível.');
+  const authorize = async () => {
+    const { data, error } = await db.rpc('central_trafego_can_access_client', { p_cliente_id: clientId }).abortSignal(signal);
+    if (error || data !== true) throw new Error('Acesso ao contato indisponível.');
+  };
+  await authorize();
+  const { data, error } = await db.from('cliente_whatsapp_contact').select(CONTACT_FIELDS).eq('cliente_id', clientId).eq('id', contactId).maybeSingle().abortSignal(signal);
+  if (error || !data || data.cliente_id !== clientId || data.id !== contactId) throw new Error('Não foi possível abrir este contato.');
+  await authorize();
+  return data;
 }

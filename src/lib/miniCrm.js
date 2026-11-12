@@ -963,7 +963,7 @@ export function destinationStatusKey(statuses, name) {
   if (foldMiniCrm(name) !== 'agendado') return '';
   const found = (statuses || []).find((status) => {
     const label = foldMiniCrm(`${status.label} ${status.key}`);
-    return /agendad/.test(label) && !/reagend/.test(label);
+    return isAppointmentStatus(label) && !/reagend/.test(label);
   });
   return found?.key || '';
 }
@@ -994,9 +994,14 @@ export function attemptDestinationOptions(statuses) {
 }
 
 /** Status de compromisso marcado: rótulo com "agendad" (Agendado, Visita Agendada, Reagendado). */
+export function isAppointmentStatus(value) {
+  const label = foldMiniCrm(value);
+  return /\b(?:re)?agendad[oa]s?\b/.test(label) && !/\b(?:nao|sem|desmarc\w*|cancel\w*)\b/.test(label);
+}
+
 export function appointmentStatusKeys(statuses) {
   return (statuses || [])
-    .filter((status) => /agendad/.test(foldMiniCrm(status.label || status.key)) && !isFollowStatus(status.key, statuses))
+    .filter((status) => isAppointmentStatus(status.label || status.key) && !isFollowStatus(status.key, statuses))
     .map((status) => status.key);
 }
 

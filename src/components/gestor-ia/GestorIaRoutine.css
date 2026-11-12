@@ -82,3 +82,7 @@
   .gia-routine .tw-sheet-tools > .tw-hint:last-child { display: none; }
   .gia-routine .tw-sheet-leads > span { flex-basis: 100%; }
 }
+.gestor-ia .gia-routine-ai-badge { width: fit-content; margin: 0; border: 1px solid #e5dcfc; border-radius: 999px; padding: 7px 12px; background: #f6f1ff; color: #6d44b9; font-size: 12px; font-weight: 500; }
+.gestor-ia .gia-routine-state.is-ai { background: #f2ecfc; color: #7952ad; }
+.gestor-ia .gia-routine-crm-alert { display: grid; gap: 3px; max-width: 260px; color: #9a621c; font-size: 12px; }
+.gestor-ia .gia-routine-crm-alert small { color: #8c754f; font-size: 11px; line-height: 1.45; }

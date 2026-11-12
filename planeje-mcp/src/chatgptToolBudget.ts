@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 /** Explicit OAuth catalog. This is product scope, not an authorization boundary.
  * The previous 53-tool catalog omitted three valid read tools. Preserve it and
  * add five traffic reads. No official fixed 55-tool limit is assumed.
+ * Also exposes five Gestor IA routine tools with their own authorization policies.
  */
 export const CHATGPT_TOOL_ALLOWLIST = [
   'criar_demanda_caixa',
@@ -42,6 +43,11 @@ export const CHATGPT_TOOL_ALLOWLIST = [
   'ver_rotina_semanal',
   'ver_hoje_trafego',
   'ver_revisao_semanal',
+  'gestor_ia_listar_painel',
+  'gestor_ia_ler_semana',
+  'gestor_ia_salvar_semana',
+  'gestor_ia_sugerir_acao',
+  'gestor_ia_ver_leads',
   'listar_leads_rastreamento',
   'ver_mensagens_rastreamento',
   'consultar_historico_cliente',

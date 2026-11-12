@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { buildRoutineSheetUrl, campaignComparison, currency, displayDate, displayDay, displayStamp, displayWeek, groupRoutineClients, lastClosedWeek, REVIEW_AUTOSAVE_MS, reviewAutosaveLabel, reviewAutosavePlan, reviewDraft, reviewDraftSignature, reviewFillView, reviewMetrics, reviewPayload, reviewState, routineRows, shiftDate, WEEKDAYS, automaticRoutineDrafts, automaticRoutineError } from '@/lib/trafficWeeklyReview';
+import { buildRoutineSheetUrl, campaignComparison, currency, displayDate, displayDay, displayStamp, displayWeek, groupRoutineClients, lastClosedWeek, REVIEW_AUTOSAVE_MS, reviewAutosaveLabel, reviewAutosavePlan, reviewDraft, reviewDraftSignature, reviewChangeLabels, reviewFillView, reviewMetrics, reviewPayload, reviewState, routineRows, shiftDate, WEEKDAYS, automaticRoutineDrafts, automaticRoutineError } from '@/lib/trafficWeeklyReview';
 import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
 import { nextMonday, nextReportDue } from '@/lib/trafegoRotina';
 import { invalidateCentralHojeCache } from '@/lib/trafegoHojeCache';
@@ -332,6 +332,8 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
   const [tasks, setTasks] = useState([]); const [taskError, setTaskError] = useState('');
   const [audit, setAudit] = useState(null); const [auditMore, setAuditMore] = useState(false); const [auditBusy, setAuditBusy] = useState(false); const [auditError, setAuditError] = useState('');
   const optimization = review.kind === 'optimization';
+  const aiReview = review.fill_origin === 'ia';
+  const showReviewControls = !sheetView || aiReview;
   const client = board.clients.find((c) => c.id === review.client_id);
   const readonly = !review.can_edit;
   readonlyRef.current = readonly;
@@ -381,7 +383,7 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
     return () => { stop = true; sub.subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
-    if (draft.action_mode !== 'link' || readonly || sheetView) return;
+    if (draft.action_mode !== 'link' || readonly || !showReviewControls) return;
     let cancelled = false;
     (async () => {
       const found = []; let from = 0;
@@ -395,7 +397,7 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
       if (!cancelled) { setTasks(found); setTaskError(''); }
     })().catch((e) => !cancelled && setTaskError(e.message));
     return () => { cancelled = true; };
-  }, [draft.action_mode, readonly, review.client_id, review.task_id, Boolean(sheetView)]);
+  }, [draft.action_mode, readonly, review.client_id, review.task_id, showReviewControls]);
   const persistNow = async ({ silent = false, finalize = false } = {}) => {
     if (discarded.current) return { ok: true, skipped: true };
     const started = Date.now();
@@ -549,7 +551,7 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
   const loadAudit = async (nextPage = false) => {
     if (!recordId.current || auditBusy || (audit && !nextPage)) return;
     setAuditBusy(true);
-    const base = () => supabase.from('traffic_weekly_history').select('id,event,occurred_at,actor_id,snapshot,actor:profiles!actor_id(full_name)').eq('review_id', recordId.current);
+    const base = () => supabase.from('traffic_weekly_history').select('id,event,occurred_at,actor_id,actor_type,snapshot,actor:profiles!actor_id(full_name)').eq('review_id', recordId.current);
     try {
       if (!nextPage) {
         const [latest, earliest] = await Promise.all([
@@ -606,6 +608,8 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
     </header>
     <div className="tw-dialog-body tw-form">
       {readonly && <p className="tw-hint">Somente leitura</p>}
+      {aiReview && !finalizedAt && <p className="gia-routine-ai-badge" role="status">Preenchido pela IA, aguardando validação</p>}
+      {review.ai_suggestion && <div className="tw-box"><strong>Sugestão da IA</strong><p>{review.ai_suggestion}</p></div>}
       {!readonly && finalizedAt && <p className="tw-hint">Concluída · {displayDate(finalizedAt)}. Pode editar — ao digitar grava e reabre até concluir de novo.</p>}
       {optimization ? <><details className="tw-box"><summary>Campanhas conferidas</summary><div className="mt-3"><TrafficCampaignMetrics contextOnly rows={draft.campaign_metrics} accounts={client?.accounts || []} readonly={readonly || busy} onChange={(rows) => set('campaign_metrics', rows)} weekStart={review.week_start} {...sheetProps} /></div></details></> : <>
 
@@ -618,7 +622,7 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
       <p className="tw-hint">Custo por resultado: <strong>{currency(metrics.costPerResult)}</strong> · Conversão desses contatos: <strong>{metrics.conversionRate == null ? 'Não informada' : `${metrics.conversionRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}</strong></p>
         </>}
       </>}
-      {!sheetView && <><label className="tw-box">{optimization ? 'Ajustes feitos' : 'Análise'}<textarea rows={2} maxLength={10000} disabled={readonly || busy} value={draft.analysis} onChange={(e) => set('analysis', e.target.value)} placeholder="O que mudou e o que fazer agora?" /></label>
+      {showReviewControls && <><label className="tw-box">{optimization ? 'Ajustes feitos' : 'Análise'}<textarea aria-label="Análise da revisão" rows={2} maxLength={10000} disabled={readonly || busy} value={draft.analysis} onChange={(e) => set('analysis', e.target.value)} placeholder="O que mudou e o que fazer agora?" /></label>
       <div className="tw-when" aria-label="Datas do preenchimento">
         <p>{fillView.headline}</p>
         {fillView.lines.length > 1 ? <details><summary>Alterações</summary><ul>{fillView.lines.map((line) => <li key={line.id}>{line.text}</li>)}</ul></details> : null}
@@ -638,11 +642,31 @@ export function TrafficWeeklyReviewEditor({ review, previous, board, clients = [
         )}
       </div>
       <details className="tw-box"><summary>Observações</summary><label className="mt-2"><textarea rows={2} maxLength={2000} disabled={readonly || busy} value={draft.data_note} onChange={(e) => set('data_note', e.target.value)} placeholder="Ex.: investimento e contatos do Meta/Google; agendamentos conferidos no CRM." /></label></details></>}
-      <details className="tw-box" onToggle={(e) => e.currentTarget.open && loadAudit()}><summary>Histórico deste registro</summary>{auditError && <p role="alert">{auditError}</p>}{audit?.map((event) => <div className="tw-audit" key={event.id}><strong>{({ created: 'Revisão criada', draft: 'Rascunho salvo', finalized: 'Análise finalizada' })[event.event]}</strong><span>{event.actor?.full_name || board.team.find((p) => p.id === event.actor_id)?.full_name || (event.actor_id ? 'Integrante da equipe' : 'Rotina automática')} · {new Date(event.occurred_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</span>{event.snapshot.after && <details><summary>Ver conteúdo registrado</summary><p className="tw-text">{event.snapshot.after.analysis || 'Análise ainda não preenchida.'}</p><p>Investimento: {currency(event.snapshot.after.investment)} · Contatos: {event.snapshot.after.contacts ?? 'não informado'} · {review.result_label}: {event.snapshot.after.results ?? 'não informado'}</p></details>}</div>)}{auditMore && <Button variant="ghost" size="sm" disabled={auditBusy} onClick={() => loadAudit(true)}>Ver alterações anteriores</Button>}</details>
+      <details className="tw-box" onToggle={(e) => e.currentTarget.open && loadAudit()}>
+        <summary>Histórico deste registro</summary>
+        {auditError && <p role="alert">{auditError}</p>}
+        {audit?.map((event) => {
+          const after = event.snapshot?.after;
+          const actorName = event.actor?.full_name || board.team.find((person) => person.id === event.actor_id)?.full_name;
+          const actorLabel = event.actor_type === 'ia' ? `IA (Neuro)${actorName ? ` · em nome de ${actorName}` : ''}` : actorName || (event.actor_id ? 'Integrante da equipe' : 'Rotina automática');
+          const changes = reviewChangeLabels(event.snapshot?.before, after);
+          const title = event.snapshot?.change_type === 'suggestion' ? 'Sugestão da IA salva' : ({ created: 'Revisão criada', draft: 'Rascunho salvo', finalized: 'Análise finalizada' })[event.event];
+          return <div className="tw-audit" key={event.id}>
+            <strong>{title}</strong><span>{actorLabel} · {displayStamp(event.occurred_at)}</span>
+            {changes.length > 0 && <p>Alterações: {changes.join(', ')}</p>}
+            {after && <details><summary>Ver conteúdo registrado</summary>
+              <p className="tw-text">{after.analysis || 'Análise ainda não preenchida.'}</p>
+              {after.ai_suggestion && <p className="tw-text">Sugestão da IA: {after.ai_suggestion}</p>}
+              <p>Investimento: {currency(after.investment)} · Contatos: {after.contacts ?? 'não informado'} · {review.result_label}: {after.results ?? 'não informado'}</p>
+            </details>}
+          </div>;
+        })}
+        {auditMore && <Button variant="ghost" size="sm" disabled={auditBusy} onClick={() => loadAudit(true)}>Ver alterações anteriores</Button>}
+      </details>
     </div>
     {discard ? <footer><span className={`tw-autosave is-${auto.state}`} role="status">{autoLabel || 'Há alterações que ainda não gravaram.'}</span><Button variant="ghost" onClick={() => setDiscard(false)}>Continuar editando</Button><Button variant="destructive" onClick={() => { discarded.current = true; onClose(); }}>Descartar alterações</Button></footer> : <footer>
       <span className={`tw-autosave is-${auto.state}`} role="status">{autoLabel}</span>
-      <Button variant="ghost" onClick={requestClose} disabled={busy}>{sheetView ? 'Voltar aos clientes' : readonly ? 'Fechar' : 'Cancelar'}</Button>{!readonly && <><Button onClick={() => enqueueSave({ silent: false, finalize: false })} disabled={busy}>Salvar</Button>{!sheetView && <Button variant="ghost" onClick={() => enqueueSave({ silent: false, finalize: true })} disabled={busy || (!optimization && review.week_start > lastClosedWeek(board.today))} title={!optimization && review.week_start > lastClosedWeek(board.today) ? 'Disponível após encerrar a semana' : undefined}>{busy ? 'Salvando…' : optimization ? 'Concluir otimização' : 'Concluir revisão'}</Button>}</>}
+      <Button variant="ghost" onClick={requestClose} disabled={busy}>{sheetView ? 'Voltar aos clientes' : readonly ? 'Fechar' : 'Cancelar'}</Button>{!readonly && <><Button onClick={() => enqueueSave({ silent: false, finalize: false })} disabled={busy}>Salvar</Button>{showReviewControls && <Button variant="ghost" onClick={() => enqueueSave({ silent: false, finalize: true })} disabled={busy || (!optimization && review.week_start > lastClosedWeek(board.today))} title={!optimization && review.week_start > lastClosedWeek(board.today) ? 'Disponível após encerrar a semana' : undefined}>{busy ? 'Salvando…' : sheetView && aiReview ? 'Validar' : optimization ? 'Concluir otimização' : 'Concluir revisão'}</Button>}</>}
     </footer>}
   </div>;
 }

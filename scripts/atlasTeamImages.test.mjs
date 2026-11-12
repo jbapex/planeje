@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {uploadChatImages} from '../src/lib/atlasChatImages.js';
+let uploads=0,session={access_token:'fixture'},requests=[];
+globalThis.__imageTeam={uploadChatImages,supabase:{auth:{getSession:async()=>({data:{session}})},storage:{from(){return {async upload(){uploads++;return {error:null};}};}}}};
+globalThis.fetch=async(url,options)=>{assert.equal(url,'https://example.invalid/functions/atlas-team-chat');requests.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true,state:'queued'})};};
+const source=readFileSync(new URL('../src/lib/atlasTeam.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replaceAll('import.meta.env','({})');
+const api=await import('data:text/javascript;base64,'+Buffer.from("const {supabase,uploadChatImages}=globalThis.__imageTeam;const supabaseAnonKey='fixture',getSupabaseFunctionsBaseUrl=()=> 'https://example.invalid/functions';\n"+source).toString('base64'));
+await api.teamReply({thread:{id:'t',revision:1},message:'Texto',requestId:'r'});assert.equal(uploads,0);assert.equal('images' in requests[0],false);
+const file=Object.assign(new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'}),{name:'captura.png'});
+await assert.rejects(api.teamReply({thread:{id:'t',revision:1},message:'Confira',requestId:'r2',files:[{id:'f',file}]}),/Entre novamente/);assert.equal(uploads,0);
+session={access_token:'fixture',user:{id:'person'}};
+await api.teamReply({thread:{id:'t',revision:1},message:'Confira',requestId:'r2',files:[{id:'f',file}]});assert.equal(uploads,1);assert.equal(requests[1].images[0].path,'t/person/r2/f.png');assert.equal(requests[1].images[0].size,8);assert.equal('file' in requests[1].images[0],false);
+console.log('Atlas reply: text compatibility, session-bound upload and metadata-only enqueue passed');

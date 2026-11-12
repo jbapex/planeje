@@ -1,0 +1,4 @@
+# Optional project connector only when no client connection already exists.
+# Copy to config.toml in a trusted project; keep credentials outside Git.
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"

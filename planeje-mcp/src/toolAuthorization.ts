@@ -29,7 +29,8 @@ export const TOOL_POLICIES: Readonly<Record<string, ToolPolicy>> = Object.freeze
   ...['ver_campanhas_pagas', 'listar_status_campanhas', 'listar_contas_meta_cliente', 'ver_rotina_semanal',
     'ver_revisao_semanal', 'ver_hoje_trafego', 'listar_contas_google_ads', 'ver_relatorio_trafego',
     'consultar_trafego', 'ver_painel_trafego', 'consultar_trafego_meta',
-    'comparar_periodos_meta'].map(name => [name, { module: 'paid_traffic' }]),
+    'comparar_periodos_meta', 'gestor_ia_listar_painel', 'gestor_ia_ler_semana',
+    'gestor_ia_salvar_semana', 'gestor_ia_sugerir_acao', 'gestor_ia_ver_leads'].map(name => [name, { module: 'paid_traffic' }]),
   ...['criar_campanha_paga', 'atualizar_campanha_paga', 'deletar_campanha_paga',
     'criar_status_campanha', 'deletar_status_campanha', 'vincular_conta_meta',
     'atualizar_conta_meta'].map(name => [name, { module: 'paid_traffic', role: 'admin' }]),
@@ -58,6 +59,7 @@ export function denyTool(access: ModuleAccess, name: string, args: Record<string
     if (denied) return denied;
   }
   if (name === 'resumo_cobertura_mensal') return denyModule(access, 'projects');
+  if (name === 'gestor_ia_ver_leads') return denyModule(access, 'rastreamento');
   if (name === 'listar_equipe' && args.papel && args.papel !== 'equipe' && !access.is_admin) {
     return 'Somente gestores podem listar perfis fora da equipe.';
   }

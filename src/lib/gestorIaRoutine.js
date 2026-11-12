@@ -4,6 +4,14 @@ import { periodBoundsSaoPaulo } from './rastreamentoPeriod.js';
 import { shiftDate } from './trafficWeeklyReview.js';
 import { catalogFromCampaigns } from './trafficSheetCatalog.js';
 import { buildAdsetSpendIndex } from './trafficSheetMetaSpend.js';
+import { detectRoutineAppointment, hasAppointmentNegation, maskRoutinePhone, maskRoutineText } from './gestorIaRoutineSignals.js';
+export { maskRoutinePhone, maskRoutineText } from './gestorIaRoutineSignals.js';
+
+export function routineValidationState(review) {
+  if (review?.finalized_at) return 'validado';
+  if (review?.validation_state === 'rascunho_ia') return 'rascunho_ia';
+  return review?.revision > 0 ? 'em_revisao' : 'a_preencher';
+}
 
 export function normalizeRoutineWeek(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return '';
@@ -46,7 +54,7 @@ function contactTarget(contact) {
     adset: id(ad.adset?.id || ad.adset_id || tracking.adset_id) };
 }
 
-export function selectRoutineLeads(contacts, { clientId, weekStart, rows = [], config, niche, appointmentsOnly = false }) {
+export function selectRoutineLeads(contacts, { clientId, weekStart, rows = [], config, niche, appointmentsOnly = false, messages = [] }) {
   const week = normalizeRoutineWeek(weekStart);
   if (!week || week !== weekStart) throw new Error('Escolha uma semana válida.');
   const bounds = periodBoundsSaoPaulo(week, shiftDate(week, 6));
@@ -54,21 +62,43 @@ export function selectRoutineLeads(contacts, { clientId, weekStart, rows = [], c
   const scheduledStatuses = new Set(appointmentStatusKeys(setup.statuses));
   const targets = rows.map(rowTarget).filter(Boolean);
   const leads = [];
+  const unmatchedLeads = [];
   const seen = new Set();
+  const messagesByContact = new Map();
+  for (const message of messages) {
+    if (message.cliente_id && message.cliente_id !== clientId) continue;
+    const list = messagesByContact.get(message.contact_id) || [];
+    list.push(message);
+    messagesByContact.set(message.contact_id, list);
+  }
   let unattributed = 0;
   for (const contact of contacts || []) {
     const first = Date.parse(contact.first_seen_at);
     if (!contact.id || seen.has(contact.id) || contact.cliente_id !== clientId || !Number.isFinite(first)
-      || first < Date.parse(bounds.sinceIso) || first > Date.parse(bounds.untilIso) || !isMetaAdsContactForStats(contact)) continue;
+      || first < Date.parse(bounds.sinceIso) || first > Date.parse(bounds.untilIso)) continue;
     seen.add(contact.id);
     const target = contactTarget(contact);
-    if (!target.account || !target.campaign || !target.adset) unattributed += 1;
-    if (!targets.some((row) => row.account === target.account && row.campaign === target.campaign && (!row.adset || row.adset === target.adset))) continue;
+    const meta = isMetaAdsContactForStats(contact);
+    const incomplete = !target.account || !target.campaign || !target.adset;
+    if (meta && incomplete) unattributed += 1;
+    const matched = meta && !incomplete && (!rows.length || targets.some((row) => row.account === target.account && row.campaign === target.campaign && (!row.adset || row.adset === target.adset)));
+    if (meta && !incomplete && !matched) continue;
     const mini = readMiniCrm(contact.mini_crm);
-    const appointment = appointmentDay(mini, setup.columns);
-    const scheduled = Boolean(appointment || scheduledStatuses.has(mini.status));
-    if (appointmentsOnly && !scheduled) continue;
-    leads.push({ ...contact, routineAppointment: appointment, routineScheduled: scheduled });
+    const status = setup.statuses.find((item) => item.key === mini.status);
+    const negated = hasAppointmentNegation(`${mini.status || ''} ${status?.label || ''}`);
+    const appointment = negated ? '' : appointmentDay(mini, setup.columns);
+    const crmScheduled = !negated && Boolean(appointment || scheduledStatuses.has(mini.status));
+    const conversation = detectRoutineAppointment(messagesByContact.get(contact.id) || []);
+    const scheduled = crmScheduled || Boolean(conversation);
+    if (matched && appointmentsOnly && !scheduled) continue;
+    const safe = { id: contact.id, cliente_id: clientId, sender_name: maskRoutineText(mini.contato_nome || contact.sender_name || 'Lead sem nome'),
+      phone: maskRoutinePhone(contact.phone || contact.from_jid), first_seen_at: contact.first_seen_at, origin_source: contact.origin_source ? maskRoutineText(contact.origin_source) : null,
+      qualificado: contact.qualificado ?? null, comprou: contact.comprou ?? null,
+      routineAppointment: appointment || conversation?.date || '', routineScheduled: scheduled,
+      routineScheduleSource: crmScheduled ? 'crm' : conversation ? 'conversation' : null,
+      routineCrmOutdated: !crmScheduled && Boolean(conversation),
+      routineMatchReason: matched ? '' : meta ? 'Identificação Meta incompleta' : 'Origem manual, Google ou outra plataforma' };
+    (matched ? leads : unmatchedLeads).push(safe);
   }
-  return { leads, unattributed, unresolvedRows: rows.length - targets.length };
+  return { leads, unmatchedLeads, unattributed, unresolvedRows: rows.length - targets.length };
 }

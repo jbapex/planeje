@@ -4,7 +4,7 @@ import { ArrowUpRight, CalendarDays, ChevronRight, RefreshCw, Search, Table2, Us
 import { supabase } from '@/lib/customSupabaseClient';
 import { CAMPAIGN_NUMBERS, campaignTotals, currency, displayDate, displayWeek, lastClosedWeek, saoPauloDate, shiftDate } from '@/lib/trafficWeeklyReview';
 import { filledSheetRows } from '@/lib/trafficSheetGrid';
-import { normalizeRoutineWeek, routineSavedCatalog, routineSavedSpend } from '@/lib/gestorIaRoutine';
+import { normalizeRoutineWeek, routineSavedCatalog, routineSavedSpend, routineValidationState } from '@/lib/gestorIaRoutine';
 import { TrafficWeeklyReviewEditor } from '@/components/traffic/TrafficWeeklyRoutine';
 import { useGestorRead } from './gestorIaReads';
 import { loadGestorMetrics } from './gestorIaData';
@@ -98,8 +98,14 @@ export default function GestorIaRoutine({ clients, loading, error: portfolioErro
   const summaryKnown = Array.isArray(summaryRead.data);
   const clientsWithRecords = new Set(records.filter((record) => filledSheetRows(record.campaign_metrics).length || record.investment != null || record.revision > 0).map((record) => record.client_id));
   const summary = campaignTotals(records.flatMap((review) => filledSheetRows(review.campaign_metrics)));
-  const displayed = (board?.clients || []).filter((client) => (!search || client.empresa.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR')))
-    && (status === 'all' || clientsWithRecords.has(client.id) === (status === 'filled')));
+  const displayed = (board?.clients || []).filter((client) => {
+    if (search && !client.empresa.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR'))) return false;
+    const state = routineValidationState(records.find((record) => record.client_id === client.id));
+    if (status === 'all') return true;
+    if (status === 'ai') return state === 'rascunho_ia';
+    if (status === 'validated') return state === 'validado';
+    return clientsWithRecords.has(client.id) === (status === 'filled');
+  });
   return <section className="gia-routine">
     <header className="gia-header"><div className="gia-title"><h1>Rotina semanal</h1>{!clientId && board && <span className="gia-title-count">{board.clients.length}</span>}</div>
       {!clientId && <div className="gia-header-actions"><button className="gia-action-link" type="button" disabled={loading || boardRead.refreshing || summaryRead.refreshing} onClick={() => { void boardRead.reload(); void summaryRead.reload(); }}><RefreshCw size={16} aria-hidden="true" />Atualizar lista</button></div>}
@@ -113,13 +119,15 @@ export default function GestorIaRoutine({ clients, loading, error: portfolioErro
         <div className="gia-routine-filters"><label className="gia-search"><Search aria-hidden="true" /><input aria-label="Buscar cliente da rotina" placeholder="Buscar cliente" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <label className="gia-filter-select"><CalendarDays aria-hidden="true" /><span className="sr-only">Escolher data da semana</span><input type="date" aria-label="Escolher data da semana" value={week} max={today} onChange={(event) => { const selected = normalizeRoutineWeek(event.target.value); if (selected) choose('', selected); }} /></label>
           <span className="gia-caption">{displayWeek(week)}</span>
-          <div className="gia-routine-tabs" aria-label="Situação da planilha">{[['all', 'Todos'], ['empty', 'A preencher'], ['filled', 'Preenchidos']].map(([key, label]) => <button type="button" key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}</div>
+          <div className="gia-routine-tabs" aria-label="Situação da planilha">{[['all', 'Todos'], ['empty', 'A preencher'], ['ai', 'Rascunho da IA'], ['filled', 'Preenchidos'], ['validated', 'Validados']].map(([key, label]) => <button type="button" key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}</div>
         </div>
         {boardRead.error && <p className="gia-notice" role="status">Não foi possível atualizar. Exibindo a consulta anterior.</p>}
         {summaryRead.error && <p className="gia-notice" role="alert">Não foi possível consultar o preenchimento desta semana. Tente atualizar a lista.</p>}
         <div className="gia-routine-clients"><table><thead><tr><th scope="col">Cliente</th>{canViewField?.('responsavel') === true && <th scope="col">Gestor</th>}<th scope="col">Planilha da semana</th><th scope="col">Investimento</th><th scope="col">Agendamentos</th><th scope="col"><span className="sr-only">Abrir</span></th></tr></thead><tbody>
           {displayed.map((client) => { const record = records.find((item) => item.client_id === client.id); const total = campaignTotals(filledSheetRows(record?.campaign_metrics));
-            return <tr key={client.id}><td><button type="button" className="gia-routine-client" onClick={() => choose(client.id)}><GestorIaClientAvatar client={client} /><span>{client.empresa}<small>{client.accounts.length} conta(s)</small></span></button></td>{canViewField?.('responsavel') === true && <td>{client.manager_name || client.gestorName || 'Não informado'}</td>}<td><span className={`gia-routine-state${summaryKnown && clientsWithRecords.has(client.id) ? ' is-filled' : ''}`}>{!summaryKnown ? summaryRead.error ? 'Indisponível' : 'Consultando…' : clientsWithRecords.has(client.id) ? record?.finalized_at ? 'Revisada' : 'Em preenchimento' : 'A preencher'}</span></td><td>{summaryKnown ? currency(record?.metric_mode === 'client' ? record.investment : total.spend) : '—'}</td><td>{summaryKnown ? total.appointments ?? '—' : '—'}</td><td><button type="button" className="gia-icon-button" aria-label={`Abrir semana de ${client.empresa}`} onClick={() => choose(client.id)}><ChevronRight aria-hidden="true" /></button></td></tr>;
+            const state = routineValidationState(record);
+            const label = { a_preencher: 'A preencher', rascunho_ia: 'Rascunho da IA', em_revisao: 'Em revisão', validado: 'Validado' }[state];
+            return <tr key={client.id}><td><button type="button" className="gia-routine-client" onClick={() => choose(client.id)}><GestorIaClientAvatar client={client} /><span>{client.empresa}<small>{client.accounts.length} conta(s)</small></span></button></td>{canViewField?.('responsavel') === true && <td>{client.manager_name || client.gestorName || 'Não informado'}</td>}<td><span className={`gia-routine-state${state === 'rascunho_ia' ? ' is-ai' : summaryKnown && clientsWithRecords.has(client.id) ? ' is-filled' : ''}`}>{!summaryKnown ? summaryRead.error ? 'Indisponível' : 'Consultando…' : label}</span></td><td>{summaryKnown ? currency(record?.metric_mode === 'client' ? record.investment : total.spend) : '—'}</td><td>{summaryKnown ? total.appointments ?? '—' : '—'}</td><td><button type="button" className="gia-icon-button" aria-label={`Abrir semana de ${client.empresa}`} onClick={() => choose(client.id)}><ChevronRight aria-hidden="true" /></button></td></tr>;
           })}
         </tbody></table>{!displayed.length && <div className="gia-empty"><p>{board.clients.length ? 'Nenhum cliente neste filtro.' : 'Nenhum cliente disponível na sua carteira.'}</p></div>}</div>
         <p className="gia-caption gia-routine-note">Semana de {displayDate(week)} · segunda a domingo</p>

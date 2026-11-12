@@ -52,4 +52,4 @@ React 18/JSX, Vite 4, Tailwind 3/Radix, npm e package-lock. Supabase/PostgreSQL,
 
 ## Diário de entregas
 
-- 12/11/2026 — Gestor IA / Neuro: recuperar a release gestor-rotina-20261112-01 na branch feat/gestor-ia; implementar rascunho IA, validação humana, ferramentas MCP e privacidade. Preview local obrigatório. Produção aguarda aprovação explícita posterior ao preview. [Registro da entrega](docs/continuidade-planeje/referencias/gestor-ia-neuro-mcp-2026-11-12.md).
+- 12/11/2026 — Gestor IA / Neuro: release gestor-rotina-20261112-01 recuperada na branch feat/gestor-ia; rascunho IA, validação humana, cinco ferramentas MCP, grupos, privacidade antes da rede e cobertura de leads implementados. Check, 18 testes dirigidos, 76 verificações React, dez grupos SQL, 19 testes MCP e E2E passaram; candidata estática em 127.0.0.1:4394 conferida no navegador. Sem promoção ou migração produtiva; aguarda aprovação explícita de Josias depois do preview. [Registro, arquivos e limites](docs/continuidade-planeje/referencias/gestor-ia-neuro-mcp-2026-11-12.md).

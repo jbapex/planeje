@@ -450,6 +450,42 @@ test('conversation reader includes groups only by exact client/conversation and 
   assert.equal(requests.filter((r) => r.pathname.includes('cliente_whatsapp_')).length, count);
 });
 
+test('tracking group JID keeps exact client scope, rejects cursor changes and continues with the same tool', async () => {
+  const group = '120363000000000000@g.us';
+  const { db, requests } = fixture({ cliente_whatsapp_inbox: [
+    row(1, { chat_jid: group, is_group: true }),
+    row(2, { chat_jid: group, cliente_id: OTHER, is_group: true }),
+    row(3, { chat_jid: '120363000000000001@g.us', is_group: true }),
+    row(4, { chat_jid: group, is_group: true }),
+  ] });
+  const handlers = new Map<string, any>();
+  registerHubTools({ registerTool: (name: string, config: any, handler: any) =>
+    handlers.set(name, (args: any) => handler(config.inputSchema.parse(args))) } as any, db, actor);
+  const invoke = handlers.get('ver_mensagens_rastreamento');
+  assert.throws(() => invoke({ cliente_id: CLIENT, chat_jid: 'group@evil.invalid' }));
+  const result = await invoke({ cliente_id: CLIENT, chat_jid: group, limite: 1 });
+  assert.notEqual(result.isError, true, result.content[0].text);
+  const first = JSON.parse(result.content[0].text);
+  assert.equal(first.mensagens[0].id, row(1).id);
+  assert.equal(first.continuacao.ferramenta, 'ver_mensagens_rastreamento');
+  assert.equal(first.continuacao.argumentos.chat_jid, group);
+  const before = requests.filter(url => url.pathname.includes('cliente_whatsapp_')).length;
+  for (const changed of [{ cliente_id: OTHER }, { chat_jid: '120363000000000001@g.us' }]) {
+    assert.equal((await invoke({ ...first.continuacao.argumentos, ...changed })).isError, true);
+  }
+  assert.equal(requests.filter(url => url.pathname.includes('cliente_whatsapp_')).length, before);
+  const messages = [...first.mensagens];
+  let page = first;
+  while (page.continuacao) {
+    const next = await handlers.get(page.continuacao.ferramenta)(page.continuacao.argumentos);
+    assert.notEqual(next.isError, true, next.content[0].text);
+    page = JSON.parse(next.content[0].text);
+    messages.push(...page.mensagens);
+  }
+  assert.deepEqual(messages.map(message => message.id), [row(1).id, row(4).id]);
+  assert.equal(page.paginacao.concluido, true);
+});
+
 test('all clients include webhook-only replies, deduplicate retries and recover full sent text', async () => {
   const long = 'Reply ' + 'x'.repeat(1600);
   const log = (i: number, extra: Row = {}) => row(i, { source: 'chatvolt',

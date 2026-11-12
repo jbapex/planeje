@@ -17,7 +17,20 @@
     "deploy:fn:funil-metrics-api": "supabase functions deploy funil-metrics-api --project-ref slrpesefjkzoaufvogdj --use-api",
     "deploy:fn:crm-apice-contact-status-webhook": "supabase functions deploy crm-apice-contact-status-webhook",
     "deploy:fn:notify-planeje-lead-status": "cd crm-apice-bridge && supabase functions deploy notify-planeje-lead-status",
-    "test:atlas": "node scripts/atlasBackend.test.mjs && node scripts/atlasVoice.test.mjs && node scripts/atlasDatabase.test.mjs"
+    "test:atlas": "node scripts/atlasBackend.test.mjs && node scripts/atlasVoice.test.mjs && node scripts/atlasDatabase.test.mjs",
+    "lint": "eslint src planeje-mcp/src supabase/functions",
+    "lint:typed": "eslint --config eslint.typed.config.js planeje-mcp/src",
+    "typecheck": "npm --prefix planeje-mcp run typecheck",
+    "test:rules": "node scripts/toolkit/verify-rules.mjs scripts/toolkit/eslint-rules/index.cjs",
+    "test:local": "node --test scripts/atlasBackend.test.mjs scripts/atlasVoice.test.mjs scripts/auth-session/authSessionLoader.test.mjs scripts/mcpToolkitTypes.test.mjs scripts/atlasTeamDialogue.test.mjs scripts/atlasChatImages.test.mjs scripts/atlasTeamImages.test.mjs && npm run test:central-trafego && npm run test:trafego-saude && npm run test:mcp",
+    "build:check": "node scripts/toolkit/build.mjs",
+    "check": "node scripts/toolkit/check.mjs",
+    "verify:context": "node scripts/toolkit/verify-context.mjs",
+    "test:harness": "node --test scripts/toolkit/toolkitScripts.test.mjs",
+    "test:mcp": "node planeje-mcp/node_modules/tsx/dist/cli.mjs --test planeje-mcp/scripts/metaTraffic.test.ts planeje-mcp/scripts/accountAccess.test.ts planeje-mcp/scripts/sdkTransport.test.ts planeje-mcp/scripts/messageHistory.test.ts planeje-mcp/scripts/researchTools.test.ts planeje-mcp/scripts/toolAuthorization.test.ts planeje-mcp/scripts/messageNormalize.test.ts planeje-mcp/scripts/gestorIaRoutine.test.ts",
+    "test:gestor-ia": "node --test scripts/gestor-ia/routine.test.mjs scripts/gestor-ia/routine-data.test.mjs scripts/gestor-ia/routine-signals.test.mjs scripts/gestor-ia/routine-coverage.test.mjs && node scripts/gestor-ia/routine.component.test.mjs",
+    "preview:gestor-ia": "node planeje-mcp/node_modules/tsx/dist/cli.mjs scripts/gestor-ia/neuro-preview/server.mjs 4394",
+    "test:gestor-ia:e2e": "node planeje-mcp/node_modules/tsx/dist/cli.mjs --test scripts/gestor-ia/routine-mcp.e2e.test.mjs"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.3.1",
@@ -63,12 +76,16 @@
     "@types/node": "^20.8.3",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
+    "@typescript-eslint/eslint-plugin": "8.71.2",
+    "@typescript-eslint/parser": "8.71.2",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.57.1",
-    "eslint-config-react-app": "^7.0.1",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "globals": "13.24.0",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
+    "typescript": "5.9.3",
     "vite": "^4.4.5"
   }
 }

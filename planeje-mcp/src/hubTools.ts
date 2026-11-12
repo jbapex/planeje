@@ -2148,11 +2148,13 @@ export function registerHubTools(
     {
       title: 'Pesquisar mensagens do cliente ou contato',
       description:
-        'Lê entrada, saída e webhooks Chatvolt/Zapper/Meta/Uazapi, com texto integral disponível, evidências e sem teto total. Permite pesquisar atividade em todo o cliente omitindo telefone, inclusive contatos antigos. cliente_id obrigatório; telefone opcional. limite controla somente a página (padrão 100). Repita com cursor e mesmos filtros até paginacao.concluido=true, sem nova autorização por página. inicio/fim filtram datas em São Paulo. Fontes ausentes são declaradas; não envia nem consulta serviços externos.',
+        'Lê entrada, saída e webhooks Chatvolt/Zapper/Meta/Uazapi, com texto integral disponível, evidências e sem teto total. Permite pesquisar atividade em todo o cliente omitindo telefone, inclusive contatos antigos. cliente_id obrigatório; telefone opcional. Para um grupo ou conversa específica, informe seu chat_jid exato; grupos exigem esse filtro. limite controla somente a página (padrão 100). Repita nesta ferramenta com cursor e mesmos filtros até paginacao.concluido=true, sem nova autorização por página. inicio/fim filtram datas em São Paulo. Fontes ausentes são declaradas; não envia nem consulta serviços externos.',
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       inputSchema: z.object({
         cliente_id: z.string().uuid(),
         telefone: z.string().optional(),
+        chat_jid: z.string().max(256).regex(/^(?:\d{5,20}(?:-\d{1,20})?@g\.us|\d{5,20}@(?:s\.whatsapp\.net|c\.us|lid))$/)
+          .optional().describe('JID exato da conversa ou grupo autorizado deste cliente, como 120363000000000000@g.us.'),
         limite: z.number().int().positive().max(500).optional().describe('Mensagens por página, não limite total do histórico.'),
         cursor: z.string().max(12000).optional(),
         inicio: FILTROS_LINHA.inicio,
@@ -2166,14 +2168,15 @@ export function registerHubTools(
       try {
         const access = await requireModule(supabase, actor, 'rastreamento');
         if ('error' in access) return toolError(access.error);
-        return jsonText(
-          await consultMensagens(supabase, {
-            clienteId: args.cliente_id,
-            telefone: args.telefone,
-            limite: args.limite, cursor: args.cursor, inicio: args.inicio, fim: args.fim, actor,
-            canal: args.canal, direcao: args.direcao, busca: args.busca,
-          })
-        );
+        const result = await consultMensagens(supabase, {
+          clienteId: args.cliente_id,
+          telefone: args.telefone,
+          chatJid: args.chat_jid,
+          limite: args.limite, cursor: args.cursor, inicio: args.inicio, fim: args.fim, actor,
+          canal: args.canal, direcao: args.direcao, busca: args.busca,
+        });
+        return jsonText({ ...result, continuacao: result.continuacao
+          ? { ...result.continuacao, ferramenta: 'ver_mensagens_rastreamento' } : null });
       } catch (e) {
         return toolError(e instanceof Error ? e.message : String(e));
       }

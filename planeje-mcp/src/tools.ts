@@ -13,6 +13,7 @@ import {
 } from './introspect.js';
 import { registerAtendimentoTools } from './atendimentoTools.js';
 import { registerHubTools } from './hubTools.js';
+import { registerGestorIaRoutineTools } from './gestorIaRoutineTools.js';
 import { registerMetaTools } from './metaTools.js';
 import { computeCoberturaFromRows, monthBounds } from './coberturaMensal.js';
 import {
@@ -847,6 +848,7 @@ export function registerPlanejeTools(
   registerBriefingClienteTools(mcp, supabase, columns, actor);
   registerCaixaDotTools(mcp, supabase, actor);
   registerHubTools(mcp, supabase, actor);
+  registerGestorIaRoutineTools(mcp, supabase, actor);
   registerMetaTrafficTools(mcp, supabase, actor);
 
   mcp.registerTool(

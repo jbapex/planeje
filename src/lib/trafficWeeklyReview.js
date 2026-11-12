@@ -251,14 +251,16 @@ function reviewSnapshotFilled(row) {
   if (row.investment != null || row.contacts != null || row.results != null) return true;
   return (row.campaign_metrics || []).some((item) => String(item?.campaign_name || item?.adset_name || '').trim());
 }
-function reviewChangeLabels(before, after) {
+export function reviewChangeLabels(before, after) {
   const labels = [];
   if (String(before?.analysis || '') !== String(after?.analysis || '')) labels.push('análise');
   if (String(before?.data_note || '') !== String(after?.data_note || '')) labels.push('observações');
   if (before?.investment !== after?.investment || before?.contacts !== after?.contacts || before?.results !== after?.results) labels.push('números');
   if (JSON.stringify(before?.campaign_metrics || []) !== JSON.stringify(after?.campaign_metrics || [])) labels.push('campanhas');
   if ((before?.action_mode || '') !== (after?.action_mode || '')) labels.push('próximo passo');
+  if ((before?.ai_suggestion || '') !== (after?.ai_suggestion || '')) labels.push('sugestão da IA');
   if (!before?.finalized_at && after?.finalized_at) labels.push('concluída');
+  if (before?.finalized_at && !after?.finalized_at) labels.push('reaberta');
   return labels;
 }
 /** Agrupa rajadas de rascunho e separa o dia em que foi escrito da semana dos anúncios. */
@@ -270,16 +272,17 @@ export function reviewFillView(events = [], { review = null, live = null, names 
     if (!after) continue;
     const at = new Date(event.occurred_at).getTime();
     const actorId = event.actor_id || '';
+    const actorType = event.actor_type === 'ia' ? 'ia' : 'pessoa';
     const actorName = event.actor?.full_name || names[actorId] || '';
     const last = groups.at(-1);
-    const burst = last && event.event === 'draft' && last.event === 'draft' && last.actorId === actorId && at - last.endMs <= REVIEW_CHANGE_GAP_MS;
+    const burst = last && event.event === 'draft' && last.event === 'draft' && last.actorId === actorId && last.actorType === actorType && at - last.endMs <= REVIEW_CHANGE_GAP_MS;
     if (burst) {
       last.endMs = at;
       last.endAt = event.occurred_at;
       last.after = after;
     } else {
       groups.push({
-        id: event.id, event: event.event, actorId, actorName, startAt: event.occurred_at, endAt: event.occurred_at, endMs: at,
+        id: event.id, event: event.event, actorId, actorName, actorType, startAt: event.occurred_at, endAt: event.occurred_at, endMs: at,
         before: event.snapshot?.before || null, after,
       });
     }
@@ -289,6 +292,7 @@ export function reviewFillView(events = [], { review = null, live = null, names 
     event: group.event,
     actorId: group.actorId,
     actorName: group.actorName,
+    actorType: group.actorType,
     startAt: group.startAt,
     endAt: group.endAt,
     labels: reviewChangeLabels(group.before, group.after),
@@ -296,14 +300,14 @@ export function reviewFillView(events = [], { review = null, live = null, names 
   })).filter((entry) => entry.filled || entry.labels.length || entry.event === 'finalized');
   if (live?.at) {
     const liveMs = new Date(live.at).getTime();
-    const same = [...entries].reverse().find((entry) => entry.event === 'draft' && entry.actorName === live.name && liveMs - new Date(entry.endAt).getTime() <= REVIEW_CHANGE_GAP_MS && liveMs >= new Date(entry.startAt).getTime() - REVIEW_CHANGE_GAP_MS);
+    const same = [...entries].reverse().find((entry) => entry.event === 'draft' && entry.actorType !== 'ia' && entry.actorName === live.name && liveMs - new Date(entry.endAt).getTime() <= REVIEW_CHANGE_GAP_MS && liveMs >= new Date(entry.startAt).getTime() - REVIEW_CHANGE_GAP_MS);
     if (same) {
       if (liveMs > new Date(same.endAt).getTime()) same.endAt = live.at;
     } else {
       entries = [...entries, { id: 'live', event: 'draft', actorId: '', actorName: live.name || '', startAt: live.at, endAt: live.at, labels: ['gravação'], filled: true }];
     }
   }
-  const nameOf = (entry) => entry?.actorName || names[entry?.actorId] || (entry?.actorId ? 'Integrante da equipe' : 'Rotina automática');
+  const nameOf = (entry) => entry?.actorType === 'ia' ? `IA (Neuro)${entry.actorName ? ` · em nome de ${entry.actorName}` : ''}` : entry?.actorName || names[entry?.actorId] || (entry?.actorId ? 'Integrante da equipe' : 'Rotina automática');
   const first = entries.find((entry) => entry.filled);
   const last = [...entries].reverse().find((entry) => entry.filled || entry.event === 'finalized') || null;
   let headline = 'Ainda não preenchido.';

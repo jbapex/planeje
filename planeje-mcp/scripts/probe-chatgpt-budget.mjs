@@ -5,7 +5,7 @@ import { registerPlanejeTools } from '../src/tools.ts';
 import { applyChatgptToolBudget, CHATGPT_TOOL_ALLOWLIST } from '../src/chatgptToolBudget.ts';
 import { FALLBACK_COLUMNS } from '../src/introspect.ts';
 
-const supabase = createClient('https://example.supabase.co', 'x', {
+const supabase = createClient('https://fixture.invalid', 'x', {
   auth: { persistSession: false },
 });
 const mcp = new McpServer({ name: 't', version: '2.7.0' }, { capabilities: { tools: {} } });
@@ -45,8 +45,8 @@ console.log(
   'listar',
   r.enabled.includes('listar_demandas_caixa')
 );
-if (r.enabled.length > 58) {
-  throw new Error(`still over 58: ${r.enabled.length}`);
+if (r.enabled.length !== 64 || new Set(CHATGPT_TOOL_ALLOWLIST).size !== 64) {
+  throw new Error(`unexpected OAuth catalog: ${r.enabled.length} enabled, ${CHATGPT_TOOL_ALLOWLIST.length} allowed`);
 }
 if (!r.enabled.includes('criar_demanda_caixa') || !r.enabled.includes('listar_demandas_caixa')) {
   throw new Error('missing caixa tools');
