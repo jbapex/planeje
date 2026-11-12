@@ -1,0 +1,119 @@
+{
+  "release": "gestor-neuro-20261112-01",
+  "status": "published_verified",
+  "published_at": "2026-11-12T12:25:23.544696+00:00",
+  "published_at_brt": "2026-11-12T09:25:23.544696-03:00",
+  "publication_authorized_after_preview": true,
+  "authorization": "Josias: publicar vps, depois do preview nesta conversa",
+  "human_acceptance_after_production": false,
+  "approved_product_commit": "000f39c722ffee8b9a2a4a3432765d19807f51a7",
+  "branch": "feat/gestor-ia",
+  "base": "crm-ia-base-secoes-20261112-01",
+  "url": "https://planeje.jbapex.com.br/#/gestor-ia/rotina",
+  "sources": 2239,
+  "frontend_and_migration_overlay": {
+    "src/components/gestor-ia/GestorIaRoutine.css": "a3e85823231a59ab7ba7871ef3f02884ca4eee149ab6866d3f1c588bd0e59f20",
+    "src/components/gestor-ia/GestorIaRoutine.jsx": "8b5acf287155c64f98f541367ec0649384b863738c0d655323ab8fb746033c08",
+    "src/components/gestor-ia/GestorIaRoutineLeads.jsx": "409c837864a14ad9b584055b4f3dc5d75ce8a33e0abc2cc6f2d4ff6356c6e1f2",
+    "src/components/gestor-ia/gestorIaRoutineData.js": "31cd30303e61bdb4fc5c8108f8fbf09ddb25d5ce7ece5d0428fde2f23de982cf",
+    "src/components/traffic/TrafficWeeklyRoutine.jsx": "066dd437296a3d71d60bc9c7ea0f8616cc9db4093320f55bff26370a9a3a92c1",
+    "src/lib/gestorIaRoutine.d.ts": "d3b40be5a529fffb0404c53008e2688f391ef0a9905f95e2d7ba50a926358674",
+    "src/lib/gestorIaRoutine.js": "6e2f5e79f2d0b39178b1296cfd8c9fb0cfd04ff8319a6a35b7d2bfb084297a86",
+    "src/lib/gestorIaRoutineSignals.js": "4fb70c23d0fc43e55e9e1d99790cabce08567c2ba946bf2639bf7c8dd7a17283",
+    "src/lib/miniCrm.js": "2bb13a194593916287a8ef4517a085886f4674c7b25cdf9e5e88188307458b66",
+    "src/lib/trafficWeeklyReview.js": "c1cf1a9957c3231bbee3337f7a024e77e2378310155640a6d2d2bdbc17e6889b",
+    "supabase/migrations/20261112043818_gestor_ia_routine_mcp.sql": "582ed49b79aaa6b1d5814c482dcaec3d86c6937107c881c99d792fb80b53da9f"
+  },
+  "mcp_overlay": {
+    "planeje-mcp/src/chatgptToolBudget.ts": "80841ebd998b5a067ff8122236120ad720d36571817af1f424bcfd73c1c52784",
+    "planeje-mcp/src/gestorIaRoutineTools.ts": "0ae63fbf64af7c6b78737f0afadb4544cc91bddfeb80f61acba44ac23f8a592b",
+    "planeje-mcp/src/hubTools.ts": "110ea98aa75644c4ca4e1637ca6adb5567588e8d054e66a40b48030f02249837",
+    "planeje-mcp/src/metaTools.ts": "25ebb8ddbb2628e56451bf1794a0a1441321e70b6411c804138b4368ec3259c9",
+    "planeje-mcp/src/pages.ts": "3f1e0c12b0c383fee4fe1acad0caab94d1de1c315fd6e88c9a0b88dc50c5f42f",
+    "planeje-mcp/src/toolAuthorization.ts": "9d1b62cf5d95c9a3f5cc9800b1712f8141a798e9325989bdea634679468dd1ea",
+    "planeje-mcp/src/tools.ts": "756675c9c3344460fd39f5ab32f1994f644d195a6be7e303b8c4b47200aeab25"
+  },
+  "migration": "supabase/migrations/20261112043818_gestor_ia_routine_mcp.sql",
+  "migration_sha256": "582ed49b79aaa6b1d5814c482dcaec3d86c6937107c881c99d792fb80b53da9f",
+  "index_sha256": "f1e2fb6014854e5f9234a2336da51f465aa40121468b2727b98fa2a0ebf5d8c0",
+  "assets": [
+    "/assets/index.106cd394.js",
+    "/assets/index.fdbc443d.css"
+  ],
+  "production_flags": {
+    "VITE_GESTOR_IA_DECISIONS_ENABLED": "false",
+    "VITE_GESTOR_IA_AGENDA_ENABLED": "false",
+    "VITE_GESTOR_IA_AGENDA_AI_ENABLED": "false"
+  },
+  "hashes": {
+    "publish.py": "a3d5daf0cd31e92a8d778459dd7738be966987335ff85d3ccec8f00e56711f84",
+    "database.py": "cd73e98a481632d53679be03e2d07dc8566768975e03a496a1166b3d43fd8a25",
+    "scope.json": "c2e9420b2c3e1d037ab1644b20c5f01d1d2cfcb70fae0106f38f3c16f23394d6",
+    "payload.tar.gz": "0e5cab150a0ee0ad733f10fce306456bcaa9cf06eb7c91ae4c33fcaf9834f3e7",
+    "review.md": "adfe4db025363e4ddd4855f8016f0faa09988dcfeb128df4344b739e31ec264e",
+    "review.json": "e4259e99dd18caec2a46ae6a56dd26be9a8caf571455384cb3af3c25b7ef4eff",
+    "qa.json": "28c25e01da98d9aaa851ebd82c542b4f7f43d64d57fce1de3e97b1e3e8ce245a",
+    "build-artifacts.json": "0c91867d61222e127ca1007990e5dd99faaf89f8d3d44e211263a8bb0c5d1cb3",
+    "published.json": "43595bef6689208edda6eb44ace61926243895da62dbb075c2310c51ab794438",
+    "verification.json": "bc39a0a1cb238d335bbffb3111e2e6a95463b5a85ae19ff20829468f9e148643",
+    "migration-applied.json": "b12f30e77497997ed74549f5c05192585be5e71cb1eaec3c616685e6ec4da2af",
+    "source-manifest-next.json": "0ec91572a642282fb08ee9b2eb2147cd03a13b977001e70fd8e2e48a40a178ca",
+    "read-smoke.sql": "e2adb3fc3feabb7dff8c4a084b14f38fa01e8024d445c628db5f7fd032a2b921",
+    "read-smoke-2.log": "4ef9d4114d81fbb9752465def809c69558bdc842a4336d935ca98b2bc4d924b0"
+  },
+  "tests": {
+    "publisher_guards": 11,
+    "database_guard_groups": 2,
+    "remote_node": 70,
+    "remote_mcp": 113,
+    "typecheck": "passed against actual candidate and production dependencies",
+    "typescript": "5.9.3 isolated release-only compiler",
+    "production_mcp_sdk": "1.29.0 preserved",
+    "vite_build_seconds": 37.99,
+    "https_checks": 44,
+    "preview_e2e_before_deploy": "1/1 passed",
+    "production_read_only_smoke": "panel/week/leads DTO + masked phones + unidentified actor denied; ROLLBACK"
+  },
+  "preservation": {
+    "production_profile": true,
+    "mcp_configuration": true,
+    "previous_assets": true,
+    "all_previous_source_inputs": true,
+    "canonical_sql_function_bodies_and_grants": true,
+    "existing_review_and_history_content_fingerprints": true,
+    "rls_policies": true,
+    "edge_runtime": true,
+    "atlas_services": true,
+    "workers": true,
+    "production_dependencies": true,
+    "mcp_only_restart": true,
+    "no_checkout_or_reset": true,
+    "no_real_week_filled_or_validated": true,
+    "no_meta_google_collection_or_campaign_changes": true
+  },
+  "browser": {
+    "authenticated": true,
+    "new_filters_visible": [
+      "Rascunho da IA",
+      "Validados"
+    ],
+    "routine_entry_loaded": true,
+    "real_fields_edited": false,
+    "real_week_opened_or_written": false,
+    "ai_draft_filter_checked": true,
+    "real_clients_hidden_in_screenshot": true,
+    "screenshot_private": "/Users/josiasbonfimdefaria/Downloads/planeje-gestor-ia/.local/gestor-neuro-release-20261112-01/published-ui.png",
+    "screenshot_sha256": "3db0485f5619b622440efd496ff6af40b4ae4db596b6ee6a4a9f2bf6f98ec501"
+  },
+  "preparation_notes": [
+    "First preparation stopped because TypeScript was absent from production dependencies; all owned artifacts archived, no live mutation.",
+    "Second preparation used the existing TypeScript 5.9.3 compiler in a private QA directory and the actual VPS SDK 1.29.0; production node_modules unchanged.",
+    "Read smoke actor lookup moved before SET ROLE; no privileges were expanded."
+  ],
+  "limits": [
+    "External Neuro session/tool discovery and end-to-end external filling not certified.",
+    "No AI save or human validation of real reviews during production verification.",
+    "Appointment detection is conservative; physical mobile and load not certified."
+  ],
+  "private_release_directory": "/Users/josiasbonfimdefaria/Downloads/planeje-gestor-ia/.local/gestor-neuro-release-20261112-01"
+}

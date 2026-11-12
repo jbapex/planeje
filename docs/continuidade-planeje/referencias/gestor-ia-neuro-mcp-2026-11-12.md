@@ -1,6 +1,6 @@
 # Gestor IA / Neuro — preenchimento MCP e validação humana
 
-Estado: implementado, testado e revisado na branch `feat/gestor-ia`, com base em `main` e no snapshot verificado da release `gestor-rotina-20261112-01`. Candidata local pronta; nenhuma promoção autorizada nesta rodada. Aguarda o aceite explícito de Josias depois de ver o preview nesta conversa.
+Estado: implementado e publicado em 12/11/2026, às 09h25 de Brasília, na release `gestor-neuro-20261112-01`, por autorização explícita de Josias (“publicar vps”) depois do preview nesta conversa. Branch `feat/gestor-ia`, produto aprovado no commit `000f39c`; publicação composta sobre a base produtiva mais recente, `crm-ia-base-secoes-20261112-01`. O aceite de uso após publicação permanece separado.
 
 ## Contrato e desenho
 
@@ -53,11 +53,11 @@ A primeira prévia de desenvolvimento teve módulos Vite com hashes misturados/H
 
 ## Migration e pendências
 
-Única migration nova: `supabase/migrations/20261112043818_gestor_ia_routine_mcp.sql`. Acrescenta origem/estado/sugestão, autoria/campos alterados no histórico, guardas e RPCs. Aplicada somente nos bancos descartáveis. Não reaplicar migrations antigas.
+Única migration nova: `supabase/migrations/20261112043818_gestor_ia_routine_mcp.sql`. Acrescenta origem/estado/sugestão, autoria/campos alterados no histórico, guardas e RPCs. Foi aplicada uma vez em produção na publicação autorizada das 09h25, depois dos ensaios descartáveis. Não reaplicar esta migration nem as anteriores.
 
-Faltam o aceite de Josias depois do preview e autorização específica para aplicar a migration/publicar frontend e MCP na VPS. A integração externa do Neuro com sua sessão pessoal e o volume produtivo serão conferidos após essa aprovação. Sem teste real de mensagens, IA externa, Meta/Google ou celular físico nesta entrega; o reconhecimento de confirmação é conservador e não entende todas as formas de linguagem.
+A autorização posterior ao preview foi dada por Josias e a publicação técnica está concluída. Faltam a homologação externa do Neuro com sua sessão pessoal e o volume produtivo. Não houve preenchimento ou validação de semana real, teste de IA externa, coleta Meta/Google nem celular físico nesta entrega; o reconhecimento de confirmação é conservador e não entende todas as formas de linguagem.
 
-Os processos e a lista exata de arquivos/hashes da candidata constam na evidência desta entrega. Não houve promoção para `/var/www/planeje`, migração produtiva, coleta publicitária, envio ou escrita em dados reais.
+Os processos e hashes da prévia constam na evidência local histórica. A publicação posterior está no registro abaixo: houve promoção de frontend/MCP e a única migration autorizada; não houve coleta publicitária, envio ou preenchimento de semana real.
 
 ## Arquivos desta entrega na branch
 
@@ -145,3 +145,19 @@ supabase/migrations/20261112043818_gestor_ia_routine_mcp.sql
 ```
 
 [Evidência e hashes](../evidencias/releases/gestor-neuro-local-2026-11-12.json).
+
+## Publicação autorizada na VPS — 12/11/2026, 09h25
+
+[Rotina publicada](https://planeje.jbapex.com.br/#/gestor-ia/rotina). Release `/root/planeje-releases/gestor-neuro-20261112-01/candidate`; [evidência produtiva e hashes](../evidencias/releases/gestor-neuro-producao-2026-11-12.json). Aprovação explícita posterior ao preview: Josias, “publicar vps”. Não houve checkout/reset nos diretórios originais nem push em main.
+
+A VPS havia avançado para `crm-ia-base-secoes-20261112-01`, com 2.236 fontes. Os 18 alvos ainda correspondiam à baseline revisada ou estavam ausentes. A candidata herdou todas as fontes atuais e o perfil `.env.production.local`, acrescentando onze fontes/migration e sete fontes MCP. Três arquivos novos elevaram o manifesto a 2.239 fontes; oito arquivos de QA ficaram somente na candidata. As entregas concorrentes do CRM/Atlas foram preservadas.
+
+Passaram onze guardas do publicador, dois grupos PostgreSQL do guarda e o E2E isolado 1/1 repetido antes da publicação. Na candidata VPS passaram 70 testes Node e 113 MCP. O primeiro preparo parou antes de qualquer SQL/live porque o host não tinha o compilador de desenvolvimento. A tentativa própria foi arquivada, sem instalar dependências produtivas. O segundo usou TypeScript 5.9.3 em diretório QA privado, verificado por manifesto/hash, contra as dependências reais da VPS (SDK MCP 1.29.0, preservado). Tipagem passou; build Vite em 37,99s, 28 artefatos. Revisão independente sem P1/P2 pendentes.
+
+A migration `20261112043818` foi aplicada uma vez, em transação com limite de espera/execução, lock e comparação do catálogo. O guarda conferiu fingerprints dos campos antigos de todas as revisões e do histórico, além das funções canônicas, RLS e grants. Dados antigos ficaram preservados, com a nova classificação coerente com finalized_at. Não há DDL inverso automático nem retry da migration: qualquer falha posterior ao SQL exige inspeção dos recibos.
+
+Assets imutáveis foram instalados antes da troca atômica do HTML; os anteriores continuam disponíveis. Somente o MCP foi reiniciado, mantendo ambiente/configuração/versão. Flags de Decisões, Agenda e Agenda IA seguem false; Edge, runtime, cinco serviços Atlas, workers e dependências produtivas foram conferidos e preservados.
+
+A verificação passou em 44 URLs/controles HTTPS, incluindo hashes de HTML/assets atuais e anteriores, Atlas Office, saúde MCP e rejeição 401 sem autenticação. Uma transação READ ONLY com rollback conferiu painel, leitura da semana, DTO de leads mascarado e recusa de ator não identificado. O lookup do ator do ensaio precisou ocorrer antes de SET ROLE; nenhuma permissão foi ampliada. Nenhum conteúdo de contato/revisão foi registrado.
+
+A sessão autenticada carregou a entrada e os novos filtros Rascunho da IA/Validados, sem abrir/criar uma semana nem editar registros reais. A validação humana e a escrita IA continuam comprovadas no ensaio descartável; a sessão externa do Neuro e carga real ainda não foram homologadas.
