@@ -1,6 +1,6 @@
 # Gestor IA — atribuição e agendamentos da semana
 
-Estado: implementação e candidata local concluídas na branch `feat/gestor-ia-atribuicao`, a partir de `d64bef7`. Sem autorização de migração, backfill com gravação ou publicação produtiva nesta rodada. Preview conferido; promoção permanece dependente da aprovação posterior de Josias.
+Estado atualizado: **PUBLICADO em 13/11/2026, 01h38**, depois da aprovação explícita de Josias após a prévia. Branch `feat/gestor-ia-atribuicao`, implementação a partir de `d64bef7`; produção composta sobre a base atual da VPS. [Publicação, migração única, backfill, verificações e limites](gestor-ia-atribuicao-producao-2026-11-13.md). As observações locais abaixo registram a etapa de 12/11 e não representam o estado produtivo posterior.
 
 ## Contrato e desenho
 
@@ -130,7 +130,7 @@ A revisão preserva a rotina antiga e os caminhos de Rastreamento, salvo a corre
 
 [Prévia da semana da Impacto (sintética)](http://127.0.0.1:4395/gestor-ia/rotina?semana=2026-11-09&cliente=9196d07f-f0a8-4eb2-9f9a-3dade28d4a69). Selecione as linhas, abra **Ver leads** e alterne **Agendados na semana**. A aba entregue já fica aberta nesse painel. [Como reiniciar a prévia](../../../scripts/gestor-ia/neuro-preview/README.md).
 
-Não houve promoção de `/var/www/planeje`, migração produtiva, troca do runtime ou backfill com gravação. O working tree de `/root/planeje` não recebeu checkout/reset. Não foram certificados uso produtivo após promoção, janela de carga de toda a carteira, interface de celular real ou recuperação de marcações manuais anteriores ao ledger. Falta o OK de Josias depois de ver esta prévia; nenhuma autorização antiga o substitui.
+Na validação local de 12/11 não houve promoção, migração produtiva ou backfill com gravação. Essa etapa foi sucedida pela aprovação de Josias e pela [publicação de 13/11](gestor-ia-atribuicao-producao-2026-11-13.md), sem checkout/reset do working tree produtivo. Carga de toda a carteira, celular real, Neuro externo e recuperação de marcações manuais anteriores ao ledger continuam fora da certificação.
 
 
 ## Arquivos desta entrega

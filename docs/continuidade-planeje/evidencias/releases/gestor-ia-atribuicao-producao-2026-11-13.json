@@ -1,0 +1,363 @@
+{
+  "release": "gestor-atribuicao-20261113-01",
+  "status": "published_technically_verified_user_acceptance_pending",
+  "published_at": "2026-11-13T04:38:31.873261+00:00",
+  "authorization": {
+    "actor": "Josias",
+    "text": "vamos publicar então na VPS",
+    "date": "2026-11-13",
+    "after_preview": true,
+    "preview_port": 4395,
+    "scope": "Gestor IA attribution; migration, frontend/MCP/Edge and bounded Impacto backfill"
+  },
+  "branch": "feat/gestor-ia-atribuicao",
+  "feature_commit": "a6804ac4ac2bb39c38c6fd0d294936a3a5c614ac",
+  "base_release": "crm-ia-agenda-fuso-20261112-01",
+  "production": {
+    "site": "https://planeje.jbapex.com.br/",
+    "routine": "https://planeje.jbapex.com.br/?v=3526f86b#/gestor-ia/rotina?semana=2026-11-09",
+    "sources": 2272,
+    "assets": [
+      "/assets/index.3526f86b.js",
+      "/assets/index.33321bbc.css"
+    ],
+    "index_sha256": "f0a472211aa05d39ca7a65c21d2cd90d94a5100cb2f0abcdb5e23d372fcce2f0",
+    "prior_assets_preserved": 1445,
+    "profile_inherited": true,
+    "flags": {
+      "VITE_GESTOR_IA_DECISIONS_ENABLED": "false",
+      "VITE_GESTOR_IA_AGENDA_ENABLED": "false",
+      "VITE_GESTOR_IA_AGENDA_AI_ENABLED": "false"
+    },
+    "edge_restart": true,
+    "mcp_restart": true,
+    "atlas_restart": false,
+    "working_tree_checkout_or_reset": false
+  },
+  "migration": {
+    "path": "supabase/migrations/20261112145805_gestor_ia_atribuicao.sql",
+    "sha256": "7e191a62eabc1017953e9a4fad9e80acc7150729738be99abfacbeb2431ebed7",
+    "receipt_sha256": "9f19f7f77dda315c740d1f9f9b47850732a65d6159a4200d7645dece9b55e2ef",
+    "applied_once": true,
+    "preserved_data_same_transaction": true,
+    "reapplied": false
+  },
+  "source_overlay": {
+    "supabase/functions/_shared/rastreamentoMessageAttribution.js": "2cadeac12bea5ad2be693c6d5123dae2c4daca2ba672f9c71999d1f682286cd9",
+    "src/components/gestor-ia/gestorIaRoutineData.js": "d2717e48d2996fc1fec5176f5542d63338895afdf4a83b3c50656af5d841e420",
+    "supabase/functions/meta-ads-api/index.ts": "a4a5248a9ccff16f8bd4c6528a653a526111446e2eface6fe7f0cea1f4ee62ee",
+    "src/lib/rastreamentoTrackableLink.js": "760d873e4404236b701a9afd192857b3d24fbaae8512fb15ae1c971103310168",
+    "supabase/functions/_shared/metaAdEnrichment.js": "0a52ed2df0be76efa1f918cc1d8f3401586a9378aa28145211c1852cd906c451",
+    "supabase/functions/_shared/rastreamentoTrackableLink.ts": "e003aaf2ed8d1540b2fc4e609daa36ecf9692f7a9baf13c669727ff0b033c815",
+    "src/components/crm/RastreamentoLeadFicha.jsx": "389cad0e123e89efa307842df93d49deb6bec7c60b0e101bc298144617b29829",
+    "src/lib/gestorIaRoutine.d.ts": "e65b842690c714c33c973c9fbc70c0f0f6a14b50eb4598dbb27b60bb7b6b3a43",
+    "src/components/gestor-ia/GestorIaRoutine.jsx": "48faec7f7fa125d5302120770fcf1c0195afc9490d2cc47797dce90be8b9305b",
+    "supabase/migrations/20261112145805_gestor_ia_atribuicao.sql": "7e191a62eabc1017953e9a4fad9e80acc7150729738be99abfacbeb2431ebed7",
+    "src/lib/funilMetaCreative.js": "193b002125e0667972ac4037935a8ce0cc1fc8609fde19a94dcaf696df1809dd",
+    "src/components/gestor-ia/GestorIaRoutine.css": "5732ed5806ab0408632a9d4d2001b1a10298a3f1ff50f9475bfc771d26b48063",
+    "src/lib/gestorIaRoutine.js": "c0173d6a2c6b8e18a7b903885e7d0691a41eb1a8e0daa8f99024e3157d551824",
+    "src/components/traffic/TrafficCampaignMetrics.jsx": "1880e49d4a1fa8c952d4beef128c7306de347cca285a6f02838b0dbac7738dbc",
+    "src/components/gestor-ia/GestorIaRoutineLeads.jsx": "21276f7a6dd1cbbe697aec26dcd8dc16a033cba86b0e709d6c06d2e36d57f9ad",
+    "src/components/crm/RastreamentoTrackableLinks.jsx": "832533695c48de224e903f38975ddc0af828001c47cf2293198792c9c45e3bea",
+    "supabase/functions/rastreamento-link-redirect/index.ts": "88e0697c4236e3bdb8c65a41c78ae34ae6fc215f960a4df585c38b0870dfcebf"
+  },
+  "mcp_overlay": {
+    "planeje-mcp/src/gestorIaRoutineTools.ts": "41b452736417f4d1db84d569d3a9bb3b1e9bb3f92f8a774b19af1a6ab507d23b"
+  },
+  "runtime_overlay": {
+    "rastreamento-link-redirect/index.ts": "c79a859fe576df3e06477d3dd60019c82a28f99c7e348f002203582b9ac6eba3",
+    "uazapi-inbox-webhook/index.ts": "a6b396bda9a9b17fa7999bf38e4b6eb2f7284303e1d0df7097e2a57267a50b5a",
+    "_shared/metaAdEnrichment.js": "0a52ed2df0be76efa1f918cc1d8f3401586a9378aa28145211c1852cd906c451",
+    "_shared/rastreamentoTrackableLink.ts": "e003aaf2ed8d1540b2fc4e609daa36ecf9692f7a9baf13c669727ff0b033c815",
+    "_shared/rastreamentoMessageAttribution.js": "2cadeac12bea5ad2be693c6d5123dae2c4daca2ba672f9c71999d1f682286cd9",
+    "meta-ads-api/index.ts": "52887b2510a100f763513bc516384e64855a2532c3dd5180ed440f47c3fdee23"
+  },
+  "git_reconciliation": {
+    "supabase/functions/meta-ads-api/index.ts": "a4a5248a9ccff16f8bd4c6528a653a526111446e2eface6fe7f0cea1f4ee62ee",
+    "supabase/functions/_shared/metaWriteAuthorization.js": "a5deebcd9897e13db20a954f53d76eda9743d2952e7698fd270daf939945ff31",
+    "authorization_helper_already_in_production": true,
+    "other_raw_meta_actions_preserved": 35
+  },
+  "operation_guards": {
+    "publisher_sha256": "d20d0387a2f11c4dc21ba7434a36d925849b71bcf8ff4464c1aadc7651f61122",
+    "continuation_sha256": "830e65e698b3c199b1038abcaf1950207b8d9025c7ae908784225cd4cbf97a10",
+    "scope_sha256": "475430d9809e0d433797cacc6f0445781f043b29e5c3a7c0a68a31e5136f47a4",
+    "payload_sha256": "da7429c5852ca58d068204f69d8b781ebbb898eac54a6b63913b1b54ffcc290b",
+    "qa_separation": {
+      "planeje-mcp/scripts/metaTraffic.test.ts": {
+        "tested_sha256": "50a24088ea7f881d64991f45cb49e3f6d59fac6b922b15c434eb9fad4e0caf4a",
+        "preserved_sha256": "4d9b2fa11c51bdf72ec5e47157c9cdf7f362b0f33f31c99aa0c8f2fbbb1203a0"
+      },
+      "scripts/rastreamentoOriginConsistency.test.mjs": {
+        "tested_sha256": "530c12b25595883e47f8e2b0c8c1421b174727b0ce7f72b024a27799517f488a",
+        "preserved_sha256": "4e9d15f7b46d9faea12e07da3de847eafeb6c6c3fe172e572cd8f3b0cfa89748"
+      }
+    },
+    "sql_ddl_not_repeated": true,
+    "guard_stop_before_live_source_or_runtime_writes": true
+  },
+  "validation": {
+    "local_feature_reference": "gestor-ia-atribuicao-local-2026-11-12.json",
+    "node_on_vps": 144,
+    "mcp_on_vps": 115,
+    "typecheck": true,
+    "production_build": true,
+    "https_checks": 44,
+    "edge_options_before": 6,
+    "edge_options_after": 6,
+    "sql_contract_groups": 23,
+    "database_adversarial_tests": 6,
+    "publisher_tests": 9,
+    "continuation_tests": 8,
+    "runtime_links_ast_fixture_checks": 7,
+    "meta_raw_source_checks": 5,
+    "meta_runtime_tests": 8,
+    "backfill_transport_tests": 11,
+    "backfill_runner_tests": 9,
+    "aggregate_fixture_checks": 8,
+    "aggregate_cli_checks": 4,
+    "ui_rpc_equal_mcp_rpc": true,
+    "authenticated_browser": false,
+    "external_neuro_live_write_test": false,
+    "external_mcp_catalog_verified": false,
+    "connector_reauthentication_required": true
+  },
+  "backfill": {
+    "scope": "Impacto Noivas, first_seen_at 2026-11-09 through 2026-11-15, America/Sao_Paulo",
+    "dry_run": {
+      "scanned": 82,
+      "eligible": 17,
+      "updated": 0,
+      "complete": 0,
+      "missingAd": 65,
+      "conflicts": 0,
+      "unlinked": 0,
+      "failed": 0,
+      "rateLimited": 0,
+      "concurrent": 0,
+      "queried": 8,
+      "truncated": 0,
+      "dbReads": 18,
+      "secretReads": 1,
+      "graphGets": 8,
+      "writes": 0,
+      "matchedWrites": 0,
+      "blocked": 0,
+      "ok": 1,
+      "apply": 0,
+      "verify": 0
+    },
+    "apply": {
+      "scanned": 82,
+      "eligible": 17,
+      "updated": 17,
+      "complete": 0,
+      "missingAd": 65,
+      "conflicts": 0,
+      "unlinked": 0,
+      "failed": 0,
+      "rateLimited": 0,
+      "concurrent": 0,
+      "queried": 8,
+      "truncated": 0,
+      "dbReads": 18,
+      "secretReads": 1,
+      "graphGets": 8,
+      "writes": 17,
+      "matchedWrites": 17,
+      "blocked": 0,
+      "ok": 1,
+      "apply": 1,
+      "verify": 0
+    },
+    "verify": {
+      "scanned": 82,
+      "eligible": 0,
+      "updated": 0,
+      "complete": 17,
+      "missingAd": 65,
+      "conflicts": 0,
+      "unlinked": 0,
+      "failed": 0,
+      "rateLimited": 0,
+      "concurrent": 0,
+      "queried": 0,
+      "truncated": 0,
+      "dbReads": 1,
+      "secretReads": 0,
+      "graphGets": 0,
+      "writes": 0,
+      "matchedWrites": 0,
+      "blocked": 0,
+      "ok": 1,
+      "apply": 0,
+      "verify": 1
+    },
+    "idempotency_dry_run": {
+      "scanned": 82,
+      "eligible": 0,
+      "updated": 0,
+      "complete": 17,
+      "missingAd": 65,
+      "conflicts": 0,
+      "unlinked": 0,
+      "failed": 0,
+      "rateLimited": 0,
+      "concurrent": 0,
+      "queried": 0,
+      "truncated": 0,
+      "dbReads": 1,
+      "secretReads": 0,
+      "graphGets": 0,
+      "writes": 0,
+      "matchedWrites": 0,
+      "blocked": 0,
+      "ok": 1,
+      "apply": 0,
+      "verify": 0
+    },
+    "entry_sha256": "e40d280cbf9dd5910ea819ac265747d7854f2dc9bfef51d6047ca6c1035c1f54",
+    "bundle_sha256": "8f30ec06c664253263e68ee079a3892adc28d385eacb3e54b0cd0c78dfb69ab9"
+  },
+  "impacto": {
+    "before": {
+      "week": "2026-11-09",
+      "new_leads": 82,
+      "review_rows": 9,
+      "with_name_pair": 17,
+      "appointments_new": 15,
+      "appointments_old": 7,
+      "appointments_total": 22,
+      "unique_review_name_match": 16,
+      "ambiguous_review_name_match": 0,
+      "with_campaign_and_adset_ids": 0,
+      "appointments_with_review_name_match": 4
+    },
+    "after": {
+      "week": "2026-11-09",
+      "new_leads": 82,
+      "review_rows": 9,
+      "with_name_pair": 17,
+      "appointments_new": 15,
+      "appointments_old": 7,
+      "appointments_total": 22,
+      "unique_review_name_match": 16,
+      "ambiguous_review_name_match": 0,
+      "with_campaign_and_adset_ids": 17,
+      "appointments_with_review_name_match": 4
+    },
+    "published_model": {
+      "somente_leitura": 1,
+      "escritas": 0,
+      "ui_igual_mcp": 1,
+      "modelo_idempotente": 1,
+      "revisao": {
+        "linhas": 9,
+        "revision": 2,
+        "investimento": 1951.0099999999998,
+        "investimento_cliente": 1951.01
+      },
+      "entrada": {
+        "consultados": 82,
+        "coorte": {
+          "novos": 82,
+          "antigos": 0
+        },
+        "total": 81,
+        "novos": 81,
+        "antigos": 0,
+        "agendamentos": 15,
+        "agendamentosNovos": 15,
+        "agendamentosAntigos": 0,
+        "atribuidos": {
+          "total": 16,
+          "novos": 16,
+          "antigos": 0,
+          "agendamentos": 3,
+          "agendamentosNovos": 3,
+          "agendamentosAntigos": 0,
+          "cpaNovos": 3,
+          "cpa": 650.3366666666666
+        },
+        "semVinculo": {
+          "total": 65,
+          "novos": 65,
+          "antigos": 0,
+          "agendamentos": 12,
+          "agendamentosNovos": 12,
+          "agendamentosAntigos": 0
+        },
+        "sem_atribuicao_meta": 20,
+        "linhas_sem_identidade": 0,
+        "metodos": {
+          "ids": 16,
+          "nome": 0,
+          "link": 0
+        },
+        "origens": {
+          "linhas": 0,
+          "fora_da_revisao": 0,
+          "campanha_encerrada": 0,
+          "novos": 0,
+          "antigos": 0,
+          "agendados": 0
+        }
+      },
+      "agendados_na_semana": {
+        "consultados": 22,
+        "coorte": {
+          "novos": 15,
+          "antigos": 7
+        },
+        "total": 22,
+        "novos": 15,
+        "antigos": 7,
+        "agendamentos": 22,
+        "agendamentosNovos": 15,
+        "agendamentosAntigos": 7,
+        "atribuidos": {
+          "total": 4,
+          "novos": 3,
+          "antigos": 1,
+          "agendamentos": 4,
+          "agendamentosNovos": 3,
+          "agendamentosAntigos": 1,
+          "cpaNovos": 3,
+          "cpa": 650.3366666666666
+        },
+        "semVinculo": {
+          "total": 18,
+          "novos": 12,
+          "antigos": 6,
+          "agendamentos": 18,
+          "agendamentosNovos": 12,
+          "agendamentosAntigos": 6
+        },
+        "sem_atribuicao_meta": 6,
+        "linhas_sem_identidade": 0,
+        "metodos": {
+          "ids": 4,
+          "nome": 0,
+          "link": 0
+        },
+        "origens": {
+          "linhas": 0,
+          "fora_da_revisao": 0,
+          "campanha_encerrada": 0,
+          "novos": 0,
+          "antigos": 0,
+          "agendados": 0
+        }
+      }
+    },
+    "selection_note": "82 contacts queried; 16 attributed to nine selected review rows, 65 unresolved/manual/other origin, one confirmed Meta origin outside selected rows; appointment mode includes historical origins."
+  },
+  "limits": [
+    "Authenticated browser stopped at login; no session or credentials were manufactured.",
+    "No real WhatsApp messages, tracked clicks, Google/Meta campaign edits or validated weekly review were created.",
+    "Existing Links require explicit campaign/adset configuration; unknown historical attribution was not invented.",
+    "Manual status transitions before the ledger cannot be reconstructed without evidence.",
+    "External Neuro workflow, real collaborator session, mobile and full-portfolio load not certified in this publication.",
+    "Current connected Planeje MCP requires reauthentication; no alternate account or authentication was used."
+  ]
+}

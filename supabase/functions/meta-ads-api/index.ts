@@ -6,6 +6,7 @@ import {
 } from "./clienteMetaManual.ts";
 import { persistAdThumbnail } from "../_shared/persistAdThumbnail.ts";
 import { META_AD_IDENTITY_FIELDS, metaAdIdentity } from "../_shared/metaAdEnrichment.js";
+import { handleMetaWrite } from "../_shared/metaWriteAuthorization.js";
 import {
   LARGE_MEDIA_ACTIONS,
   handleIgRuploadPut,
@@ -526,6 +527,19 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
+    }
+
+    if (action === "update-adset") {
+      return await handleMetaWrite({
+        request: req,
+        body,
+        corsHeaders,
+        createCaller: (authorization: string) => createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: { headers: { Authorization: authorization } },
+        }),
+        readToken: () => readGlobalMetaToken(supabase),
+      });
     }
 
     if (CLIENTE_META_MANUAL_ACTIONS.has(action)) {
@@ -1802,94 +1816,6 @@ serve(async (req) => {
       } catch (err) {
         return new Response(
           JSON.stringify({ error: { message: err?.message || "Erro ao buscar ad sets" }, adsets: [] }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    if (action === "update-adset") {
-      const objectId = String(body.objectId || body.adsetId || "").trim();
-      const level = String(body.level || "adset");
-      if (!/^\d{5,30}$/.test(objectId)) {
-        return new Response(
-          JSON.stringify({ error: { message: "adsetId inválido" } }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (level !== "campaign" && level !== "adset" && level !== "ad") {
-        return new Response(
-          JSON.stringify({ error: { message: "level só pode ser campaign, adset ou ad" } }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const params = new URLSearchParams();
-      params.set("access_token", metaToken);
-
-      const status = body.status ? String(body.status).toUpperCase() : "";
-      if (status) {
-        if (status !== "ACTIVE" && status !== "PAUSED") {
-          return new Response(
-            JSON.stringify({ error: { message: "status só pode ser ACTIVE ou PAUSED" } }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        params.set("status", status);
-      }
-
-      const hasDaily = body.daily_budget != null && body.daily_budget !== "";
-      const hasLife = body.lifetime_budget != null && body.lifetime_budget !== "";
-      if ((hasDaily || hasLife) && level !== "adset") {
-        return new Response(
-          JSON.stringify({ error: { message: "Verba só pode ser alterada no conjunto" } }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (hasDaily && hasLife) {
-        return new Response(
-          JSON.stringify({ error: { message: "Envie só daily_budget ou lifetime_budget" } }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const rawBudget = hasDaily ? Number(body.daily_budget) : hasLife ? Number(body.lifetime_budget) : null;
-      if (rawBudget != null) {
-        if (!Number.isInteger(rawBudget) || rawBudget < 100 || rawBudget > 100000000) {
-          return new Response(
-            JSON.stringify({ error: { message: "Verba inválida (centavos, mínimo 100)" } }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        params.set(hasDaily ? "daily_budget" : "lifetime_budget", String(rawBudget));
-      }
-
-      if (!status && rawBudget == null) {
-        return new Response(
-          JSON.stringify({ error: { message: "Nada para alterar" } }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      try {
-        const res = await fetch(`https://graph.facebook.com/v24.0/${objectId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params,
-        });
-        const json = await res.json();
-        if (json.error) {
-          console.error("❌ [update-adset]", json.error);
-          return new Response(
-            JSON.stringify({ error: json.error, ok: false }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        return new Response(JSON.stringify({ ok: true, adset: json, level }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch (err) {
-        return new Response(
-          JSON.stringify({ error: { message: err?.message || "Erro ao alterar conjunto" }, ok: false }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
