@@ -1,3 +1,4 @@
+import { crmIaBasePath } from './crmIaRoutes';
 import React, { useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail } from 'lucide-react';
@@ -28,7 +29,7 @@ export default function CrmIaNotificationFeed({ api, mutate, workspace, revision
       {error && <p className="crm-ia-error" role="alert">{error}</p>}
       <CrmIaState read={read} retry={() => setReload(value => value + 1)}>
         <div className="crm-ia-toolbar"><span>{read.data?.unread_count ?? '—'} não lidas</span><button type="button" disabled={pending || !read.data?.snapshot?.id || !read.data?.unread_count} onClick={markRead}>{pending ? 'Marcando…' : 'Marcar todas como lidas'}</button></div>
-        <ul className="crm-ia-list">{(read.data?.rows || []).map(item => <li key={item.id}><Link to={`/crm-ia/leads?${new URLSearchParams({ cliente: workspace.client.id, lead_id: item.lead_id })}`}><strong>Novo lead</strong><small>{dateTime(item.created_at)}</small></Link><span className="crm-ia-badge">{item.read ? 'Lida' : 'Não lida'}</span></li>)}</ul>
+        <ul className="crm-ia-list">{(read.data?.rows || []).map(item => <li key={item.id}><Link to={`${crmIaBasePath(workspace)}/leads?${new URLSearchParams({ cliente: workspace.client.id, lead_id: item.lead_id })}`}><strong>Novo lead</strong><small>{dateTime(item.created_at)}</small></Link><span className="crm-ia-badge">{item.read ? 'Lida' : 'Não lida'}</span></li>)}</ul>
         {read.data?.rows?.length === 0 && <p className="crm-ia-muted">Nenhuma notificação disponível.</p>}
         <CrmIaPagination total={read.data?.total} offset={offset} limit={20} onPage={setOffset} />
       </CrmIaState>

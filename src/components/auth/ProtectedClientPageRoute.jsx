@@ -10,6 +10,7 @@ const ROUTE_TO_PAGE_KEY = {
   '/apexia': 'apexia',
   '/cliente/pgm-panel': 'pgm-panel',
   '/cliente/cadastros': 'cadastros', // Página "Meus Dados" - sempre permitida para clientes
+  '/cliente/crm-ia': 'crm-ia',
   '/cliente/crm': 'crm',
   '/cliente/atendimento': 'atendimento',
 };
@@ -87,6 +88,7 @@ const ProtectedClientPageRoute = ({ children, pageKey }) => {
         'apexia': '/apexia',
         'pgm-panel': '/cliente/pgm-panel',
         'crm': '/cliente/crm',
+        'crm-ia': '/cliente/crm-ia/painel',
         'api': '/cliente/crm',
         'canais': '/cliente/crm',
         'atendimento': '/cliente/atendimento',

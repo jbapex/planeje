@@ -24,6 +24,9 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
   let typed = (agents || []).filter((agent: any) => crmIaRules(agent));
   const requested = typed.find((agent: any) => agent.id === agentId);
   if (!typed.length || (mode === 'testar' && agentId && !requested)) return { handled: false };
+  const hasAccess = async () => (await read(db.rpc('crm_ia_runtime_access', { p_client: clientId, p_actor: userId || null,
+    p_mode: mode, p_contact: contactId || null, p_channel: channelId || null })))?.allowed === true;
+  if (!await hasAccess()) return skipped('crm_access_revoked');
   const automatic = mode === 'responder' || mode === 'followup';
   let config = await read(db.from('crm_ia_config').select('*').eq('cliente_id', clientId).maybeSingle());
   let lead: any = null, conversation: any = {}, contact: any = null, actorId: string | null = userId || null;
@@ -172,6 +175,7 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
   const system = buildCrmIaPrompt({ agent, lead, company: company?.empresa, bases, products: [...products, ...services], config: selection.concierge ? { ...data, concierge: { ...data.concierge, faq_enabled: faqReady } } : appointmentTools ? data : { ...data, concierge: { ...data.concierge, enabled: false } }, slots, concierge: selection.concierge, followup: mode === 'followup',
     appointments: appointments.map(({ owner_id: _owner, ...item }: any) => item), proposal });
   let generated;
+  if (!await hasAccess()) return skipped('crm_access_revoked');
   try { generated = calendarUnavailable ? { resposta: JSON.stringify(calendarHandoff), tokens: null } : audioFallback ? { resposta: JSON.stringify({ text: 'Não consegui entender este áudio. Pode escrever sua mensagem ou pedir ajuda à equipe?', action: { type: 'answer', ...(selection.concierge ? { server_answer: 'audio_failure' } : {}) } }), tokens: null }
     : deterministic ? { resposta: JSON.stringify({ text: '', action: deterministic }), tokens: null } : await callModel(agent.modelo, [{ role: 'system', content: system }, ...messages]); }
   catch { throw new Error('crm_ia_model_unavailable'); }

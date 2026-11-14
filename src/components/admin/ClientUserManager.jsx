@@ -10,6 +10,7 @@ import { createOrLinkClientUser } from '@/lib/adminClientUser';
 import { Plus, Mail, Lock, User, X, Check, Copy, RefreshCw, Settings, LayoutDashboard, MessageSquare, Activity, ClipboardList, BarChart2, Headphones } from 'lucide-react';
 import ClienteMetaCtwaAdminPanel from '@/components/crm/ClienteMetaCtwaAdminPanel';
 import MiniCrmConfigCopy from '@/components/admin/MiniCrmConfigCopy';
+import { ATENDIMENTO_NIVEL_LABEL } from '@/lib/atendimentoLojaAcesso';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -55,7 +56,37 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
   const [savingFunnel, setSavingFunnel] = useState(false);
   const [showUntracked, setShowUntracked] = useState(false);
   const [savingMiniCrm, setSavingMiniCrm] = useState(false);
+  const [crmAccess, setCrmAccess] = useState(null);
+  const [crmError, setCrmError] = useState('');
+  const [savingCrm, setSavingCrm] = useState(false);
+  const [crmLevels, setCrmLevels] = useState({});
   const { toast } = useToast();
+
+  useEffect(() => {
+    let active = true;
+    setCrmAccess(null); setCrmError(''); setCrmLevels({});
+    if (!isSuperAdmin || !clientId) return undefined;
+    supabase.rpc('crm_ia_access_admin', { p_action: 'status', p_client_id: clientId }).then(({ data, error }) => {
+      if (!active) return;
+      if (error || data?.client?.id !== clientId) setCrmError(error?.message || 'Não foi possível conferir a liberação do CRM IA.');
+      else { setCrmAccess(data); setCrmLevels(Object.fromEntries(data.members.map(member => [member.user_id, member.nivel || '']))); }
+    }).catch(() => { if (active) setCrmError('Não foi possível conferir a liberação do CRM IA.'); });
+    return () => { active = false; };
+  }, [isSuperAdmin, clientId]);
+
+  const handleCrmEnabled = async enabled => {
+    if (savingCrm || crmAccess?.client?.id !== clientId) return;
+    setSavingCrm(true); setCrmError('');
+    try {
+      const { data, error } = await supabase.rpc('crm_ia_access_admin', { p_action: 'set_enabled', p_client_id: clientId,
+        p_payload: { enabled, expected_updated_at: crmAccess.updated_at } });
+      if (error) throw error;
+      setCrmAccess(data);
+      toast({ title: enabled ? 'CRM IA liberado para esta conta' : 'CRM IA desativado',
+        description: enabled ? 'Escolha abaixo os logins que poderão operar. A autonomia continua desligada.' : 'Novos envios foram bloqueados e as pendências canceladas. O histórico foi preservado.' });
+    } catch (error) { setCrmError(`${error.message || 'Não foi possível alterar o acesso.'} Feche e abra a gestão para conferir o estado atual antes de tentar novamente.`); }
+    finally { setSavingCrm(false); }
+  };
 
   // Buscar usuários vinculados ao cliente
   const fetchUsers = async () => {
@@ -271,10 +302,24 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
     const permissions = userPagePermissions[userId];
     const valueToSave = allowedPagesValueToSave(permissions);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ allowed_pages: valueToSave })
-      .eq('id', userId);
+    const crmSelected = permissions?.includes('crm-ia');
+    const crmPreviouslySelected = users.find(user => user.id === userId)?.allowed_pages?.includes('crm-ia');
+    let error;
+    if (crmSelected || crmPreviouslySelected) {
+      const member = crmAccess?.members?.find(row => row.user_id === userId);
+      if (!isSuperAdmin || crmAccess?.client?.id !== clientId || !member) error = { message: 'Confira a liberação do CRM IA antes de salvar estas permissões.' };
+      else {
+        setSavingCrm(true);
+        try {
+          const result = await supabase.rpc('crm_ia_access_admin', { p_action: 'save_member', p_client_id: clientId,
+            p_payload: { user_id: userId, allowed_pages: valueToSave, nivel: crmLevels[userId] || null, expected_revision: member.revision } });
+          error = result.error;
+          if (!error) setCrmAccess(result.data);
+        } catch (failure) { error = failure; } finally { setSavingCrm(false); }
+      }
+    } else {
+      ({ error } = await supabase.from('profiles').update({ allowed_pages: valueToSave }).eq('id', userId));
+    }
 
     if (error) {
       toast({
@@ -478,6 +523,7 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
                                     <Checkbox
                                       id={`${user.id}-${page.key}`}
                                       checked={isChecked}
+                                      disabled={savingCrm || (page.key === 'crm-ia' && (!isSuperAdmin || (!crmAccess?.enabled && !isChecked)))}
                                       onCheckedChange={() => handleTogglePagePermission(user.id, page.key)}
                                     />
                                     <Label
@@ -491,11 +537,21 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
                                 );
                               })}
                             </div>
+                            {userPagePermissions[user.id]?.includes('crm-ia') && <div className="space-y-2 rounded-md border p-3">
+                              <Label htmlFor={`crm-nivel-${user.id}`}>Nível no CRM IA</Label>
+                              <select id={`crm-nivel-${user.id}`} className="w-full rounded-md border bg-background p-2 text-sm" value={crmLevels[user.id] || ''} disabled={!isSuperAdmin || savingCrm} onChange={event => setCrmLevels(old => ({ ...old, [user.id]: event.target.value }))}>
+                                <option value="">Escolha o nível</option>{Object.entries(ATENDIMENTO_NIVEL_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                              </select>
+                              <p className="text-xs text-muted-foreground">O nível também vale no Atendimento da loja. No CRM IA, a agência mantém a configuração dos agentes. Salvar libera este login existente; não altera sua senha.</p>
+                            </div>}
+                            {isSuperAdmin && !crmAccess?.enabled && <p className="text-xs text-muted-foreground">Libere o CRM IA na aba Mini CRM antes de autorizar um login.</p>}
+                            {crmError && <p className="text-sm text-destructive" role="alert">{crmError}</p>}
                           </div>
                           <div className="flex gap-2 pt-2">
                             <Button
                               size="sm"
                               onClick={() => handleSavePagePermissions(user.id)}
+                              disabled={savingCrm}
                               className="flex-1"
                             >
                               Salvar
@@ -565,6 +621,15 @@ const ClientUserManager = ({ clientId, clientName, onClose }) => {
 
           {isSuperAdmin ? (
             <TabsContent value="mini-crm" className="space-y-4 py-2">
+              <section className="rounded-lg border p-4 space-y-3" aria-label="Liberação do CRM IA">
+                <div className="flex items-start justify-between gap-4"><div className="space-y-1"><Label htmlFor="crm-ia-enabled">CRM IA para este cliente</Label>
+                  <p className="text-xs text-muted-foreground">Somente as contas que você habilitar aparecem no CRM IA. A preparação usa os canais WhatsApp do Mini CRM e habilita o Atendimento da loja, sem mudar a situação comercial do cliente.</p></div>
+                  <Switch id="crm-ia-enabled" checked={crmAccess?.client?.id === clientId && crmAccess.enabled === true} disabled={!crmAccess || savingCrm || Boolean(crmError)} onCheckedChange={handleCrmEnabled} />
+                </div>
+                {!crmAccess && !crmError && <p role="status" className="text-xs text-muted-foreground">Conferindo liberação…</p>}
+                <p className="text-xs text-muted-foreground">Em Usuários → Permissões, marque CRM IA e escolha o nível de cada pessoa. Desativar cancela mensagens pendentes; histórico e recibos são mantidos. Reativar conserva a autonomia desligada.</p>
+                {crmError && <p className="text-sm text-destructive" role="alert">{crmError}</p>}
+              </section>
               <MiniCrmConfigCopy key={clientId} clientId={clientId} clientName={clientName} />
               <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
                 <div className="space-y-1">

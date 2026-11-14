@@ -82,6 +82,7 @@ import CaixaPendenciasPage from '@/components/pages/CaixaPendenciasPage';
 const GestorIaWorkspace = React.lazy(() => import('@/components/gestor-ia/GestorIaWorkspace'));
 const CsIaWorkspace = React.lazy(() => import('@/components/cs-ia/CsIaWorkspace'));
 const CrmIaWorkspace = React.lazy(() => import('@/components/crm-ia/CrmIaWorkspace'));
+const CrmIaClientWorkspace = React.lazy(() => import('@/components/crm-ia/CrmIaClientWorkspace'));
 
 const TrafegoPreviewPage = import.meta.env.DEV
   ? React.lazy(() => import('@/components/traffic/preview/TrafegoPreviewPage.jsx'))
@@ -267,6 +268,7 @@ const TrafegoPreviewPage = import.meta.env.DEV
                     <Route path="pgm-panel" element={<ProtectedClientPageRoute pageKey="pgm-panel"><PGMPanel /></ProtectedClientPageRoute>} />
                     <Route path="mini-crm" element={<MiniCrmPage />} />
                     <Route path="calendario" element={<ClienteCalendarioPage />} />
+                    <Route path="crm-ia/*" element={<ProtectedClientPageRoute pageKey="crm-ia"><React.Suspense fallback={<p role="status">Carregando CRM IA…</p>}><CrmIaClientWorkspace /></React.Suspense></ProtectedClientPageRoute>} />
                     <Route path="atendimento" element={<ProtectedClientPageRoute pageKey="atendimento"><ClienteAtendimentoPage /></ProtectedClientPageRoute>} />
                     <Route path="atendimento/config" element={<ProtectedClientPageRoute pageKey="atendimento"><ClienteAtendimentoConfigPage /></ProtectedClientPageRoute>} />
                     <Route path="crm" element={<ProtectedClientPageRoute pageKey="crm"><CrmLayout /></ProtectedClientPageRoute>}>

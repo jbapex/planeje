@@ -25,7 +25,7 @@ for (const mode of ['testar', 'sugerir']) test(`${mode} propõe perfil publicado
     const q = { select() { return q; }, eq() { return q; }, is() { return q; }, order() { return q; }, limit() { return q; }, or() { return q; }, in() { return q; },
       maybeSingle() { single = true; return q; }, insert(value) { calls.push({ table, value }); return q; }, update() { assert.fail('preview cannot update database records'); },
       then(resolve, reject) { const data = rows[table] || []; return Promise.resolve({ data: single ? data[0] || null : data }).then(resolve, reject); } }; return q;
-  }, rpc() { assert.fail('preview cannot begin a run or apply actions'); } };
+  }, rpc(name) { assert.equal(name, 'crm_ia_runtime_access', 'preview cannot begin a run or apply actions'); return { data: { allowed: true } }; } };
   const result = await runCrmIaAgent({ db, clientId, contactId, channelId, agentId, mode, userId: id(1), previewMessages: [{ role: 'user', content: 'Quero contratar.' }],
     callModel: async (_model, messages) => { assert.match(messages[0].content, /Deseja contratar/); return { resposta: JSON.stringify({ text: 'Vamos continuar.', action: { type: 'answer', profile_id: profileId } }) }; } });
   assert.equal(result.preview, true); assert.equal(result.action.profile_id, profileId); assert.equal(lead.crm_ia_profile, undefined);

@@ -76,12 +76,13 @@ serve(async (req) => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('cliente_id, role')
+    .select('cliente_id, role, status')
     .eq('id', user.id)
     .single();
 
   const role = profile?.role ?? null;
-  if (!role || !['superadmin', 'admin', 'colaborador'].includes(role)) {
+  const crmScoped = body.origem === 'crm-ia';
+  if (!role || (!['superadmin', 'admin', 'colaborador'].includes(role) && !(crmScoped && role === 'cliente'))) {
     return new Response(JSON.stringify({ error: 'Acesso negado.' }), {
       status: 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -94,6 +95,25 @@ serve(async (req) => {
   }
 
   let whatsappConfigId = typeof body.whatsapp_config_id === 'string' ? body.whatsapp_config_id.trim() : null;
+
+  if (crmScoped) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (profile?.status !== 'active' || !uuid.test(clienteId || '') || !uuid.test(whatsappConfigId || '') || !uuid.test(String(body.contact_id || ''))
+      || (role === 'cliente' && profile.cliente_id !== clienteId)) {
+      return new Response(JSON.stringify({ error: 'Acesso negado.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (typeof body.message_id !== 'string' || !messageId || messageId.length > 200 || body.id != null || extraIds.length > 0) {
+      return new Response(JSON.stringify({ error: 'Informe somente a mensagem autorizada.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    if (!anonKey) return new Response(JSON.stringify({ error: 'Configuração indisponível.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const caller = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: authHeader } } });
+    const access = await caller.rpc('crm_ia_workspace', { p_action: 'authorize_media', p_client_id: clienteId,
+      p_payload: { contact_id: body.contact_id, channel_id: whatsappConfigId, message_id: messageId } });
+    if (access.error || access.data?.allowed !== true) {
+      return new Response(JSON.stringify({ error: 'Arquivo indisponível neste contato e canal.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+  }
 
   if (!clienteId && whatsappConfigId) {
     const { data: cfgRow } = await supabase
@@ -272,7 +292,7 @@ serve(async (req) => {
     return Number.isFinite(stamp) ? stamp : 0;
   };
   const targetStamp = idsToTry.map(stampOf).find((stamp) => stamp > 0) || 0;
-  if (chatJid && targetStamp && isAudioRequest) {
+  if (!crmScoped && chatJid && targetStamp && isAudioRequest) {
     const deltaMs = (left: number, right: number) => {
       if (!left || !right) return Number.POSITIVE_INFINITY;
       return Math.min(

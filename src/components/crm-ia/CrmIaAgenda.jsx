@@ -10,7 +10,7 @@ import { CrmIaAvailabilityRules, CrmIaAvailabilitySchedule, CRM_IA_AVAILABILITY_
 const APPOINTMENT_STATUS = { scheduled: 'Reservado no Planeje', confirmed: 'Presença confirmada', cancelled: 'Cancelado', no_show: 'Não compareceu' };
 const clockTime = (value, timeZone) => new Intl.DateTimeFormat('pt-BR', { timeZone, hour:'2-digit', minute:'2-digit' }).format(new Date(value));
 
-export default function CrmIaAgenda({ api, mutate, workspace, canManage, revision }) {
+export default function CrmIaAgenda({ api, mutate, workspace, canManage, canConfigure = canManage, revision }) {
   const [params,setParams] = useSearchParams();
   const configuredTimezone = workspace.config.data.availability?.timezone || 'America/Sao_Paulo';
   const date=params.has('agenda_date')?params.get('agenda_date'):agendaCivilDate(new Date(),configuredTimezone);
@@ -53,10 +53,10 @@ export default function CrmIaAgenda({ api, mutate, workspace, canManage, revisio
     <strong className="crm-ia-agenda-period" aria-live="polite">{periodLabel}</strong>
     <div className="crm-ia-agenda-date-control"><CrmIaField label="Dia da agenda" type="date" value={date} onChange={chooseDate} /></div>
     </div><div className="crm-ia-toolbar">
-    <Link className="crm-ia-link-button" to={`/crm-ia/configuracoes?cliente=${encodeURIComponent(workspace.client.id)}&aba=google_calendar`}><CalendarDays size={15} aria-hidden="true" />Google Agenda</Link>
+    {canConfigure&&<Link className="crm-ia-link-button" to={`/crm-ia/configuracoes?cliente=${encodeURIComponent(workspace.client.id)}&aba=google_calendar`}><CalendarDays size={15} aria-hidden="true" />Google Agenda</Link>}
     <button type="button" aria-expanded={insights} onClick={() => setInsights(value => !value)}><BarChart3 size={15} aria-hidden="true" />Insights do mês</button>
     <button type="button" aria-label="Atualizar agenda" title="Atualizar agenda" onClick={() => setReload(value => value+1)}><RefreshCw size={15} aria-hidden="true" /></button>
-    {canManage && <><button type="button" onClick={()=>{setAvailabilitySaved(false);setAvailability(true);}}><Settings2 size={15} aria-hidden="true" />Disponibilidade</button><button type="button" className="crm-ia-primary" onClick={() => create()}><Plus size={16} aria-hidden="true" />Novo compromisso</button></>}
+    {canConfigure&&<button type="button" onClick={()=>{setAvailabilitySaved(false);setAvailability(true);}}><Settings2 size={15} aria-hidden="true" />Disponibilidade</button>}{canManage&&<button type="button" className="crm-ia-primary" onClick={() => create()}><Plus size={16} aria-hidden="true" />Novo compromisso</button>}
     </div>
   </div>
     <div className="crm-ia-agenda-filters"><CrmIaField label="Responsável da agenda" value={owner} onChange={value=>{choose('agenda_owner',value);setOffset(0);}} options={[{value:'',label:'Toda a equipe'},...workspace.people]} /><span className="crm-ia-muted">Horários em {timezone}. {read.data&&`${count(read.data.total)} ${read.data.total===1?'compromisso':'compromissos'} no período.`}</span></div>
@@ -71,8 +71,8 @@ export default function CrmIaAgenda({ api, mutate, workspace, canManage, revisio
       </CrmIaState>}
     </section>
     {selected && <CrmIaEditor title={selected.title||'Compromisso'} description="Horário, observações e situação do compromisso." onClose={() => setSelected(null)}><p>{dateTime(selected.start_at,timezone)} – {dateTime(selected.end_at,timezone)}</p><p>{named(workspace.people.find(person => person.id===selected.owner_id))}</p><p className="crm-ia-prose">{selected.notes||'Sem observações.'}</p><p><span className="crm-ia-badge">{APPOINTMENT_STATUS[selected.status]||'Estado indisponível'}</span></p>{calendarStatus(selected.calendar) && <p>{calendarStatus(selected.calendar)}</p>}<AppointmentActions item={selected} {...actions} /></CrmIaEditor>}
-    {editing && <CrmIaAppointmentEditor key={editing.id||'new'} {...{api,mutate,workspace,timezone,canManage,revision}} initial={editing} initialDate={editing.date||(editing.start_at?agendaCivilDate(editing.start_at,timezone):date||today())} onAvailability={()=>setAvailability(true)} onClose={() => setEditing(null)} />}
-    {availability&&<CrmIaAgendaAvailability {...{workspace,mutate,canManage}} onClose={()=>setAvailability(false)} onSaved={()=>{setAvailabilitySaved(true);setReload(value=>value+1);}} />}
+    {editing && <CrmIaAppointmentEditor key={editing.id||'new'} {...{api,mutate,workspace,timezone,canManage,revision}} initial={editing} initialDate={editing.date||(editing.start_at?agendaCivilDate(editing.start_at,timezone):date||today())} onAvailability={canConfigure?()=>setAvailability(true):undefined} onClose={() => setEditing(null)} />}
+    {availability&&canConfigure&&<CrmIaAgendaAvailability {...{workspace,mutate}} canManage={canConfigure} onClose={()=>setAvailability(false)} onSaved={()=>{setAvailabilitySaved(true);setReload(value=>value+1);}} />}
     {cancel && <CrmIaEditor title="Cancelar compromisso" onClose={() => setCancel(null)} saveLabel="Confirmar cancelamento" onSave={() => mutate('cancel_appointment',versionOf(cancel))}><p>{cancel.title} · {dateTime(cancel.start_at,timezone)}</p><p>O compromisso ficará cancelado no histórico. Nenhuma mensagem será enviada por esta confirmação.</p></CrmIaEditor>}
     {absence && <AbsenceEditor key={absence.id} item={absence} workspace={workspace} mutate={mutate} timezone={timezone} onClose={() => setAbsence(null)} onSaved={result => { setReceipt({title:absence.title,armed:result?.recovery?.armed===true}); setReload(value => value+1); }} />}
     <CrmIaQueue {...{api,revision,mutate,canManage}} />
@@ -176,6 +176,6 @@ function CrmIaAppointmentEditor({ api, mutate, workspace, initial, initialDate, 
   }}><CrmIaField label="Título do compromisso" value={draft.title} onChange={value => set('title', value)} required /><CrmIaField label="Buscar lead para agendar" value={search} onChange={value=>{setSearch(value);set('lead_id','');}} disabled={Boolean(initial.id)} /><CrmIaState read={leads} retry={() => setReload(value => value + 1)}><CrmIaField label="Lead do compromisso" value={draft.lead_id} onChange={value => set('lead_id', value)} disabled={Boolean(initial.id)} options={[{ value: '', label: 'Escolha um lead' }, ...(leads.data?.rows || [])]} /></CrmIaState><CrmIaField label="Atendente do compromisso" value={draft.owner_id} onChange={value => set('owner_id', value)} options={[{ value: '', label: 'Escolha uma pessoa' }, ...workspace.people]} /><CrmIaField label="Data do compromisso" type="date" value={date} onChange={value => { setDate(value);setSlot('');setPreferredTime(''); }} />
     {preferredTime&&slots.data&&!slots.pending&&!selectedSlot&&<p className="crm-ia-muted" role="status">O horário {preferredTime} está indisponível ou é ambíguo neste fuso. Escolha uma vaga atual.</p>}
     {draft.owner_id && <CrmIaState read={slots} retry={() => setReload(value => value + 1)} empty={slots.data?.rows?.length === 0 && 'Nenhum horário livre. Confira a disponibilidade ou escolha outro dia.'}><CrmIaField label="Horário disponível" value={selectedSlot} onChange={value=>{setSlot(value);setPreferredTime('');}} options={[{ value: '', label: 'Escolha um horário' }, ...(slots.data?.rows || []).map(item => ({ value: item.start_at, label: `${dateTime(item.start_at, zone)} até ${dateTime(item.end_at, zone)} (${new Intl.DateTimeFormat('pt-BR',{timeZone:zone,timeZoneName:'shortOffset'}).formatToParts(new Date(item.start_at)).find(part=>part.type==='timeZoneName')?.value})` }))]} /></CrmIaState>}
-    {canManage&&<button type="button" onClick={onAvailability}>Conferir disponibilidade</button>}<CrmIaField label="Notas do compromisso" type="textarea" value={draft.notes} onChange={value => set('notes', value)} />
+    {canManage&&onAvailability&&<button type="button" onClick={onAvailability}>Conferir disponibilidade</button>}<CrmIaField label="Notas do compromisso" type="textarea" value={draft.notes} onChange={value => set('notes', value)} />
   </CrmIaEditor>;
 }

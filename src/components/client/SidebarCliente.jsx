@@ -16,6 +16,7 @@ import {
   Headphones,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
@@ -23,6 +24,7 @@ import { rewritePublicStorageUrl } from '@/lib/publicStorageUrl';
 import { CLIENT_PANEL_LOGO_EVENT } from '@/lib/clientPanelTheme';
 import { clientHasPageAccess } from '@/lib/clientAllowedPages';
 import { useAtendimentoLojaMembro } from '@/hooks/useAtendimentoLojaMembro';
+import { useCrmIaClientAccess } from '@/hooks/useCrmIaClientAccess';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { TooltipCustom } from '@/components/ui/tooltip-custom';
 import { cn } from '@/lib/utils';
@@ -34,7 +36,7 @@ const getRoutePrefix = (profile) => {
 
 const hasPageAccess = (profile, pageKey) => clientHasPageAccess(profile, pageKey);
 
-const getMenuItems = (profile, atendimentoNivel) => {
+const getMenuItems = (profile, atendimentoNivel, crmEnabled) => {
   const prefix = getRoutePrefix(profile);
   const isAdmin =
     profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
@@ -89,6 +91,7 @@ const getMenuItems = (profile, atendimentoNivel) => {
     });
   }
 
+  if (crmEnabled) items.splice(items.findIndex(item => item.key === 'crm'), 0, { key: 'crm-ia', label: 'CRM IA', path: '/cliente/crm-ia/painel', icon: Sparkles });
   return items.filter((item) => item.disabled || item.always || hasPageAccess(profile, item.key));
 };
 
@@ -100,6 +103,7 @@ function SidebarNavButton({ item, isActive, expanded, onClick }) {
     <button
       type="button"
       onClick={onClick}
+      aria-label={item.label}
       disabled={item.disabled}
       className={cn(
         'planeje-sidebar-link flex-shrink-0 w-full',
@@ -137,6 +141,7 @@ function SidebarActionButton({ icon: Icon, label, expanded, onClick, className }
     <button
       type="button"
       onClick={onClick}
+      aria-label={label}
       className={cn(
         'planeje-sidebar-link flex-shrink-0 w-full border-0 bg-transparent shadow-none',
         expanded ? 'justify-start' : 'max-w-[56px]',
@@ -166,6 +171,7 @@ const SidebarCliente = ({ collapsed = false, onToggleCollapsed }) => {
   const [showQuemSomos, setShowQuemSomos] = useState(false);
   const [companyInfo, setCompanyInfo] = useState('');
   const atendimento = useAtendimentoLojaMembro();
+  const crmAccess = useCrmIaClientAccess();
   const lojaMembroRestrito = atendimento.gate && atendimento.nivel && atendimento.nivel !== 'admin';
 
   const expanded = !collapsed;
@@ -272,11 +278,11 @@ const SidebarCliente = ({ collapsed = false, onToggleCollapsed }) => {
           expanded ? 'px-3 items-stretch py-3' : 'px-2 items-center py-4'
         )}
       >
-        {getMenuItems(profile, atendimento.nivel).map((item) => {
+        {getMenuItems(profile, atendimento.nivel, crmAccess.enabled).map((item) => {
           const isActive =
             item.key === 'apexia'
               ? location.pathname.startsWith(item.path) || location.pathname.startsWith('/chat/')
-              : location.pathname.startsWith(item.path);
+              : item.key === 'crm-ia' ? location.pathname.startsWith('/cliente/crm-ia/') : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
 
           return (
             <SidebarNavButton

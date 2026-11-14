@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Activity, ClipboardList, TrendingUp, MoreHorizontal, BarChart3, Table2, CalendarDays, Headphones, User, ArrowLeft, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Activity, ClipboardList, TrendingUp, MoreHorizontal, BarChart3, Table2, CalendarDays, Headphones, User, ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useAtendimentoLojaMembro } from '@/hooks/useAtendimentoLojaMembro';
+import { useCrmIaClientAccess } from '@/hooks/useCrmIaClientAccess';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { clientHasPageAccess } from '@/lib/clientAllowedPages';
+import { reloadCurrentPage } from '@/lib/teamNav';
 
 // Função para determinar o prefixo da rota baseado no perfil
 const getRoutePrefix = (profile) => {
@@ -23,7 +25,7 @@ const getRoutePrefix = (profile) => {
 // Função para verificar se o usuário tem acesso a uma página
 const hasPageAccess = (profile, pageKey) => clientHasPageAccess(profile, pageKey);
 
-const getMenuItems = (profile, atendimentoNivel) => {
+const getMenuItems = (profile, atendimentoNivel, crmEnabled) => {
   const prefix = getRoutePrefix(profile);
   const isAdmin = profile?.role && ['superadmin', 'admin', 'colaborador'].includes(profile.role) && !profile?.cliente_id;
   const showAtendimento = Boolean(atendimentoNivel);
@@ -99,6 +101,7 @@ const getMenuItems = (profile, atendimentoNivel) => {
     });
   }
 
+  if (crmEnabled) items.splice(items.findIndex(item => item.key === 'crm'), 0, { key: 'crm-ia', label: 'CRM IA', path: '/cliente/crm-ia/painel', icon: Sparkles });
   // Filtrar itens baseado nas permissões do usuário
   return items.filter(item => {
     // Se estiver desabilitado por outro motivo (ex: ApexIA para não-clientes), manter na lista mas desabilitado
@@ -118,13 +121,14 @@ const BottomNavCliente = () => {
   const { profile, user } = auth || {};
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const atendimento = useAtendimentoLojaMembro();
+  const crmAccess = useCrmIaClientAccess();
 
   // Se não houver profile, não renderizar o componente
   if (!auth || !profile) {
     return null;
   }
 
-  const menuItems = getMenuItems(profile, atendimento.nivel);
+  const menuItems = getMenuItems(profile, atendimento.nivel, crmAccess.enabled);
   const visibleItems = menuItems.filter(item => !item.disabled);
   const prefix = profile?.role === 'cliente' && profile?.cliente_id ? '/cliente' : '/client-area';
   const isTeam = ['superadmin', 'admin', 'colaborador'].includes(profile?.role) && !profile?.cliente_id;
@@ -156,7 +160,7 @@ const BottomNavCliente = () => {
           const isActive =
             item.key === 'apexia'
               ? location.pathname.startsWith(item.path) || location.pathname.startsWith('/chat/')
-              : location.pathname.startsWith(item.path);
+              : item.key === 'crm-ia' ? location.pathname.startsWith('/cliente/crm-ia/') : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
           const Icon = item.icon;
           const isApexIA = item.key === 'apexia';
 
@@ -218,7 +222,7 @@ const BottomNavCliente = () => {
                 const isActive =
                   item.key === 'apexia'
                     ? location.pathname.startsWith(item.path) || location.pathname.startsWith('/chat/')
-                    : location.pathname.startsWith(item.path);
+                    : item.key === 'crm-ia' ? location.pathname.startsWith('/cliente/crm-ia/') : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
                 const isApexIA = item.key === 'apexia';
 
                 return (

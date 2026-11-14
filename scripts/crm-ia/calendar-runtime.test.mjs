@@ -28,7 +28,7 @@ function fixture({ text = 'Quero agendar 12/11/2026', claimed = true } = {}) {
     const query = { select() { return query; }, eq() { return query; }, is() { return query; }, or() { return query; }, order() { return query; }, limit() { return query; }, in() { return query; }, insert() { return query; },
       maybeSingle() { single = true; return query; }, then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: single ? rows[0] || null : rows }).then(resolve, reject); } };
     return query;
-  }, async rpc(name, args) {
+  }, async rpc(name, args) { if (name === 'crm_ia_runtime_access') return { data: { allowed: true }, error: null };
     calls.push(name);
     if (name === 'crm_ia_agent_intake') return { data: { lead, contact, conversation, config, actor_id: ownerId } };
     if (name === 'crm_ia_agent_begin') return { data: claimed ? { claimed: true, id: 'run' } : { claimed: false, skipped: 'snapshot_changed' } };

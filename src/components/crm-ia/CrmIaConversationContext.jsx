@@ -1,3 +1,4 @@
+import { crmIaBasePath } from './crmIaRoutes';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, PanelRightOpen } from 'lucide-react';
@@ -13,7 +14,7 @@ export default function CrmIaConversationContext({ api, mutate, scope, workspace
   const read = useCrmRead(api, 'conversation_context', scope, `${revision}:${reload}`, enabled, 10000);
   const lead = read.data?.lead;
   async function save(action, payload) { const result = await mutate(action, payload); setEditor(null); setReload(value => value + 1); return result; }
-  const href = lead ? `/crm-ia/leads?${new URLSearchParams({ cliente: workspace.client.id, lead_id: lead.id })}` : null;
+  const href = lead ? `${crmIaBasePath(workspace)}/leads?${new URLSearchParams({ cliente: workspace.client.id, lead_id: lead.id })}` : null;
   const editable = canManage && enabled && !lead?.archived_at;
   return <><div className="crm-ia-native-chat-identity crm-ia-conversation-context" aria-label="Contexto comercial">
     <h2 className="wa-chat-header-name" title={displayName}>{href ? <Link to={href}>{displayName}</Link> : displayName}</h2>

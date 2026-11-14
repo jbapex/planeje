@@ -33,7 +33,7 @@ export async function handleCrmIaMessage({ req, makeCaller, db, send, download, 
     const access = await caller.rpc('crm_ia_workspace', { p_action: 'authorize_media', p_client_id: body.cliente_id,
       p_payload: { contact_id: body.contact_id, channel_id: body.channel_id, message_id: body.message_id } });
     if (access.error || !access.data?.allowed) return response({ error: 'Arquivo indisponível neste contato e canal.' }, 403);
-    try { return response(await download({ message_id: body.message_id, cliente_id: body.cliente_id, whatsapp_config_id: body.channel_id,
+    try { return response(await download({ origem: 'crm-ia', contact_id: body.contact_id, message_id: body.message_id, cliente_id: body.cliente_id, whatsapp_config_id: body.channel_id,
       chat_jid: access.data.chat_jid, media_kind: body.media_kind, generate_mp3: body.media_kind === 'audio' }, authorization)); }
     catch { return response({ error: 'Não foi possível carregar o arquivo.' }, 502); }
   }

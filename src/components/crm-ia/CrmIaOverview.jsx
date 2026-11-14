@@ -1,3 +1,4 @@
+import { crmIaBasePath } from './crmIaRoutes';
 import React, { useId, useState } from 'react';
 import { ArrowRight, Bot, CalendarDays, MessageCircle, RefreshCw, Sparkles, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -43,9 +44,9 @@ export default function CrmIaOverview({ api, client, workspace, revision, onAnal
   const [usageReload, setUsageReload] = useState(0);
   const valid = Boolean(period.since && period.until && period.since <= period.until);
   const read = useCrmRead(api, 'overview', period, `${revision}:${reload}`, valid);
-  const usage = useCrmRead(api, 'usage', period, `${revision}:${reload}:${usageReload}`, valid);
+  const usage = useCrmRead(api, 'usage', period, `${revision}:${reload}:${usageReload}`, valid && workspace.permissions?.customer !== true);
   const data = read.data || {};
-  const path = (section, extra = {}) => `/crm-ia/${section}?${new URLSearchParams({ cliente: client.id, ...period, ...extra })}`;
+  const path = (section, extra = {}) => `${crmIaBasePath(workspace)}/${section}?${new URLSearchParams({ cliente: client.id, ...period, ...extra })}`;
   const indicators = [['leads', 'Leads recebidos', 'leads', 'Entradas no período'], ['qualified', 'Qualificados', 'leads', 'Qualificação registrada'], ['conversations', 'Conversas abertas', 'conversas'], ['appointments', 'Próximos compromissos', 'agenda', 'Agendados no período']];
   const stages = Array.isArray(data.stages) ? data.stages : null;
   const origins = Array.isArray(data.origins) ? data.origins : null;
@@ -83,19 +84,19 @@ export default function CrmIaOverview({ api, client, workspace, revision, onAnal
         </section>
         <section className="crm-ia-card crm-ia-overview-panel"><header><h2>De onde a demanda veio</h2></header>
           {origins?.length ? <ul className="crm-ia-overview-origins">{origins.map(origin => <li key={origin.name}><Link to={path('leads', { origin: origin.name })}><span className="crm-ia-overview-origin-icon" aria-hidden="true"><MessageCircle size={14} /></span><span className="crm-ia-overview-origin-name">{origin.name || 'Origem não informada'}</span><strong>{count(origin.count)}</strong><small aria-label={originTotal === null ? 'Participação indisponível' : undefined}>{originTotal === null ? '—' : `${originTotal ? Math.round(origin.count / originTotal * 100) : 0}%`}</small><span className="crm-ia-overview-bar" aria-hidden="true">{originTotal !== null && <i className="crm-ia-overview-bar-fill" style={{ width: `${originTotal ? origin.count / originTotal * 100 : 0}%` }} />}</span></Link></li>)}</ul> : <p className="crm-ia-overview-empty" role="status">{origins ? 'Sem origem registrada neste período.' : 'Origens indisponíveis neste período.'}</p>}
-          <p className="crm-ia-overview-panel-note">Participação nas origens registradas no período.</p><Link className="crm-ia-overview-footer-link" to={path('rastreabilidade')}>Ver rastreabilidade<ArrowRight size={13} aria-hidden="true" /></Link>
+          <p className="crm-ia-overview-panel-note">Participação nas origens registradas no período.</p>{workspace.permissions?.tracking !== false && <Link className="crm-ia-overview-footer-link" to={path('rastreabilidade')}>Ver rastreabilidade<ArrowRight size={13} aria-hidden="true" /></Link>}
         </section>
       </div>
       <div className="crm-ia-overview-summaries">
-        <section className="crm-ia-card crm-ia-overview-summary"><header><span className="crm-ia-overview-summary-icon is-ai"><Bot size={18} aria-hidden="true" /></span><div><h2>Resposta da IA</h2><p>{usage.data?.coverage?.since && usage.data?.coverage?.until ? `${dateTime(usage.data.coverage.since)} – ${dateTime(usage.data.coverage.until)}` : 'Cobertura não informada'}</p></div></header>
+        {workspace.permissions?.customer !== true && <section className="crm-ia-card crm-ia-overview-summary"><header><span className="crm-ia-overview-summary-icon is-ai"><Bot size={18} aria-hidden="true" /></span><div><h2>Resposta da IA</h2><p>{usage.data?.coverage?.since && usage.data?.coverage?.until ? `${dateTime(usage.data.coverage.since)} – ${dateTime(usage.data.coverage.until)}` : 'Cobertura não informada'}</p></div></header>
           <CrmIaState read={usage} retry={() => setUsageReload(value => value + 1)}><dl><div><dt>Gerações registradas</dt><dd>{count(usage.data?.responses)}</dd></div><div><dt>Tokens registrados</dt><dd>{count(usage.data?.tokens)}</dd></div></dl><p className="crm-ia-overview-summary-note">{usage.data?.coverage?.complete === false ? usage.data.coverage.message || 'Uso parcial: há registros sem atribuição segura ao recorte.' : 'Inclui testes e sugestões; não comprova envio ao contato.'}</p></CrmIaState>
-        </section>
+        </section>}
         <section className="crm-ia-card crm-ia-overview-summary"><header><span className="crm-ia-overview-summary-icon is-human"><Users size={18} aria-hidden="true" /></span><div><h2>Atendimento humano</h2><p>Conversas no período</p></div><Link className="crm-ia-overview-summary-link" aria-label="Abrir atendimento humano" to={path('conversas', { attendance: 'human' })}><ArrowRight size={15} aria-hidden="true" /></Link></header>
           <dl><div><dt>Conversas humanas</dt><dd>{count(data.totals?.human_conversations)}</dd></div><div><dt>Aguardando pessoa</dt><dd>{count(data.totals?.waiting)}</dd></div></dl><p className="crm-ia-overview-summary-note">{conversationsAvailable ? 'Conversas com última mensagem no período.' : data.coverage?.message || 'Atendimento indisponível nesta leitura.'}</p>
         </section>
-        <section className="crm-ia-card crm-ia-overview-summary"><header><span className="crm-ia-overview-summary-icon is-agents"><Sparkles size={18} aria-hidden="true" /></span><div><h2>Agentes da conta</h2><p>Configuração atual</p></div><Link className="crm-ia-overview-summary-link" aria-label="Abrir agentes da conta" to={path('agentes')}><ArrowRight size={15} aria-hidden="true" /></Link></header>
+        {workspace.permissions?.customer !== true && <section className="crm-ia-card crm-ia-overview-summary"><header><span className="crm-ia-overview-summary-icon is-agents"><Sparkles size={18} aria-hidden="true" /></span><div><h2>Agentes da conta</h2><p>Configuração atual</p></div><Link className="crm-ia-overview-summary-link" aria-label="Abrir agentes da conta" to={path('agentes')}><ArrowRight size={15} aria-hidden="true" /></Link></header>
           <dl>{AGENT_TYPES.map(([type, title]) => <div key={type}><dt>{title}</dt><dd>{count(agents?.filter(agent => agent.funil?.crm_ia?.tipo === type).length)}</dd></div>)}</dl><p className="crm-ia-overview-summary-note">{!agents ? 'Configuração de agentes indisponível.' : !agents.length ? 'Nenhum agente configurado.' : `${count(agents.length)} agentes configurados na conta.`}</p>
-        </section>
+        </section>}
       </div>
     </CrmIaState>}
   </div>;

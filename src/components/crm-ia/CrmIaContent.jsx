@@ -35,7 +35,10 @@ export default function CrmIaContent({ section, client, workspace, api, profile,
   }, [api]);
   if (!current || !client) return <p role="status">Selecione uma conta autorizada para abrir o CRM IA.</p>;
   const [title, description] = CRM_IA_SECTIONS[section] || CRM_IA_SECTIONS.painel;
-  const props = { api, mutate, workspace: current, client, profile, revision, canManage: current.permissions?.manage === true, onAnalyze, trackingUrl };
+  const canConfigure = (current.permissions?.configure ?? current.permissions?.manage) === true;
+  const props = { api, mutate, workspace: current, client, profile, revision,
+    canManage: (current.permissions?.operate ?? current.permissions?.manage) === true, canConfigure, onAnalyze, trackingUrl };
+  if (current.permissions?.customer === true && !['painel', 'leads', 'funil', 'conversas', 'agenda'].includes(section)) return <p role="alert">Esta página não está disponível para seu acesso.</p>;
   const ready = current.provisioned !== false;
   async function provision() {
     if (provisioning) return;
@@ -48,10 +51,10 @@ export default function CrmIaContent({ section, client, workspace, api, profile,
       : section === 'painel' ? <CrmIaOverview {...props} />
         : ['leads', 'funil'].includes(section) ? <CrmIaLeads key={section} {...props} kanban={section === 'funil'} />
           : section === 'conversas' ? <CrmIaConversations {...props} />
-            : section === 'agentes' ? <CrmIaAgents {...props} />
+            : section === 'agentes' ? <CrmIaAgents {...props} canManage={canConfigure} />
               : section === 'agenda' ? <CrmIaAgenda {...props} />
-                : section === 'modelos' ? <CrmIaTemplates {...props} />
-                  : section === 'configuracoes' ? <CrmIaSettings {...props} />
+                : section === 'modelos' ? <CrmIaTemplates {...props} canManage={canConfigure} />
+                  : section === 'configuracoes' ? <CrmIaSettings {...props} canManage={canConfigure} />
                     : section === 'disparos' ? <section className="crm-ia-card crm-ia-empty"><span className="crm-ia-badge">Em breve</span><h2>Disparos pela API oficial</h2><p>O envio em massa e os modelos aprovados pela Meta ainda não estão disponíveis neste ambiente.</p><p>Mensagens individuais e agendadas ficam em Conversas.</p></section>
                       : <section className="crm-ia-card"><h2>Origem e conversões no Rastreamento</h2><p>Consulte links, histórico de atribuição e tentativas de conversão na operação oficial desta conta.</p>{current.permissions?.tracking && trackingUrl ? <Link className="crm-ia-link-button crm-ia-primary" to={trackingUrl}>Abrir Rastreamento desta conta</Link> : <p role="status">Rastreamento indisponível para esta sessão.</p>}<hr /><h2>Inspetor de Vendas</h2><p className="crm-ia-muted">Em breve. Nenhuma análise automática ou conversão foi enviada por esta tela.</p></section>}
   </div>;

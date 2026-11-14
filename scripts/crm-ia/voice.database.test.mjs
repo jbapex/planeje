@@ -20,7 +20,7 @@ function run(binary, args, input) { const result = spawnSync(binary, args, { inp
 const sql = source => run('psql', ['-X','-Aqt','-v','ON_ERROR_STOP=1','-h',work,'-p','55495','-U','voice_qa','-d','postgres'], source);
 const rpc = (name, args = {}) => JSON.parse(sql(`SET ROLE service_role; SELECT to_jsonb(public.${name}(${Object.entries(args).map(([key,value]) => `${key}=>${key === 'p_ids' && Array.isArray(value) ? `ARRAY[${value.map(quote).join(',')}]::uuid[]` : quote(value)}`).join(',')}));`));
 const call = (action, payload, uid = admin) => JSON.parse(sql(`BEGIN; SET LOCAL ROLE authenticated; SET LOCAL test.uid='${uid}'; SELECT public.crm_ia_workspace('${action}','${client}',${quote(payload)}::jsonb); COMMIT;`));
-const db = { async rpc(name, args) { try { return { data: rpc(name, args), error: null }; } catch (error) { return { data: null, error: { message: error.message } }; } }, from(table) {
+const db = { async rpc(name, args) { if (name === 'crm_ia_runtime_access') return { data: { allowed: true }, error: null }; try { return { data: rpc(name, args), error: null }; } catch (error) { return { data: null, error: { message: error.message } }; } }, from(table) {
   const filters = []; let fields = '*', ordering = '', maximum = '', single = false, insert, patch;
   const q = { select(value) { fields = value; return q; }, eq(key,value) { filters.push(`${key}=${quote(value)}`); return q; }, is(key) { filters.push(`${key} IS NULL`); return q; },
     in(key,values) { filters.push(`${key} IN (${values.map(quote).join(',')})`); return q; }, or(value) { filters.push('('+value.split(',').map(part=>{const [key,,...text]=part.split('.');return `${key}=${quote(text.join('.'))}`;}).join(' OR ')+')');return q; },

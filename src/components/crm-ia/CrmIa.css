@@ -1,5 +1,16 @@
 .crm-ia-content,.crm-ia-dialog,.crm-ia-stage-icon-popover,.crm-ia-schedule-presets { --crm-ink:#0d0d0d; --crm-muted:#56605e; --crm-line:#e8ece9; --crm-blue:#286fc9; --crm-tint:#f7f9f8; color:var(--crm-ink); background:#fff; font-family:Inter,system-ui,sans-serif; font-size:13.5px; line-height:1.5; }
 .crm-ia-content { min-width:0; width:100%; padding:20px 24px 40px; }
+.crm-ia-client-workspace { display:flex; flex-direction:column; width:100%; min-width:0; min-height:100%; background:#fff; }
+.crm-ia-client-header { display:flex; align-items:center; gap:10px; padding:14px 24px; border-bottom:1px solid #e8ece9; }
+.crm-ia-client-header > div { display:flex; flex-direction:column; min-width:0; }
+.crm-ia-client-header h1 { margin:0; font-size:14px; font-weight:600; }
+.crm-ia-client-header span { font-size:12px; color:#626b66; overflow-wrap:anywhere; }
+.crm-ia-client-tabs { display:flex; gap:6px; padding:10px 24px; overflow-x:auto; border-bottom:1px solid #e8ece9; }
+.crm-ia-client-tabs a { padding:7px 12px; flex:none; border-radius:7px; font-size:13px; color:#56605e; }
+.crm-ia-client-tabs a[aria-current=page] { background:#edf3fb; color:#286fc9; font-weight:600; }
+.crm-ia-client-tabs a:focus-visible { outline:2px solid #286fc9; outline-offset:2px; }
+.crm-ia-client-workspace > .crm-ia-main { padding-top:18px; }
+@media(max-width:640px) { .crm-ia-client-header,.crm-ia-client-tabs { padding-inline:14px; } }
 .gestor-ia.crm-ia-workspace { align-items:stretch; overflow:hidden; background:#fff; color:#171b19; }
 .crm-ia-workspace .crm-ia-main { flex:1; min-width:0; min-height:0; height:100%; overflow:auto; background:#fff; }
 .crm-ia-workspace .crm-ia-main > .crm-ia-content { padding-top:0; }

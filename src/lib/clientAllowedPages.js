@@ -6,6 +6,7 @@
 import { hasAtendimentoPagePermission } from './atendimentoLojaAcesso.js';
 
 export const ATENDIMENTO_PAGE_KEY = 'atendimento';
+export const CRM_IA_PAGE_KEY = 'crm-ia';
 
 export const CLIENT_STANDARD_PAGE_KEYS = [
   'dashboard',
@@ -21,6 +22,7 @@ export const CLIENT_PAGES = [
   { key: 'apexia', label: 'ApexIA' },
   { key: 'pgm-panel', label: 'Painel PGM' },
   { key: 'crm', label: 'CRM' },
+  { key: CRM_IA_PAGE_KEY, label: 'CRM IA' },
   { key: ATENDIMENTO_PAGE_KEY, label: 'Atendimento' },
 ];
 
@@ -40,6 +42,7 @@ export function clientHasPageAccess(profile, pageKey) {
   if (profile?.role !== 'cliente' || !profile?.cliente_id) return true;
   const key = String(pageKey || '').trim();
   if (!key) return true;
+  if (key === CRM_IA_PAGE_KEY) return Array.isArray(profile.allowed_pages) && profile.allowed_pages.includes(CRM_IA_PAGE_KEY);
   if (key === ATENDIMENTO_PAGE_KEY) {
     return hasAtendimentoPagePermission(profile.allowed_pages, profile.cliente_id);
   }

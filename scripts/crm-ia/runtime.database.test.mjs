@@ -64,7 +64,7 @@ test('typed runtime applies canonical actions and outbox together, rejecting sta
     sql(`UPDATE cliente_atend_conversas SET updated_at=clock_timestamp() WHERE contact_id='${contact}'`);
     assert.equal(rpc('crm_ia_delivery_recheck',`'${action.outbox_id}','${claimed[0].claim_token}'`).allowed,false,'later human update must cancel response');
     const quote = value => value == null ? 'NULL' : typeof value === 'boolean' || typeof value === 'number' ? String(value) : `'${String(typeof value === 'object' ? JSON.stringify(value) : value).replaceAll("'", "''")}'`;
-    const db = { async rpc(name,args) { return { data:rpc(name,Object.entries(args).map(([key,value])=>`${key}=>${key==='p_ids' && Array.isArray(value)?`ARRAY[${value.map(quote).join(',')}]::uuid[]`:quote(value)}`).join(',')),error:null }; }, from(table) {
+    const db = { async rpc(name,args) { if (name === 'crm_ia_runtime_access') return { data: { allowed: true }, error: null }; return { data:rpc(name,Object.entries(args).map(([key,value])=>`${key}=>${key==='p_ids' && Array.isArray(value)?`ARRAY[${value.map(quote).join(',')}]::uuid[]`:quote(value)}`).join(',')),error:null }; }, from(table) {
       const filters=[];let fields='*',ordering='',limit='',single=false,insert=null,patch=null;
       const query={select(value){fields=value;return query;},eq(key,value){filters.push(`${key}=${quote(value)}`);return query;},is(key){filters.push(`${key} IS NULL`);return query;},
         in(key,values){filters.push(`${key} IN (${values.map(quote).join(',')})`);return query;},or(value){filters.push('('+value.split(',').map(part=>{const [key,,...text]=part.split('.');return `${key}=${quote(text.join('.'))}`;}).join(' OR ')+')');return query;},
