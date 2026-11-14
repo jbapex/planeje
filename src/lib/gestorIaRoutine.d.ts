@@ -76,3 +76,8 @@ export function selectRoutineLeads(contacts: Record<string, unknown>[], options:
   messages?: Record<string, unknown>[];
 }): RoutineLeadResult;
 export function routineLeadSummary(result: Pick<RoutineLeadResult, 'leads' | 'unmatchedLeads'>, rows?: Record<string, unknown>[]): RoutineLeadSummary;
+export type RoutineContactIdentity = { origin: RoutineOrigin; adId: string; conflict: boolean; configured: boolean; meta: boolean };
+export function contactIdentity(contact: Record<string, unknown>): RoutineContactIdentity;
+export function resolveContactOrigin(contact: Record<string, unknown>, candidates: Record<string, unknown>[]): RoutineContactIdentity & {
+  method: 'id' | 'name' | 'link' | null; reason: string;
+};

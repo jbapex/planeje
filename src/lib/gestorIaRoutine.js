@@ -55,7 +55,7 @@ const originKey = (origin) => `${origin.account_id}|${origin.campaign_id}|${orig
 const matchesRow = (origin, row) => row.account === origin.account_id && row.campaign === origin.campaign_id && (!row.adset || row.adset === origin.adset_id);
 const compatibleOrigin = (origin, candidate) => ['account_id', 'campaign_id', 'adset_id'].every((key) => !origin[key] || origin[key] === candidate[key]);
 
-function contactIdentity(contact) {
+export function contactIdentity(contact) {
   const tracking = contact.tracking_data || {};
   const snapshot = tracking.planeje_link_attribution || {};
   const configured = tracking.link_configured === true || (snapshot.platform === 'meta'
@@ -88,7 +88,7 @@ function uniqueOrigin(candidates, target, includeAdName = false) {
   return result;
 }
 
-function resolveContactOrigin(contact, candidates) {
+export function resolveContactOrigin(contact, candidates) {
   const target = contactIdentity(contact);
   const unresolved = (reason) => ({ ...target, method: null, reason });
   if (!target.meta) return unresolved('Origem manual, Google ou outra plataforma');

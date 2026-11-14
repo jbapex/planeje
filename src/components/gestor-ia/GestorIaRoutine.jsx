@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ArrowUpRight, CalendarDays, ChevronRight, RefreshCw, Search, Table2, Users } from 'lucide-react';
 import { supabase } from '@/lib/customSupabaseClient';
@@ -13,7 +13,9 @@ import GestorIaClientAvatar from './GestorIaClientAvatar';
 import GestorIaRoutineLeads from './GestorIaRoutineLeads';
 import './GestorIaRoutine.css';
 
-function RoutineEditor({ board, profile, modules, clientId, weekStart, choose, close, canReadMeta, canReadLeads }) {
+const GestorIaCohorts = lazy(() => import('./GestorIaCohorts'));
+
+function RoutineEditor({ board, profile, modules, clientId, weekStart, choose, close, canReadMeta, canReadLeads, view, onView }) {
   const [record, setRecord] = useState(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -62,16 +64,25 @@ function RoutineEditor({ board, profile, modules, clientId, weekStart, choose, c
   }, [clientId, weekStart, canReadMeta, profile, modules]);
 
   if (!client) return <p className="gia-notice" role="alert">Cliente indisponível nesta carteira.</p>;
-  if (error) return <div className="gia-empty" role="alert"><p>{error}</p><button type="button" className="gia-action-link" onClick={() => setAttempt((value) => value + 1)}>Tentar novamente</button><button type="button" onClick={close}>Voltar aos clientes</button></div>;
-  if (!record) return <p className="gia-status" role="status">Abrindo a semana…</p>;
   return <>
-    <TrafficWeeklyReviewEditor review={record.review} previous={record.previous} board={board} clients={board.clients}
+    <div className="gia-routine-tabs gia-routine-view-tabs" role="group" aria-label="Visualização da rotina"><button type="button" aria-pressed={view !== 'coorte'} onClick={() => onView('planilha')}>Planilha</button><button type="button" disabled={!canReadLeads} aria-pressed={view === 'coorte'} onClick={() => onView('coorte')}>Coorte</button></div>
+    <div hidden={view === 'coorte'}>
+    {error ? <div className="gia-empty" role="alert"><p>{error}</p><button type="button" className="gia-action-link" onClick={() => setAttempt((value) => value + 1)}>Tentar novamente</button><button type="button" onClick={close}>Voltar aos clientes</button></div>
+      : !record ? <p className="gia-status" role="status">Abrindo a semana…</p> : <TrafficWeeklyReviewEditor review={record.review} previous={record.previous} board={board} clients={board.clients}
       onNavigate={(id, week) => choose(id, week)} onClose={close}
       onSaved={(id) => setRecord((current) => ({ ...current, review: { ...current.review, id } }))}
-      sheetView={{ source, onInspectLeads: canReadLeads ? (rows, appointmentsOnly, allRows) => setInspecting({ rows, appointmentsOnly, allRows }) : undefined }} />
+      sheetView={{ source, onInspectLeads: canReadLeads ? (rows, appointmentsOnly, allRows) => setInspecting({ rows, appointmentsOnly, allRows }) : undefined }} />}
     {!canReadLeads && <p className="gia-caption">A consulta dos leads requer acesso ao Rastreamento.</p>}
-    {record.review.metric_mode === 'client' && <p className="gia-caption">Esta semana foi registrada em resumo. Os dados originais foram preservados.</p>}
+    {record?.review.metric_mode === 'client' && <p className="gia-caption">Esta semana foi registrada em resumo. Os dados originais foram preservados.</p>}
     {canReadLeads && inspecting && <GestorIaRoutineLeads client={client} weekStart={weekStart} selection={inspecting} profile={profile} modules={modules} close={() => setInspecting(null)} />}
+    </div>
+    {view === 'coorte' && <>
+      <div className="gia-cohort-navigation"><button type="button" className="gia-action-link" onClick={close}>Voltar aos clientes</button>
+        <select aria-label="Cliente da coorte" value={clientId} onChange={event => choose(event.target.value, weekStart)}>{board.clients.map(item => <option key={item.id} value={item.id}>{item.empresa}</option>)}</select>
+        <input type="date" aria-label="Semana da coorte" value={weekStart} max={board.today} onChange={event => { const selected = normalizeRoutineWeek(event.target.value); if (selected) choose(clientId, selected); }} />
+      </div>
+      <Suspense fallback={<p className="gia-status" role="status">Abrindo coortes…</p>}><GestorIaCohorts clientId={clientId} weekStart={weekStart} profile={profile} modules={modules} /></Suspense>
+    </>}
   </>;
 }
 
@@ -93,7 +104,9 @@ export default function GestorIaRoutine({ clients, loading, error: portfolioErro
     if (board && !clientId) void readStore.run(summaryKey,
       () => loadRoutineSummary(supabase, { profile, modules, clientIds: board.clients.map((client) => client.id), weekStart: week }), true);
   }, [board, clientId, modules, profile, readStore, summaryKey, week]);
-  const choose = (id, start = week) => setParams({ ...(id ? { cliente: id } : {}), semana: start });
+  const view = params.get('aba') === 'coorte' ? 'coorte' : 'planilha';
+  const choose = (id, start = week) => setParams({ ...(id ? { cliente: id } : {}), semana: start, ...(view === 'coorte' ? { aba: 'coorte' } : {}) });
+  const changeView = value => { const next = new URLSearchParams(params); if (value === 'coorte') next.set('aba', 'coorte'); else next.delete('aba'); setParams(next); };
   const records = summaryRead.data || (board?.reviews || []).filter((review) => review.week_start === week && review.kind !== 'optimization');
   const summaryKnown = Array.isArray(summaryRead.data);
   const clientsWithRecords = new Set(records.filter((record) => filledSheetRows(record.campaign_metrics).length || record.investment != null || record.revision > 0).map((record) => record.client_id));
@@ -113,7 +126,7 @@ export default function GestorIaRoutine({ clients, loading, error: portfolioErro
     {loading ? <p className="gia-status" role="status">Carregando clientes…</p> : portfolioError ? <p className="gia-notice" role="alert">{portfolioError}</p>
       : !board ? boardRead.error ? <div className="gia-notice" role="alert">Não foi possível carregar a rotina. <button type="button" onClick={() => boardRead.reload()}>Tentar novamente</button></div> : <p className="gia-status" role="status">Carregando rotina…</p>
       : clientId ? <RoutineEditor key={`${clientId}:${week}`} board={board} profile={profile} modules={modules} clientId={clientId} weekStart={week} choose={choose} close={() => choose('')}
-        canReadMeta={canViewField?.('meta_resumo') === true} canReadLeads={modules.rastreamento === true} />
+        canReadMeta={canViewField?.('meta_resumo') === true} canReadLeads={modules.rastreamento === true} view={view} onView={changeView} />
       : <>
         <div className="gia-routine-overview"><div><Users aria-hidden="true" /><span>Clientes<strong>{board.clients.length}</strong></span></div><div><Table2 aria-hidden="true" /><span>Com preenchimento<strong>{summaryKnown ? clientsWithRecords.size : '—'}</strong></span></div><div><CalendarDays aria-hidden="true" /><span>Agendamentos informados<strong>{summaryKnown ? summary.appointments ?? '—' : '—'}</strong></span></div><div><ArrowUpRight aria-hidden="true" /><span>Investimento informado<strong>{summaryKnown ? currency(summary.spend) : '—'}</strong></span></div></div>
         <div className="gia-routine-filters"><label className="gia-search"><Search aria-hidden="true" /><input aria-label="Buscar cliente da rotina" placeholder="Buscar cliente" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
