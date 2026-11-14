@@ -30,9 +30,9 @@ const bundle = await fs.realpath(outfile);
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
 const text = n => typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join(' ') : n ? text(n.children ?? n.props?.children) : '';
 function fresh() { delete require.cache[bundle]; return require(bundle); }
-async function mount(app, client = A) {
+async function mount(app, client = A, section = 'painel', search = '') {
   let r;
-  await act(async () => { r = create(React.createElement(app.MemoryRouter, { initialEntries: [`/crm-ia/painel${client ? '?cliente=' + client : ''}`], future: { v7_startTransition: true, v7_relativeSplatPath: true } }, React.createElement(app.Workspace))); });
+  await act(async () => { r = create(React.createElement(app.MemoryRouter, { initialEntries: [`/crm-ia/${section}${client ? '?cliente=' + client : search}`], future: { v7_startTransition: true, v7_relativeSplatPath: true } }, React.createElement(app.Workspace))); });
   return r;
 }
 const picker = r => r.root.findAllByType('select').find(n => n.parent?.props.className === 'crm-ia-account-picker');
@@ -92,4 +92,48 @@ test('troca de conta mantém a identidade do seletor durante carga e confirmaç�
     await act(async () => complete()); assertHeader(r, B); assert.equal(picker(r), initial);
     assert.equal(r.root.findAllByProps({ className: 'crm-ia-content' }).length, 1);
   } finally { await unmount(r); }
+});
+
+const accountLinks = r => r.root.findAllByType('a').filter(n => n.props.className === 'crm-ia-account-row');
+const searchAccounts = (r,value) => act(async()=>r.root.findByProps({'aria-label':'Buscar contas'}).props.onChange({target:{value}}));
+test('entrada identifica o CRM e aplica o escopo visual sem consultar cada conta',async()=>{
+  const app=fresh(),original=app.supabase.rpc,calls=[];
+  app.supabase.rpc=(name,args)=>{calls.push(args);return original(name,args);};
+  const r=await mount(app,'');
+  try {
+    assert.equal(text(r.root.findByType('h1')),'CRM IA');
+    assert.equal(r.root.findAllByType('section').some(n=>n.props.className?.split(' ').includes('crm-ia-content')&&n.props.className?.split(' ').includes('crm-ia-accounts')),true);
+    assert.equal(accountLinks(r).length,2);assert.match(text(r.root.findByProps({'aria-label':'Resultado da busca de contas'})),/2 contas/);
+    assert.deepEqual(calls.map(p=>p.p_action),['bootstrap']);
+  } finally {await unmount(r);}
+});
+test('busca recuperável por URL ignora caixa e acento; limpar restaura a lista autorizada',async()=>{
+  const app=fresh(),original=app.supabase.rpc,calls=[];
+  app.supabase.rpc=(name,args)=>{calls.push(args);return original(name,args);};
+  const r=await mount(app,'','painel','?busca_contas=ESCRITORIO');
+  try {
+    assert.equal(r.root.findByProps({'aria-label':'Buscar contas'}).props.value,'ESCRITORIO');
+    assert.equal(accountLinks(r).length,1);assert.match(accountLinks(r)[0].props.href,/cliente=11111111/);
+    await searchAccounts(r,'sem correspondência');assert.equal(accountLinks(r).length,0);assert.match(text(r.toJSON()),/Nenhuma conta encontrada/);
+    const clear=r.root.findAllByType('button').find(n=>text(n)==='Limpar busca');assert.ok(clear);await act(async()=>clear.props.onClick());
+    assert.equal(accountLinks(r).length,2);assert.equal(r.root.findByProps({'aria-label':'Buscar contas'}).props.value,'');
+    assert.deepEqual(calls.map(p=>p.p_action),['bootstrap']);
+  } finally {await unmount(r);}
+});
+test('linha da conta é link da seção atual e entrada de Conversas não usa altura de chat',async()=>{
+  const app=fresh(),r=await mount(app,'','conversas');
+  try {
+    assert.equal(r.root.findByProps({id:'crm-ia-main'}).props.className.includes('is-conversations'),false);
+    const link=accountLinks(r).find(n=>n.props.href.includes(B));assert.ok(link);assert.equal(link.props.href,`/crm-ia/conversas?cliente=${B}`);
+    await act(async()=>link.props.onClick({button:0,preventDefault(){},defaultPrevented:false}));
+    assertHeader(r,B);assert.equal(accountLinks(r).length,0);
+    assert.equal(r.root.findByProps({id:'crm-ia-main'}).props.className.includes('is-conversations'),true);
+  } finally {await unmount(r);}
+});
+test('nenhuma conta autorizada não oferece link ou trata a ausência como busca sem resultado',async()=>{
+  const app=fresh(),original=app.supabase.rpc;
+  app.supabase.rpc=(name,args)=>args?.p_action==='bootstrap'?Promise.resolve({data:{clients:[],permissions:{}},error:null}):original(name,args);
+  const r=await mount(app,'');
+  try {assert.equal(accountLinks(r).length,0);assert.match(text(r.toJSON()),/Nenhuma conta disponível para seu acesso/);assert.doesNotMatch(text(r.toJSON()),/Nenhuma conta encontrada/);}
+  finally {await unmount(r);}
 });

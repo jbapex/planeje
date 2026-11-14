@@ -8,6 +8,30 @@
 .crm-ia-account-picker { display:flex; align-items:center; gap:8px; min-width:0; font-size:12px; color:#626b66; }
 .crm-ia-account-picker select { width:clamp(160px,19vw,260px); max-width:100%; min-width:0; min-height:36px; padding:7px 10px; border:1px solid #e1e6e3; border-radius:9px; background:#fff; color:#171b19; font-size:13px; }
 .crm-ia-workspace .crm-ia-main > .crm-ia-stack,.crm-ia-workspace .crm-ia-main > .crm-ia-state { margin:20px 24px; }
+.crm-ia-workspace .is-account-selection > .crm-ia-workspace-header,.crm-ia-workspace .crm-ia-accounts { width:100%; max-width:1240px; margin-inline:auto; }
+.crm-ia-accounts-panel { padding:20px; border:1px solid var(--crm-line); border-radius:14px; background:#fff; }
+.crm-ia-accounts-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
+.crm-ia-accounts-heading > div { display:flex; align-items:center; gap:10px; }
+.crm-ia-accounts-heading > div > p { padding:3px 8px; border-radius:6px; background:var(--crm-tint); color:var(--crm-muted); font-size:11px; }
+.crm-ia-accounts-search { display:flex; align-items:center; gap:9px; width:320px; max-width:100%; min-height:40px; padding:8px 12px; border:1px solid var(--crm-line); border-radius:9px; color:var(--crm-muted); background:var(--crm-tint); }
+.crm-ia-accounts-search > svg { flex:none; }
+.crm-ia-accounts-search input { width:100%; min-width:0; background:transparent; color:var(--crm-ink); border:0; font:inherit; font-size:13px; }
+.crm-ia-accounts-search:focus-within { border-color:var(--crm-blue); }
+.crm-ia-account-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:0; margin:0; list-style:none; }
+.crm-ia-account-list > li { min-width:0; }
+.crm-ia-content .crm-ia-account-row { display:flex; align-items:center; gap:12px; height:100%; min-height:72px; padding:12px; border:1px solid var(--crm-line); border-radius:10px; background:#fff; touch-action:manipulation; }
+.crm-ia-content .crm-ia-account-row:is(:hover,:focus-visible) { border-color:#bbb3c9; background:#f8f7fa; }
+.crm-ia-account-row > svg { flex:none; margin-left:auto; color:#7b747f; transition:transform .14s ease; }
+.crm-ia-account-row:is(:hover,:focus-visible) > svg { transform:translate(2px,-2px); }
+.crm-ia-account-row .crm-ia-account-name { display:flex; flex:1; flex-direction:column; gap:3px; min-width:0; }
+.crm-ia-account-name strong { overflow-wrap:anywhere; font-size:13px; font-weight:550; line-height:1.4; }
+.crm-ia-account-name > span { color:var(--crm-muted); font-size:11px; }
+.crm-ia-account-row :is(.gia-initials,.gia-client-avatar) { width:34px; height:34px; border-radius:9px; background:#f0eef5; color:#65596f; font-size:11px; }
+.crm-ia-accounts-empty { padding:36px 12px; color:var(--crm-muted); text-align:center; }
+.crm-ia-accounts-empty button { margin-top:14px; }
+@media(max-width:1200px) { .crm-ia-account-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:640px) { .crm-ia-accounts-panel { padding:14px; } .crm-ia-accounts-heading { align-items:stretch; } .crm-ia-accounts-search { width:100%; } .crm-ia-account-list { grid-template-columns:minmax(0,1fr); } }
+@media(prefers-reduced-motion:reduce) { .crm-ia-account-row > svg { transition:none; } .crm-ia-account-row:is(:hover,:focus-visible) > svg { transform:none; } }
 .crm-ia-content *,.crm-ia-dialog * { box-sizing:border-box; }
 .crm-ia-content :is(h1,h2,h3,p),.crm-ia-dialog :is(h2,h3,p) { margin:0; }
 .crm-ia-content h1 { font-size:22px; font-weight:500; line-height:28px; letter-spacing:-.025em; }
