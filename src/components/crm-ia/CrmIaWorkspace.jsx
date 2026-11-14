@@ -99,7 +99,7 @@ function CrmIaAuthorized({ profile, user, modules }) {
               </div>
               <ul className="crm-ia-account-list" aria-label="Contas disponíveis">{accountRows.map(row => <li key={row.id}>
                 <Link className="crm-ia-account-row" aria-label={`Abrir CRM de ${row.empresa || 'Conta sem nome'}`} to={{ pathname: location.pathname, search: new URLSearchParams({ cliente: row.id }).toString() }}>
-                  <GestorIaClientAvatar client={row} /><span className="crm-ia-account-name"><strong>{row.empresa || 'Conta sem nome'}</strong><span>Abrir CRM</span></span><ArrowUpRight size={16} aria-hidden="true" />
+                  <GestorIaClientAvatar client={row} /><span className="crm-ia-account-name"><strong>{row.empresa || 'Conta sem nome'}</strong></span><span className="crm-ia-account-open">Abrir CRM<ArrowUpRight size={16} aria-hidden="true" /></span>
                 </Link>
               </li>)}</ul>
               {!bootstrap.clients.length ? <p className="crm-ia-accounts-empty">Nenhuma conta disponível para seu acesso.</p> : !accountRows.length && <div className="crm-ia-accounts-empty"><p>Nenhuma conta encontrada.</p><button type="button" onClick={() => { searchAccounts(''); accountSearchInput.current?.focus(); }}>Limpar busca</button></div>}
