@@ -25,7 +25,7 @@ function fixture({draft=null,sourceConflict=false,read}={}){const calls=[];let r
  if(action==='publish_agent_draft'){assert.equal(payload.revision,revision);return {published:true,agent:{id:'published',...saved}};}
  if(action==='discard_agent_draft'){saved=null;revision+='d';return {discarded:true,revision};}
  if(action==='test_agent')return {resposta:'Resposta publicada',agente:{id:'a',nome:'Agente publicado'}};
- if(action==='save_config')return {};throw new Error(action);
+ if(action==='save_config')return {revision:'cfg-next',data:{[payload.section]:payload.data}};throw new Error(action);
  }};}
 async function mount(f,extra={}){let r;await act(async()=>{r=create(React.createElement(MemoryRouter,{future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Agents,{api:f.api,mutate:f.api,workspace,canManage:true,...extra})));});return r;}
 test('fechar salva rascunho incompleto e reabrir retoma sem publicar nem autorizar custo',async()=>{
@@ -76,12 +76,18 @@ test('troca de conta ignora hidratação antiga e abre editor com novo escopo',a
  assert.notEqual(r.root.findByProps({'aria-label':'Nome do agente'}).props.value,'Dado da conta antiga');await act(async()=>r.unmount());
 });
 test('Concierge começa sem opt-ins, valida prazo e não mistura espera humana com recuperação',async()=>{
- const f=fixture(),r=await mount(f);await click(r,'Concierge');await click(r,'Configurar Concierge');
+ const f=fixture(),r=await mount(f);await click(r,'Concierge');await change(r,'Responder dúvidas frequentes',false);
  for(const label of ['Permitir confirmação de presença','Permitir remarcação','Permitir cancelamento','Recuperar não comparecimento'])assert.equal(r.root.findByProps({'aria-label':label}).props.checked,false);
  await change(r,'Prazo da recuperação, em horas','0');await submit(r);assert.equal(f.calls.some(([action])=>action==='save_config'),false);
  await change(r,'Prazo da recuperação, em horas','168');await change(r,'Atraso após marcar ausência, em minutos','90');await change(r,'Permitir cancelamento',true);await submit(r);
  const saved=f.calls.find(([action])=>action==='save_config')[1].data;
  assert.equal(saved.enabled,false);assert.equal(saved.appointment_cancel,true);assert.equal(saved.appointment_confirm,false);assert.equal(saved.no_show_recovery,false);
  assert.equal(saved.no_show_delay_minutes,90);assert.equal(saved.no_show_expire_hours,168);assert.equal(saved.human_wait_minutes,10);await act(async()=>r.unmount());
+});
+test('editor orienta próxima etapa sem publicar e conserva o texto ao voltar',async()=>{
+ const f=fixture(),r=await mount(f);await click(r,'Configurar Qualificação');await change(r,'Nome do agente','Nome em rascunho');
+ await click(r,'Próxima etapa');assert.equal(r.root.findByProps({id:'crm-ia-agent-scope'}).props.hidden,false);assert.match(text(r.toJSON()),/Passo 2/);
+ await click(r,'Etapa anterior');assert.equal(r.root.findByProps({id:'crm-ia-agent-identity'}).props.hidden,false);assert.equal(r.root.findByProps({'aria-label':'Nome do agente'}).props.value,'Nome em rascunho');
+ assert.equal(f.calls.some(([action])=>action==='publish_agent_draft'),false);await act(async()=>r.unmount());
 });
 test.after(async()=>rm(scratch,{recursive:true,force:true}));

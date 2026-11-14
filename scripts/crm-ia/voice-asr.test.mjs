@@ -5,6 +5,7 @@ import { decodeAudio, transcribeGroupAudio } from '../../supabase/functions/_sha
 
 const audio = btoa('ID3' + 'x'.repeat(80));
 const args = { clientId: 'client', channelId: 'channel', contactId: 'contact', messageId: 'inbound', apiKey: 'fixture' };
+const authorization={agent_id:'00000000-0000-4000-8000-000000000081',agent_updated_at:'2026-11-12T10:00:00.123456Z',config_revision:'00000000-0000-4000-8000-000000000201',concierge_role:true};
 test('opção multilíngue do CRM preserva português nos consumidores anteriores do helper', async () => {
   const result = await transcribeGroupAudio({ audio: decodeAudio(audio), apiKey: 'fixture', fetcher: async (_url, init) => {
     assert.equal(init.body.get('language'), 'pt');
@@ -12,13 +13,14 @@ test('opção multilíngue do CRM preserva português nos consumidores anteriore
   } });
   assert.equal(result.text, 'Áudio sintético.');
 });
-function fixture({ allowed = true, cached, revoke = 0 } = {}) {
+function fixture({ allowed = true, cached, revoke = 0, pin=authorization, rpcError=null, complete=true } = {}) {
   const calls = []; let checks = 0, saved;
   return { calls, get saved() { return saved; }, db: { async rpc(name, data) {
     calls.push(name);
-    if (name === 'crm_ia_audio_begin') return { data: { allowed, id: 'audio-job', claim_token: 'token', ...(cached || {}) } };
+    if(name===rpcError)return{data:null,error:{message:'fixture failure'}};
+    if (name === 'crm_ia_audio_begin') return { data: { allowed, id: 'audio-job', claim_token: 'token', authorization:pin, ...(cached || {}) } };
     if (name === 'crm_ia_audio_recheck') return { data: { allowed: ++checks !== revoke, inbox: { message_id: 'inbound', raw_payload: {} }, config: { subdomain: 'fixture', token: 'fixture' } } };
-    if (name === 'crm_ia_audio_complete') { saved = data; return { data: true }; }
+    if (name === 'crm_ia_audio_complete') { saved = data; return { data: complete }; }
     assert.fail(name);
   } } };
 }
@@ -36,6 +38,7 @@ if (voice.processCrmIaAudioInput) {
       return Response.json({ text: 'Quero agendar amanhã.', usage: { total_tokens: 5 } });
     } });
     assert.equal(result.transcript, 'Quero agendar amanhã.');
+    assert.deepEqual(result.authorization,authorization);
     assert.equal(fetches.length, 2);
     assert.equal(f.saved.p_transcript, result.transcript);
     assert.equal('file' in f.saved, false);
@@ -45,10 +48,12 @@ if (voice.processCrmIaAudioInput) {
       const f = fixture(options);
       const result = await voice.processCrmIaAudioInput({ ...args, db: f.db, fetchImpl: async () => assert.fail('cache/download') });
       assert.equal(result.ok, options.cached?.status === 'completed');
+      if(options.allowed!==false)assert.deepEqual(result.authorization,authorization);
     }
     const f = fixture();
     const result = await voice.processCrmIaAudioInput({ ...args, db: f.db, apiKey: '', fetchImpl: async () => assert.fail('no key') });
     assert.equal(result.error, 'audio_unavailable');
+    assert.deepEqual(result.authorization,authorization);
     assert.equal(f.saved.p_error_code, 'audio_unavailable');
   });
   test('URL arbitrária, arquivo acima de 4 MB e áudio vazio nunca chegam ao modelo', async () => {
@@ -67,5 +72,32 @@ if (voice.processCrmIaAudioInput) {
     const f = fixture(); let requests = 0;
     const result = await voice.processCrmIaAudioInput({ ...args, db: f.db, timeoutMs: 5, fetchImpl: async () => { requests++; return new Promise(() => {}); } });
     assert.equal(result.error, 'audio_timeout'); assert.equal(requests, 1);
+  });
+  test('pin ausente ou inválido não libera download, ASR nem uso de cache',async()=>{
+    for(const pin of [undefined,null,{}, {...authorization,concierge_role:'true'},{...authorization,agent_updated_at:'invalid'},{...authorization,agent_id:'other'}]){
+      for(const cached of [undefined,{cached:true,status:'completed',transcript:'Não usar'}]){
+        const f=fixture({pin:pin===undefined?{}:pin,cached});
+        const result=await voice.processCrmIaAudioInput({...args,db:f.db,fetchImpl:async()=>assert.fail('no valid pin')});
+        assert.equal(result.skipped,'audio_context_changed');assert.deepEqual(f.calls,['crm_ia_audio_begin']);
+      }
+    }
+  });
+  test('RPC sem confirmação e complete falso não autorizam resposta fixa',async()=>{
+    for(const rpcError of ['crm_ia_audio_recheck','crm_ia_audio_complete']){
+      const f=fixture({rpcError});
+      const result=await voice.processCrmIaAudioInput({...args,db:f.db,fetchImpl:async()=>Response.json({base64:audio})});
+      assert.equal(result.skipped,'audio_state_unconfirmed');assert.equal(result.authorization,undefined);assert.equal(result.error,undefined);
+      if(rpcError==='crm_ia_audio_recheck')assert.equal(f.calls.includes('crm_ia_audio_complete'),false);
+    }
+    const f=fixture({complete:false});const result=await voice.processCrmIaAudioInput({...args,db:f.db,apiKey:''});
+    assert.equal(result.skipped,'audio_context_changed');assert.equal(result.authorization,undefined);assert.equal(result.error,undefined);
+  });
+  test('pin conserva microssegundos e aceita representação equivalente de fuso',()=>{
+    assert.equal(typeof voice.crmIaAudioAuthorizationMatches,'function');
+    if(!voice.crmIaAudioAuthorizationMatches)return;
+    const context={agent:{id:authorization.agent_id,updated_at:'2026-11-12T07:00:00.123456-03:00'},configRevision:authorization.config_revision,conciergeRole:true};
+    assert.equal(voice.crmIaAudioAuthorizationMatches(authorization,context),true);
+    for(const changed of [{agent:{...context.agent,updated_at:'2026-11-12T10:00:00.123457Z'}},{conciergeRole:false},{configRevision:'other'},{agent:{...context.agent,id:'other'}}])assert.equal(voice.crmIaAudioAuthorizationMatches(authorization,{...context,...changed}),false);
+    assert.deepEqual(voice.crmIaAudioAuthorization({...authorization,config:{token:'DO_NOT_PROPAGATE'}}),authorization);
   });
 }

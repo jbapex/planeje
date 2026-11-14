@@ -1,0 +1,54 @@
+.crm-ia-concierge { min-width:0; }
+.crm-ia-concierge[hidden] { display:none; }
+.crm-ia-concierge-heading { display:flex; gap:12px; align-items:center; margin:3px 0 24px; }
+.crm-ia-concierge-heading > div { flex:1; min-width:0; }
+.crm-ia-concierge-heading h2 { margin:0 0 5px; font-size:18px; }
+.crm-ia-concierge-heading p,.crm-ia-concierge p,.crm-ia-concierge small { font-size:12px; color:var(--crm-muted); line-height:1.6; }
+.crm-ia-concierge-mark { display:grid; place-items:center; flex:none; width:42px; height:42px; background:#eef3fc; color:#617cbe; border-radius:13px; }
+.crm-ia-concierge-form > fieldset { display:block; border:0; padding:0; margin:0; min-width:0; }
+.crm-ia-concierge-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:22px; align-items:start; }
+.crm-ia-concierge-main,.crm-ia-concierge-aside { display:grid; gap:18px; min-width:0; }
+.crm-ia-concierge .crm-ia-card { padding:21px; border:1px solid var(--crm-line); border-radius:15px; background:#fff; }
+.crm-ia-concierge .crm-ia-concierge-toggle .crm-ia-check { display:flex; width:100%; flex-direction:row-reverse; align-items:center; justify-content:space-between; gap:15px; font-size:13px; font-weight:600; }
+.crm-ia-concierge .crm-ia-concierge-toggle input { appearance:none; flex:none; width:32px; height:19px; padding:2px; margin:0; border:0; border-radius:12px; background:#dfe3e6; cursor:pointer; transition:background .16s ease; }
+.crm-ia-concierge-toggle input::before { content:''; display:block; width:15px; height:15px; border-radius:50%; background:white; box-shadow:0 1px 3px #0002; transition:transform .16s ease; }
+.crm-ia-concierge .crm-ia-concierge-toggle input:checked { background:var(--crm-blue); }
+.crm-ia-concierge-toggle input:checked::before { transform:translateX(13px); }
+.crm-ia-concierge-toggle input:disabled { cursor:default; opacity:.6; }
+.crm-ia-concierge-toggle p { margin:5px 48px 0 0; }
+.crm-ia-concierge-activation > small { display:block; margin-top:12px; }
+.crm-ia-concierge-capabilities > header { display:flex; justify-content:space-between; gap:12px; align-items:start; padding-bottom:17px; }
+.crm-ia-concierge h3 { margin:0; font-size:14px; }
+.crm-ia-concierge h3 svg { display:inline-block; margin-right:8px; vertical-align:middle; color:var(--crm-muted); }
+.crm-ia-concierge-capabilities > header span { flex:none; background:var(--crm-tint); padding:4px 8px; border-radius:7px; font-size:11px; color:var(--crm-muted); }
+.crm-ia-concierge-capabilities article { display:grid; grid-template-columns:20px minmax(0,1fr); gap:13px; padding:19px 0; border-top:1px solid var(--crm-line); }
+.crm-ia-concierge-capabilities article:last-child { padding-bottom:0; }
+.crm-ia-concierge-capabilities article > svg { margin-top:2px; color:#7d8c9d; }
+.crm-ia-concierge-capabilities article .crm-ia-field { margin-top:14px; }
+.crm-ia-concierge-details { margin-top:10px; }
+.crm-ia-concierge-details summary { font-size:11px; color:var(--crm-muted); }
+.crm-ia-concierge-details .crm-ia-check { margin:8px 0; font-size:12px; }
+.crm-ia-concierge-aside .crm-ia-card { display:grid; gap:16px; }
+.crm-ia-concierge-aside small { text-align:right; }
+.crm-ia-concierge a { color:var(--crm-blue); font-size:12px; text-decoration:underline; text-underline-offset:3px; }
+.crm-ia-concierge-safety { display:flex; align-items:start; gap:9px; padding:0 6px; }
+.crm-ia-concierge-safety svg { flex:none; margin-top:2px; }
+.crm-ia-concierge-phrases { display:flex; flex-wrap:wrap; gap:7px; margin:16px 0; }
+.crm-ia-concierge-phrases > span { display:inline-flex; align-items:center; gap:6px; padding:4px 6px 4px 9px; border:1px solid var(--crm-line); border-radius:8px; background:var(--crm-tint); font-size:12px; overflow-wrap:anywhere; min-width:0; max-width:100%; }
+.crm-ia-concierge .crm-ia-concierge-phrases button { flex:none; padding:2px; min-height:22px; border:0; background:transparent; }
+.crm-ia-concierge-add-phrase { display:flex; align-items:end; gap:9px; margin:0 0 15px; }
+.crm-ia-concierge-add-phrase .crm-ia-field { flex:1; min-width:0; }
+.crm-ia-concierge-footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; position:sticky; bottom:8px; z-index:2; margin-top:22px; padding:13px 16px; border:1px solid var(--crm-line); border-radius:12px; background:#fff; box-shadow:0 3px 15px #172b2008; }
+.crm-ia-concierge-footer > span,.crm-ia-concierge-footer > div { display:flex; align-items:center; gap:9px; font-size:12px; }
+.crm-ia-concierge-discard { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:16px; padding:13px; background:var(--crm-tint); border-radius:10px; }
+@media(max-width:1000px) { .crm-ia-concierge-layout { grid-template-columns:minmax(0,1fr) 260px; gap:15px; } }
+@media(max-width:800px) {
+  .crm-ia-concierge-layout { grid-template-columns:minmax(0,1fr); }
+  .crm-ia-concierge-heading { flex-wrap:wrap; }
+  .crm-ia-concierge-heading h2 { font-size:16px; }
+  .crm-ia-concierge-heading .crm-ia-badge { margin-left:54px; }
+  .crm-ia-concierge .crm-ia-card { padding:17px; }
+  .crm-ia-concierge-footer { position:static; }
+}
+@media(max-width:430px) { .crm-ia-concierge-add-phrase { flex-wrap:wrap; }.crm-ia-concierge-add-phrase .crm-ia-field { flex-basis:100%; }.crm-ia-concierge-footer > div { flex-wrap:wrap; } }
+@media(prefers-reduced-motion:reduce) { .crm-ia-concierge .crm-ia-concierge-toggle input,.crm-ia-concierge-toggle input::before { transition:none; } }

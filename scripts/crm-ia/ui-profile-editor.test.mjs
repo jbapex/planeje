@@ -173,15 +173,16 @@ test('trocar o tipo conserva perfis no rascunho e orienta revisão sem exclusão
   } finally { await act(async () => renderer.unmount()); }
 });
 
-test('Enter acrescenta pista sem publicar e navegação abre a seção com foco no summary nativo', async () => {
+test('Enter acrescenta pista sem publicar e navegação mantém foco no botão sem rolagem', async () => {
   let focused = false, scrolled = false;
   const target = { tagName: 'DETAILS', open: false, querySelector: () => ({ focus() { focused = true; } }), scrollIntoView() { scrolled = true; } };
   const fixtureApi = fixture(), renderer = await mount(fixtureApi, {}, { createNodeMock: element => element.props.className === 'crm-ia-agent-sections' ? { querySelector: selector => selector === '#crm-ia-agent-profiles' ? target : null } : null });
   try {
     await click(renderer, 'Configurar Qualificação');
     await act(async () => renderer.root.findByProps({ 'aria-controls': 'crm-ia-agent-profiles' }).props.onClick());
-    assert.equal(target.open, true); assert.equal(focused, true); assert.equal(scrolled, true);
     const details = renderer.root.findByProps({ id: 'crm-ia-agent-profiles' });
+    assert.equal(details.props.open, true);assert.equal(details.props.hidden, false);
+    assert.equal(focused, false);assert.equal(scrolled, false);
     assert.notEqual(details.findByType('summary').props.tabIndex, -1);
     await click(renderer, 'Adicionar perfil'); await change(renderer, 'Nova palavra-chave do perfil 1', ' intenção contextual ');
     let prevented = false;
@@ -223,6 +224,89 @@ test('limites do contrato desabilitam inclusões sem bloquear a edição e o ras
     assert.equal(fixtureApi.saved.funil.crm_ia.profiles.length, 30);
     assert.equal(fixtureApi.calls.some(([action]) => action === 'publish_agent_draft'), false);
   } finally { await act(async () => renderer.unmount()); }
+});
+
+const panels = renderer => renderer.root.findAll(node => typeof node.props.id === 'string' && node.props.id.startsWith('crm-ia-agent-'));
+const visiblePanels = renderer => panels(renderer).filter(node => node.props.hidden !== true).map(node => node.props.id);
+async function selectSection(renderer, section) {
+  const control = renderer.root.findByProps({ 'aria-controls': `crm-ia-agent-${section}` });
+  await act(async () => control.props.onClick());
+}
+
+test('navegação apresenta somente o painel escolhido nos três tipos de agente', async () => {
+  for (const [title, section] of [['Qualificação', 'profiles'], ['Follow-up', 'cadence'], ['Agendamentos', 'schedule']]) {
+    const fixtureApi = fixture(), renderer = await mount(fixtureApi);
+    try {
+      await click(renderer, `Configurar ${title}`);
+      assert.deepEqual(visiblePanels(renderer), ['crm-ia-agent-identity']);
+      const before = fixtureApi.calls.length;
+      await selectSection(renderer, section);
+      assert.deepEqual(visiblePanels(renderer), [`crm-ia-agent-${section}`]);
+      assert.equal(renderer.root.findByProps({ id: `crm-ia-agent-${section}` }).props.open, true);
+      assert.equal(renderer.root.findByProps({ 'aria-controls': `crm-ia-agent-${section}` }).props['aria-current'], 'location');
+      assert.equal(fixtureApi.calls.length, before);
+    } finally { await act(async () => renderer.unmount()); }
+  }
+});
+
+test('alternar seções preserva dados e termo de perfil ainda não adicionado', async () => {
+  const fixtureApi = fixture(), renderer = await mount(fixtureApi);
+  try {
+    await click(renderer, 'Configurar Qualificação');await change(renderer, 'Nome do agente', 'Agente preservado');
+    await selectSection(renderer, 'profiles');await click(renderer, 'Adicionar perfil');
+    await change(renderer, 'Nome do perfil 1', 'Em avaliação');
+    await change(renderer, 'Nova palavra-chave do perfil 1', 'Quero comparar opções');
+    await selectSection(renderer, 'identity');await selectSection(renderer, 'profiles');
+    assert.equal(renderer.root.findByProps({ 'aria-label': 'Nome do agente' }).props.value, 'Agente preservado');
+    assert.equal(renderer.root.findByProps({ 'aria-label': 'Nome do perfil 1' }).props.value, 'Em avaliação');
+    assert.equal(renderer.root.findByProps({ 'aria-label': 'Nova palavra-chave do perfil 1' }).props.value, 'Quero comparar opções');
+    assert.equal(fixtureApi.calls.some(([action]) => action === 'publish_agent_draft'), false);
+  } finally { await act(async () => renderer.unmount()); }
+});
+
+test('campo inválido oculto revela a primeira seção e mantém a validação antes de publicar', async () => {
+  const fixtureApi = fixture();let prevented = 0, focused = 0, reported = 0;
+  const scheduled = [], previousFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => { scheduled.push(callback);return scheduled.length; };
+  const section = { id: 'crm-ia-agent-identity', hidden: true };
+  const target = { closest: () => section, isConnected: true, focus: () => { focused++; }, reportValidity: () => { reported++; } };
+  const navigationTarget = { tagName: 'DETAILS', querySelector: () => ({ focus() {} }), scrollIntoView() {} };
+  const root = { contains: node => node === section, querySelector: selector => selector.startsWith('#') ? navigationTarget : target };
+  const renderer = await mount(fixtureApi, {}, { createNodeMock: element => element.props.className === 'crm-ia-agent-sections' ? root : null });
+  try {
+    await click(renderer, 'Configurar Qualificação');await selectSection(renderer, 'profiles');
+    const container = renderer.root.findByProps({ className: 'crm-ia-agent-sections' });
+    assert.equal(typeof container.props.onInvalidCapture, 'function');
+    await act(async () => container.props.onInvalidCapture({ target, preventDefault: () => { prevented++; } }));
+    assert.deepEqual(visiblePanels(renderer), ['crm-ia-agent-identity']);assert.equal(prevented, 1);
+    assert.equal(scheduled.length, 1);await act(async () => scheduled[0]());
+    assert.equal(focused, 1);assert.equal(reported, 1);
+    assert.equal(fixtureApi.calls.some(([action]) => action === 'publish_agent_draft'), false);
+  } finally {
+    await act(async () => renderer.unmount());
+    if (previousFrame === undefined) delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame = previousFrame;
+  }
+});
+
+test('intervalo inválido no painel ativo recolhido abre o details antes de focar', async () => {
+  const fixtureApi = fixture();let prevented = 0, reported = 0;
+  const scheduled = [], previousFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => { scheduled.push(callback);return scheduled.length; };
+  const section = { id: 'crm-ia-agent-cadence', tagName: 'DETAILS', hidden: false, open: false };
+  const target = { closest: () => section, isConnected: true, focus() {}, reportValidity: () => { reported++; } };
+  const root = { contains: node => node === section, querySelector: () => target };
+  const renderer = await mount(fixtureApi, {}, { createNodeMock: element => element.props.className === 'crm-ia-agent-sections' ? root : null });
+  try {
+    await click(renderer, 'Configurar Follow-up');await selectSection(renderer, 'cadence');
+    const container = renderer.root.findByProps({ className: 'crm-ia-agent-sections' });
+    await act(async () => container.props.onInvalidCapture({ target, preventDefault: () => { prevented++; } }));
+    assert.equal(section.open, true);assert.equal(prevented, 1);assert.equal(scheduled.length, 1);
+    await act(async () => scheduled[0]());assert.equal(reported, 1);
+    assert.equal(fixtureApi.calls.some(([action]) => action === 'publish_agent_draft'), false);
+  } finally {
+    await act(async () => renderer.unmount());
+    if (previousFrame === undefined) delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame = previousFrame;
+  }
 });
 
 test.after(async () => rm(scratch, { recursive: true, force: true }));

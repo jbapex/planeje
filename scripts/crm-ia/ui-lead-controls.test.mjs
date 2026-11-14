@@ -13,8 +13,8 @@ const scratch = await mkdtemp('/tmp/planeje-crm-ui-qa/lead-controls-');
 await build({ stdin: { contents: `export {default as Leads} from ${JSON.stringify(path.join(root, 'src/components/crm-ia/CrmIaLeads.jsx'))};export {MemoryRouter} from 'react-router-dom';`, resolveDir: root },
   bundle: true, loader: { '.png': 'dataurl' }, platform: 'node', format: 'cjs', outfile: path.join(scratch, 'ui.cjs'), external: ['react'],
   plugins: [{ name: 'offline-dialog', setup(b) {
-    b.onResolve({ filter: /^@\/components\/ui\/dialog$/ }, () => ({ path: 'dialog', namespace: 'fixture' }));
-    b.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `import React from 'react';export const Dialog=({open,children})=>open?React.createElement('div',null,children):null;export const DialogContent=({children})=>React.createElement('section',{role:'dialog'},children);export const DialogTitle=({children})=>React.createElement('h2',null,children);export const DialogDescription=({children})=>React.createElement('p',null,children);` }));
+    b.onResolve({ filter: /^@\/components\/ui\/(dialog|popover)$/ }, ({ path: name }) => ({ path: name.endsWith('dialog') ? 'dialog' : 'popover', namespace: 'fixture' }));
+    b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path: name }) => ({ contents: name === 'popover' ? `import React from 'react';const C=React.createContext();export const Popover=({open,onOpenChange,children})=>React.createElement(C.Provider,{value:{open,onOpenChange}},children);export const PopoverTrigger=({children})=>{const c=React.useContext(C);return React.cloneElement(children,{onClick:()=>c.onOpenChange(!c.open)});};export const PopoverContent=({children,...props})=>React.useContext(C).open?React.createElement('aside',{...props,role:'dialog'},children):null;` : `import React from 'react';export const Dialog=({open,children})=>open?React.createElement('div',null,children):null;export const DialogContent=({children})=>React.createElement('section',{role:'dialog'},children);export const DialogTitle=({children})=>React.createElement('h2',null,children);export const DialogDescription=({children})=>React.createElement('p',null,children);` }));
     b.onResolve({ filter: /^@\// }, ({ path: name }) => { const file = path.join(root, 'src', name.slice(2)); return { path: [file, file + '.jsx', file + '.js'].find(existsSync) }; });
   } }],
 });
@@ -216,8 +216,8 @@ test('perfil removido continua filtrável em qualquer funil e edição comum pre
 test('ícone usa allowlist; setas e arrasto reordenam com a versão capturada do funil', async () => {
   const f = fixture(), r = await mount(f, { kanban: true });
   try {
-    await click(r, 'Configurar funil'); await click(r, 'Editar Entrada');
-    await change(r, 'Ícone da etapa', 'phone'); await submit(r);
+    await click(r, 'Configuração'); await click(r, 'Editar funil Principal'); await click(r, 'Editar Entrada');
+    await click(r, 'Escolher ícone da etapa'); await click(r, 'Ligação'); await submit(r);
     assert.equal(f.calls.find(([a]) => a === 'save_stage')[1].icon, 'phone');
     await click(r, 'Descer Entrada'); await submit(r);
     assert.deepEqual(f.calls.find(([a]) => a === 'reorder_stages')[1], { pipeline_id: 'pipeline-a', stage_ids: ['won', 'stage-a'], expected_updated_at: 'pipeline-version' });
@@ -231,9 +231,9 @@ test('configuração abre o funil escolhido; troca de funil do lead exige etapa 
   const nextWorkspace = { ...workspace, pipelines: [...workspace.pipelines, { id: 'pipeline-b', nome: 'Segundo funil', updated_at: 'version-b' }], stages: [...workspace.stages, { id: 'stage-b', nome: 'Nova entrada', pipeline_id: 'pipeline-b', ordem: 1 }] };
   const f = fixture(), r = await mount(f, { kanban: true, workspace: nextWorkspace });
   try {
-    await change(r, 'Funil', 'pipeline-b'); await click(r, 'Configurar funil');
-    assert.equal(field(r, 'Funil em configuração').props.value, 'pipeline-b');
-    await click(r, 'Concluir'); await change(r, 'Funil', 'pipeline-a'); await click(r, 'Abrir Contato sintético'); await click(r, 'Editar lead');
+    await change(r, 'Funil', 'pipeline-b'); await click(r, 'Configuração'); await click(r, 'Editar funil Segundo funil');
+    assert.ok(field(r, 'Configuração de Segundo funil'));
+    await click(r, 'Todos os funis'); await click(r, 'Kanban'); await change(r, 'Funil', 'pipeline-a'); await click(r, 'Abrir Contato sintético'); await click(r, 'Editar lead');
     await change(r, 'Funil do lead', 'pipeline-b'); await submit(r);
     assert.equal(f.calls.some(([a]) => a === 'save_lead'), false);
     assert.match(text(r.toJSON()), /Escolha uma etapa do funil de destino/);

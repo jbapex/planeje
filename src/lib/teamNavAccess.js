@@ -47,7 +47,7 @@ export function groupTeamNav(items, shortcutIds = TEAM_NAV_SHORTCUT_IDS) {
 }
 
 export function isTeamNavItemActive(item, pathname) {
-  const base = item.match === 'conversas' ? '/conversas' : item.match === 'traffic' ? '/paid-traffic' : item.to;
+  const base = item.match === 'conversas' ? '/conversas' : item.match === 'traffic' ? '/paid-traffic' : item.to.split('?')[0];
   return pathname === base || pathname.startsWith(`${base}/`);
 }
 

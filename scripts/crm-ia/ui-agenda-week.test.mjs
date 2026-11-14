@@ -28,7 +28,7 @@ function fixture(rows=[appointment],timezone='America/Sao_Paulo'){
   const calls=[];let fail=false;
   const api=async(action,payload={})=>{
     calls.push([action,payload]);
-    if(action==='agenda')return {rows,total:57,timezone,summary:{scheduled:40,confirmed:15,cancelled:1,no_show:1}};
+    if(action==='agenda')return {rows:rows.slice(payload.offset,payload.offset+payload.limit),total:payload.limit===1?57:rows.length,timezone,summary:payload.limit===1?{scheduled:40,confirmed:15,cancelled:1,no_show:1}:Object.fromEntries(['scheduled','confirmed','cancelled','no_show'].map(status=>[status,rows.filter(row=>row.status===status).length]))};
     if(action==='queue')return {rows:[],total:0};
     if(action==='mark_appointment_no_show'){if(fail)throw new Error('O compromisso foi alterado. Atualize a agenda.');return {recovery:{armed:false,reason:'human_paused'}};}
     throw new Error('Ação inesperada: '+action);
@@ -41,7 +41,7 @@ test('semana consulta sete datas, navega por semana e mantém o responsável no 
   const f=fixture(),r=await mount(f);
   try{
     await change(r,'Dia da agenda','2026-11-11');await click(r,'Semana');
-    assert.deepEqual(f.calls.filter(([action])=>action==='agenda').at(-1)[1],{since:'2026-11-08',until:'2026-11-14',owner_id:'',offset:0,limit:30});
+    assert.deepEqual(f.calls.filter(([action])=>action==='agenda').at(-1)[1],{since:'2026-11-08',until:'2026-11-14',owner_id:'',offset:0,limit:200});
     assert.equal(button(r,'Semana').props['aria-pressed'],true);
     assert.ok(r.root.findByProps({'aria-label':'Agenda semanal'}));
     await click(r,'Próxima semana');await change(r,'Responsável da agenda','owner-b');
@@ -52,7 +52,7 @@ test('semana consulta sete datas, navega por semana e mantém o responsável no 
 test('insights usam o total do servidor, e a grade permite consultar detalhes sem permissão de escrita',async()=>{
   const f=fixture(),r=await mount(f,false);
   try{
-    await change(r,'Dia da agenda','2026-11-11');await click(r,'Semana');await click(r,'Insights');
+    await change(r,'Dia da agenda','2026-11-11');await click(r,'Semana');await click(r,'Insights do mês');
     const labels=r.root.findAllByType('dt');const scheduled=labels.find(node=>text(node)==='Reservados no Planeje');assert.ok(scheduled);
     assert.equal(text(scheduled.parent.findByType('dd')),'40');
     const open=r.root.findAllByType('button').find(node=>node.props['aria-label']?.startsWith('Abrir compromisso Reunião de exemplo'));

@@ -2,7 +2,7 @@
 
 ## Estado
 
-Publicado em 11/11/2026 às 22h33 BRT, na release `crm-ia-cabecalho-20261111-01/candidate`, herdando a atualização do Gestor das22h25 e o CRM18. Seis sobreposições, três fontes novas e2.144 fontes no total. Somente a migration19 foi aplicada uma vez; as18anteriores permanecem intactas. Sem build, alteração de frontend ou reinício neste complemento. A conferência visual foi concluída após a reconexão do Chrome, conforme seção final.
+Implementado e verificado localmente em 11/11/2026; publicação e conferência autenticada pendentes. Incremento SQL sobre `crm-ia-acesso-leitura-20261111-01`, sem build, alteração de frontend ou reinício. As 18 migrations CRM anteriores são imutáveis e não serão reaplicadas.
 
 ## Problema e mudança
 
@@ -23,21 +23,3 @@ Casos: contato vinculado e sem lead, telefone ausente/`@lid`, estado fora do per
 Release prevista `crm-ia-cabecalho-20261111-01`, com pacote explícito e perfil/frontend/runtime herdados da base atual conferida. Aplicar somente a migration 19 em transação guardada, mantendo os locks compartilhados durante preparar, aplicar, promover e verificar. Uma interrupção após COMMIT exige reconciliação do journal e estado real, nunca reaplicação automática.
 
 A inspeção visual produtiva aguarda a reconexão do Chrome solicitada ao titular. Publicação técnica não representa aceite humano. Sem mensagem, modelo, áudio ou evento Google real; a meta integral continua na [matriz de paridade](crm-ia-scaleos-paridade-2026-11-11.md).
-
-## Publicação e evidência
-
-Publicador `8febc922`, escopo `d4a278dd` e pacote `e0940dec`, conferidos pelos hashes completos privados. Revisão SQL sem achados; cinco contraprovas dirigidas do publicador, oito guardas transacionais públicas e oito testes do produto passaram. A revisão adicional do rebase confirmou que somente a base mudou, sem repetir testes de código inalterado.
-
-A primeira execução parou na guarda de fontes, antes de candidata ou journal de início SQL: outra sessão havia publicado `gestor-metricas-colaborador-20261111-01`. As cinco alterações alheias não cruzam os seis arquivos CRM. Entradas antigas foram preservadas; perfil idêntico e frontend/runtime novos do Gestor foram herdados. A execução final manteve ambos os locks durante preparar, aplicar, promover e verificar e terminou com saída zero.
-
-HTML herdado `bf6e452be3ec4e40e2e00c793efb79da6d5c7bca08511993dc62f42884358486`, 26 artefatos e27 verificações HTTPS; perfil, runtime, serviços e assets anteriores preservados. Corpo público `b83d1d130a992f112ab108df2f2d287d` substituído por `a7339ff5cfe7bb22ab1f7c1bc3b1b342`, com mesmo OID/owner/assinatura/atributos/ACL. Não repetir `complete` ou a migration19.
-
-A leitura real autorizada, somente leitura e com limite de8s, retornou duas conversas com os campos do cabeçalho. O histórico consultado tem1.279 mensagens e devolveu a página recente de50 com telefone presente, campos de estado e autoria completos. Foram registrados somente contagens e presença de chaves; nenhum conteúdo, claim, token ou identificador de sessão saiu do PostgreSQL. A evidência não substitui a inspeção visual pendente nem comprova transporte real.
-
-Metadados e logs privados ficam em `.local/crm-ia-cabecalho-20261111-01` e na pasta operacional correspondente da VPS. Esta seção foi atualizada localmente depois da publicação; o manifesto preserva a versão de preparação do documento.
-
-## Conferência visual posterior
-
-Após Josias confirmar a reconexão do Chrome, a inspeção de produção terminou em11/11/2026, 23h13. Histórico passou de50para100 mensagens sem perder rascunho ou foco; a fila do contato estava vazia e Esc restaurou o foco no acionador. Nome e ícone de contato vinculado abriram a mesma ficha canônica, em colunas320/952px; Resumo/Campos/Jornada, Painel e Configurações carregaram. Fotos do contato e autoria desconhecida dos registros legados foram vistas; autores humano/IA comprovados permanecem ensaiados em fixtures, sem gerar envio real apenas para demonstração.
-
-No celular, voltar e reabrir preservou rascunho e foco do compositor, sem overflow. O override solicitado390×844 resultou em433CSSpx na sessão; a evidência registra a medida real, sem apresentá-la como390CSSpx. Override removido: desktop1600×938, cabeçalho único, telefone presente,20fotos carregadas e nenhum erro. Rascunhos sintéticos foram apagados sem enviar. Autonomia/captura continuavam desligadas; nenhuma configuração foi salva. Capturas e JSON ficam privados em .local/crm-ia-cabecalho-20261111-01. A aba final foi preservada para revisão; aceite humano e homologação real permanecem distintos.

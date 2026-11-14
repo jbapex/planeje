@@ -1,11 +1,14 @@
 import { historicoParaMensagens, mensagensDeTeste } from './atendimentoIaPrompt.js';
 import { buildCrmIaPrompt, crmIaCadenceDue, crmIaDeterministicAction, crmIaRequestedDay, crmIaRules, parseCrmIaModelResult, selectCrmIaAgent, validateCrmIaAction } from './crmIaAgent.js';
-import { processCrmIaAudioInput } from './crmIaVoice.js';
+import { assertCrmIaConciergeAction, crmIaConciergeQuestion, crmIaConciergeRules } from './crmIaConcierge.js';
+import { crmIaAudioAuthorization, crmIaAudioAuthorizationMatches, processCrmIaAudioInput } from './crmIaVoice.js';
 import { refreshCalendarBusy } from './crmIaCalendar.js';
 import { loadCalendarConfig } from './crmIaCalendarHandler.js';
 
 type RuntimeArgs = { db: any; clientId: string; mode: string; contactId?: string; channelId?: string; agentId?: string; messageId?: string; userId?: string | null; previewMessages?: unknown[]; callModel: (model: string, messages: any[]) => Promise<{ resposta: string; tokens?: number | null }>; processAudioInput?: (args: any) => Promise<any>; refreshCalendar?: (args: any) => Promise<any>; now?: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const calendarDay = (value: unknown) => typeof value === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(value)
+  && Number.isFinite(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
 const audioType = (type: unknown) => ['audio', 'ptt', 'myaudio', 'voice', 'voicenote', 'voicemessage', 'voice_message', 'audiomessage'].includes(String(type || '').toLowerCase());
 const messageJid = (item: any, outgoing = false) => item?.chat_jid || (outgoing ? item?.to_jid : item?.from_jid);
 async function read(query: any) { const { data, error } = await query; if (error) throw new Error('crm_ia_context_unavailable'); return data; }
@@ -17,8 +20,8 @@ async function refreshRuntimeCalendar(args: any) {
 }
 
 export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, agentId, messageId, userId, previewMessages = [], callModel, processAudioInput = processCrmIaAudioInput, refreshCalendar = refreshRuntimeCalendar, now = new Date().toISOString() }: RuntimeArgs) {
-  const agents = await read(db.from('cliente_atend_ia_agentes').select('*').eq('cliente_id', clientId).order('created_at'));
-  const typed = (agents || []).filter((agent: any) => crmIaRules(agent));
+  const agents = await read(db.from('cliente_atend_ia_agentes').select('*').eq('cliente_id', clientId).order('created_at').order('id'));
+  let typed = (agents || []).filter((agent: any) => crmIaRules(agent));
   const requested = typed.find((agent: any) => agent.id === agentId);
   if (!typed.length || (mode === 'testar' && agentId && !requested)) return { handled: false };
   const automatic = mode === 'responder' || mode === 'followup';
@@ -26,6 +29,8 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
   let lead: any = null, conversation: any = {}, contact: any = null, actorId: string | null = userId || null;
   let messages = mode === 'testar' ? mensagensDeTeste(previewMessages) : [];
   let audioFallback = false;
+  let audioAuthorization: any = null;
+  let audioText = '';
   let source: any = null;
   if (mode !== 'testar') {
     if (!UUID.test(contactId || '') || !UUID.test(channelId || '')) return skipped('exact_channel_required');
@@ -42,8 +47,11 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
         if (latest[0].message_id !== messageId) return skipped('audio_message_changed');
         const input = await processAudioInput({ db, clientId, channelId, contactId, messageId });
         if (input.skipped) return skipped(input.skipped);
+        audioAuthorization = crmIaAudioAuthorization(input.authorization);
+        if (!audioAuthorization || (input.ok !== true && !['audio_unavailable', 'audio_timeout', 'audio_file_too_large'].includes(input.error))) return skipped('audio_context_changed');
         audioFallback = input.ok !== true;
-        entryText = input.transcript || '';
+        audioText = input.transcript || '';
+        entryText = audioText;
       }
       const prepared = await read(db.rpc('crm_ia_agent_intake', { p_client: clientId, p_channel: channelId, p_contact: contactId, p_text: entryText }));
       if (!prepared?.lead) return skipped(prepared?.skipped || 'entry_disabled');
@@ -64,6 +72,7 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
         .or(`chat_jid.eq.${contact.from_jid},to_jid.eq.${contact.from_jid}`).order('created_at', { ascending: false }).limit(40)),
     ]);
     const incoming = (incomingRows || []).filter((item: any) => messageJid(item) === contact.from_jid);
+    if (mode === 'responder' && incoming[0]?.message_id !== messageId) return skipped('source_message_changed');
     const outgoing = (outgoingRows || []).filter((item: any) => messageJid(item, true) === contact.from_jid);
     const transcripts = incoming?.some((item: any) => audioType(item.type))
       ? await read(db.rpc('crm_ia_audio_context', { p_client: clientId, p_channel: channelId, p_contact: contactId })) : [];
@@ -84,32 +93,46 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
     if (!messages.length || messages[messages.length - 1].role !== 'user') throw new Error('crm_ia_test_message_required');
   }
   const data = config?.data || {};
+  if (audioAuthorization) typed = (await read(db.from('cliente_atend_ia_agentes').select('*').eq('cliente_id', clientId).order('created_at').order('id')) || []).filter((agent: any) => crmIaRules(agent));
   const noShow = mode === 'followup' && conversation.crm_ia_runtime?.no_show?.state === 'pending' ? conversation.crm_ia_runtime.no_show : null;
   if (noShow) actorId = noShow.actor_id;
   const selection = selectCrmIaAgent({ agents: typed, lead, conversation, config: data, now, mode, agentId });
   if (!selection.agent) {
+    if (audioAuthorization) return skipped('audio_context_changed');
     if (mode === 'followup') await read(db.from('cliente_atend_conversas')
       .update({ ia_followup_due_at: selection.reason === 'outside_hours' ? new Date(new Date(now).getTime() + 60000).toISOString() : null,
         ia_followup_delivery_state: selection.reason === 'outside_hours' ? 'pending' : 'cancelled' })
       .eq('cliente_id', clientId).eq('contact_id', contactId).eq('updated_at', conversation.updated_at));
     return skipped(selection.reason);
   }
-  const agent = selection.agent, rules = crmIaRules(agent), lastText = [...messages].reverse().find((message: any) => message.role === 'user')?.content || '';
-  const appointmentTools = !noShow && data.concierge?.enabled === true && (selection.concierge || data.concierge?.mode === 'always');
+  if (audioAuthorization && !crmIaAudioAuthorizationMatches(audioAuthorization, { agent: selection.agent, configRevision: config.revision, conciergeRole: selection.concierge })) return skipped('audio_context_changed');
+  const agent = selection.agent, rules = crmIaRules(agent);
+  const lastText = mode === 'responder' && source ? audioAuthorization ? audioText : source.body || ''
+    : [...messages].reverse().find((message: any) => message.role === 'user')?.content || '';
+  const conciergeRules = crmIaConciergeRules(data.concierge);
+  const deterministic = crmIaDeterministicAction({ rules, text: lastText, concierge: selection.concierge ? data.concierge : null });
+  const appointmentTools = !deterministic && !audioFallback && !noShow && conciergeRules.enabled && conciergeRules.calendar && (selection.concierge || conciergeRules.mode === 'always');
+  const regularBooking = !deterministic && !audioFallback && !selection.concierge && rules.tipo === 'agendamento';
   const assignment = data.knowledge?.assignments?.find((item: any) => item.pipeline_id === lead.pipeline_id);
-  const baseIds = selection.concierge || appointmentTools ? [data.concierge?.base_id || data.knowledge?.concierge_base_id].filter(Boolean) : assignment?.base_id ? [assignment.base_id] : agent.base_ids || [];
+  const baseIds = noShow || audioFallback ? [] : selection.concierge
+    ? conciergeRules.faq_enabled && !deterministic ? [data.concierge?.base_id || data.knowledge?.concierge_base_id].filter(Boolean) : []
+    : assignment?.base_id ? [assignment.base_id] : agent.base_ids || [];
+  if (selection.concierge && !audioFallback && !baseIds.length && !conciergeRules.calendar && !deterministic) return skipped('concierge_no_inbound_capabilities');
   const [company, bases, products, services] = await Promise.all([
-    read(db.from('clientes').select('empresa').eq('id', clientId).maybeSingle()),
+    audioFallback ? null : read(db.from('clientes').select('empresa').eq('id', clientId).maybeSingle()),
     baseIds.length ? read(db.from('cliente_atend_ia_bases').select('id,nome,conteudo').eq('cliente_id', clientId).in('id', baseIds)) : [],
-    read(db.from('crm_produtos').select('*').eq('cliente_id', clientId).limit(50)),
-    read(db.from('crm_servicos').select('*').eq('cliente_id', clientId).limit(50)),
+    !selection.concierge && !noShow && !audioFallback ? read(db.from('crm_produtos').select('*').eq('cliente_id', clientId).limit(50)) : [],
+    !selection.concierge && !noShow && !audioFallback ? read(db.from('crm_servicos').select('*').eq('cliente_id', clientId).limit(50)) : [],
   ]);
-  if (baseIds.length && bases.length !== new Set(baseIds).size) throw new Error('crm_ia_base_unavailable');
+  if (!selection.concierge && baseIds.length && bases.length !== new Set(baseIds).size) throw new Error('crm_ia_base_unavailable');
+  const faqReady = conciergeRules.faq_enabled && baseIds.length > 0 && bases.length === new Set(baseIds).size;
+  if (selection.concierge && !audioFallback && !faqReady && !conciergeRules.calendar && !deterministic) return skipped('concierge_no_inbound_capabilities');
   let slots: any[] = [];
   let appointments: any[] = [], proposal: any = null, slotAppointment: string | null = null;
   let calendarUnavailable = false;
-  const calendarHandoff = { text: 'Não consegui conferir o horário na agenda. A equipe vai verificar e retornar.', action: { type: 'handoff', reason: 'calendar_unavailable' } };
+  const calendarHandoff = { text: 'Não consegui conferir o horário na agenda. A equipe vai verificar e retornar.', action: { type: 'handoff', reason: 'calendar_unavailable', system_handoff: true } };
   async function loadSlots(day: string, appointmentId: string | null = null) {
+    if (!calendarDay(day)) throw new Error('crm_ia_appointment_date_invalid');
     const existing = appointments.find((item: any) => item.id === appointmentId);
     if (appointmentId && !existing) throw new Error('crm_ia_appointment_unavailable');
     slotAppointment = appointmentId;
@@ -117,6 +140,8 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
       const busy = await refreshCalendar({ db, clientId, ownerId: existing?.owner_id || rules.agendamento?.owner_id || lead.responsavel_id, leadId: lead.id, date: day });
       if (!busy || (busy.required && busy.fresh !== true)) throw new Error('calendar_busy_unconfirmed');
     } catch { calendarUnavailable = true; return []; }
+    if (selection.concierge && appointmentId) return (await read(db.rpc('crm_ia_appointment_slots_for_run',
+      { p_run: job.id, p_appointment: appointmentId, p_expected: existing.updated_at, p_date: day })))?.rows || [];
     return (await read(db.rpc(appointmentId ? 'crm_ia_appointment_slots' : 'crm_ia_agent_slots', appointmentId
       ? { p_client: clientId, p_channel: channelId, p_contact: contactId, p_lead: lead.id, p_agent: agent.id, p_actor: actorId, p_appointment: appointmentId, p_expected: existing.updated_at, p_date: day }
       : { p_client: clientId, p_agent: agent.id, p_lead: lead.id, p_date: day })))?.rows || [];
@@ -127,7 +152,8 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
   let job: any = null;
   if (automatic) {
     job = await read(db.rpc('crm_ia_agent_begin', { p_client: clientId, p_channel: channelId, p_contact: contactId, p_lead: lead.id, p_agent: agent.id, p_mode: mode, p_message: messageId,
-      p_expected: { actor_id: actorId, config_revision: config.revision, lead_updated_at: lead.updated_at, conversation_updated_at: conversation.updated_at, agent_updated_at: agent.updated_at, concierge: selection.concierge || appointmentTools, last_text: lastText,
+      p_expected: { actor_id: actorId, config_revision: config.revision, lead_updated_at: lead.updated_at, conversation_updated_at: conversation.updated_at, agent_updated_at: agent.updated_at, concierge: selection.concierge || appointmentTools, concierge_role: selection.concierge, last_text: lastText,
+        ...(selection.concierge && deterministic ? { concierge_action: deterministic.type } : {}),
         source_inbox_id: UUID.test(source?.id || '') ? source.id : null, source_message_id: source?.message_id || null, source_message_type: source?.type || null,
         ...(noShow ? { purpose: 'no_show' } : {}) } }));
     if (!job?.claimed) return job?.result ? { handled: true, typed: true, ...job.result, ok: true } : skipped(job?.skipped || 'already_processing');
@@ -138,27 +164,38 @@ export async function runCrmIaAgent({ db, clientId, mode, contactId, channelId, 
     const context = await read(db.rpc('crm_ia_appointment_context', { p_client: clientId, p_channel: channelId, p_contact: contactId, p_lead: lead.id, p_actor: actorId }));
     appointments = context?.rows || []; proposal = context?.proposal || null;
   }
-  if (date && lead.id && (rules.tipo === 'agendamento' || appointmentTools)) {
+  if (date && lead.id && (regularBooking || appointmentTools)) {
     const existing = proposal?.operation === 'reschedule' ? proposal.appointment_id
       : /remarc|reagend/i.test(lastText) && appointments.length === 1 ? appointments[0].id : null;
-    if (rules.tipo === 'agendamento' || existing) slots = await loadSlots(date, existing);
+    if (regularBooking || (conciergeRules.appointment_reschedule && existing)) slots = await loadSlots(date, existing);
   }
-  const deterministic = crmIaDeterministicAction({ rules, text: lastText, concierge: selection.concierge ? data.concierge : null });
-  const system = buildCrmIaPrompt({ agent, lead, company: company?.empresa, bases, products: [...products, ...services], config: appointmentTools ? data : { ...data, concierge: { ...data.concierge, enabled: false } }, slots, concierge: selection.concierge || appointmentTools, followup: mode === 'followup',
+  const system = buildCrmIaPrompt({ agent, lead, company: company?.empresa, bases, products: [...products, ...services], config: selection.concierge ? { ...data, concierge: { ...data.concierge, faq_enabled: faqReady } } : appointmentTools ? data : { ...data, concierge: { ...data.concierge, enabled: false } }, slots, concierge: selection.concierge, followup: mode === 'followup',
     appointments: appointments.map(({ owner_id: _owner, ...item }: any) => item), proposal });
   let generated;
-  try { generated = calendarUnavailable ? { resposta: JSON.stringify(calendarHandoff), tokens: null } : audioFallback ? { resposta: JSON.stringify({ text: 'Não consegui entender este áudio. Pode escrever sua mensagem ou pedir ajuda à equipe?', action: { type: 'answer' } }), tokens: null }
+  try { generated = calendarUnavailable ? { resposta: JSON.stringify(calendarHandoff), tokens: null } : audioFallback ? { resposta: JSON.stringify({ text: 'Não consegui entender este áudio. Pode escrever sua mensagem ou pedir ajuda à equipe?', action: { type: 'answer', ...(selection.concierge ? { server_answer: 'audio_failure' } : {}) } }), tokens: null }
     : deterministic ? { resposta: JSON.stringify({ text: '', action: deterministic }), tokens: null } : await callModel(agent.modelo, [{ role: 'system', content: system }, ...messages]); }
   catch { throw new Error('crm_ia_model_unavailable'); }
   let parsed = parseCrmIaModelResult(generated.resposta);
-  if (parsed.action.type === 'slots' && (rules.tipo === 'agendamento' || appointmentTools) && lead.id && /^20\d{2}-\d{2}-\d{2}$/.test(parsed.action.date || '')) {
+  if (selection.concierge) {
+    assertCrmIaConciergeAction(parsed.action, { settings: data.concierge, faqReady, systemHandoff: calendarUnavailable, serverAnswer: audioFallback });
+    if (parsed.action.type === 'appointment_question') parsed = crmIaConciergeQuestion(parsed.action, { appointments, settings: data.concierge, timezone: data.availability?.timezone });
+    if (parsed.action.type === 'close') parsed = { text: '', action: { type: 'close', reason: 'desinteresse' } };
+  }
+  if (parsed.action.type === 'slots') {
+    if (!calendarDay(parsed.action.date)) throw new Error('crm_ia_appointment_date_invalid');
+    if (!regularBooking && (!appointmentTools || !conciergeRules.appointment_reschedule || !appointments.some((item: any) => item.id === parsed.action.appointment_id))) throw new Error('crm_ia_appointment_unavailable');
+  }
+  if (parsed.action.type === 'appointment_propose' && (!appointmentTools || !conciergeRules[`appointment_${parsed.action.operation}`])) throw new Error('crm_ia_appointment_unavailable');
+  if (parsed.action.type === 'appointment_apply' && (!appointmentTools || (proposal?.operation && !conciergeRules[`appointment_${proposal.operation}`]))) throw new Error('crm_ia_appointment_unavailable');
+  if (parsed.action.type === 'appointment_question') throw new Error('crm_ia_concierge_action_unavailable');
+  if (parsed.action.type === 'slots' && (regularBooking || appointmentTools) && lead.id && /^20\d{2}-\d{2}-\d{2}$/.test(parsed.action.date || '')) {
     slots = await loadSlots(parsed.action.date, parsed.action.appointment_id || null);
-    parsed = calendarUnavailable ? calendarHandoff : { text: slots.length ? `Encontrei estes horários disponíveis: ${slots.slice(0, 5).map(slot => new Date(slot.start_at).toLocaleString('pt-BR', { timeZone: data.availability?.timezone || 'America/Sao_Paulo' })).join('; ')}. Qual prefere?` : 'Não há horário disponível nessa data. Podemos conferir outro dia?', action: { type: 'answer' } };
+    parsed = calendarUnavailable ? calendarHandoff : { text: slots.length ? `Encontrei estes horários disponíveis: ${slots.slice(0, 5).map(slot => new Date(slot.start_at).toLocaleString('pt-BR', { timeZone: data.availability?.timezone || 'America/Sao_Paulo' })).join('; ')}. Qual prefere?` : 'Não há horário disponível nessa data. Podemos conferir outro dia?', action: { type: 'answer', ...(selection.concierge ? { server_answer: 'slots' } : {}) } };
   }
   if (parsed.action.type === 'appointment_propose') {
     const chosen = appointments.find((item: any) => item.id === parsed.action.appointment_id);
     if (chosen && appointments.some((item: any) => item.id !== chosen.id && item.title === chosen.title && item.start_at === chosen.start_at)) {
-      parsed = { text: 'Encontrei compromissos com o mesmo título e horário. A equipe precisa identificar o registro antes da alteração.', action: { type: 'handoff', reason: 'appointment_ambiguous' } };
+      parsed = { text: 'Encontrei compromissos com o mesmo título e horário. A equipe precisa identificar o registro antes da alteração.', action: { type: 'handoff', reason: 'appointment_ambiguous', system_handoff: true } };
     } else if (parsed.action.operation === 'reschedule' && chosen && (slotAppointment !== chosen.id || !slots.some(slot => slot.start_at === parsed.action.start_at && slot.end_at === parsed.action.end_at))) {
       const civilDate = new Intl.DateTimeFormat('en-CA', { timeZone: data.availability?.timezone || 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(parsed.action.start_at));
       slots = await loadSlots(civilDate, chosen.id);

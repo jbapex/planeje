@@ -5,7 +5,7 @@ import { moveLeadPayload, profileKey, publishedLeadProfiles } from './crmIaLeadM
 
 const blankOption = label => ({ value: '', label });
 
-export function CrmIaLeadEditor({ row = {}, workspace, mutate, onClose }) {
+export function CrmIaLeadEditor({ row = {}, workspace, mutate, onClose, onCloseAutoFocus, open = true }) {
   const [draft, setDraft] = useState(() => ({ nome: '', whatsapp: '', email: '', valor: '', origem: '', observacoes: '', ...row, etiquetas: (row.etiquetas || []).join('\n') }));
   const [chosenProfile, setChosenProfile] = useState(() => profileKey(row.crm_ia_profile));
   const update = (key, value) => setDraft(old => ({ ...old, [key]: value, ...(key === 'pipeline_id' && { stage_id: '' }) }));
@@ -13,7 +13,7 @@ export function CrmIaLeadEditor({ row = {}, workspace, mutate, onClose }) {
   const reasonRequired = target && ['ganho', 'perdido'].includes(target.tipo) && row.stage_id !== draft.stage_id;
   const profiles = publishedLeadProfiles(workspace, draft.pipeline_id);
   const historical = row.crm_ia_profile && !profiles.some(item => profileKey(item) === profileKey(row.crm_ia_profile));
-  return <CrmIaEditor title={row.id ? 'Editar lead' : 'Novo lead'} onClose={onClose} onSave={() => {
+  return <CrmIaEditor title={row.id ? 'Editar lead' : 'Novo lead'} onClose={onClose} onCloseAutoFocus={onCloseAutoFocus} open={open} onSave={() => {
     if (row.id && (draft.pipeline_id || null) !== (row.pipeline_id || null) && (!target || target.pipeline_id !== draft.pipeline_id)) throw new Error('Escolha uma etapa do funil de destino para transferir o lead.');
     if (reasonRequired && !draft.reason?.trim()) throw new Error('Informe o motivo para concluir esta oportunidade.');
     if (Object.hasOwn(draft, 'profile') && draft.profile !== null && !profiles.some(item => profileKey(item) === profileKey(draft.profile) && item.agent_updated_at === draft.profile?.agent_updated_at)) throw new Error('O perfil mudou. Atualize o lead antes de atribuir.');
@@ -30,9 +30,9 @@ export function CrmIaLeadEditor({ row = {}, workspace, mutate, onClose }) {
   </div></CrmIaEditor>;
 }
 
-export function CrmIaMoveEditor({ row, workspace, mutate, initialTarget = '', onClose }) {
+export function CrmIaMoveEditor({ row, workspace, mutate, initialTarget = '', onClose, onCloseAutoFocus, open = true }) {
   const [target, setTarget] = useState(initialTarget);
   const [reason, setReason] = useState('');
-  return <CrmIaEditor title="Mover etapa" onClose={onClose} onSave={() => mutate('move_lead', moveLeadPayload(row, target, workspace.stages, reason))} saveLabel="Confirmar e mover"><CrmIaField label="Etapa de destino" value={target} onChange={setTarget} required options={[blankOption('Selecione a etapa'), ...workspace.stages.filter(item => item.pipeline_id === row.pipeline_id && item.id !== row.stage_id)]} /><CrmIaField label="Motivo" type="textarea" value={reason} onChange={setReason} /><p className="crm-ia-muted">As restrições e ações obrigatórias do funil serão conferidas antes da gravação. Um conflito conserva esta revisão.</p></CrmIaEditor>;
+  return <CrmIaEditor title="Mover etapa" onClose={onClose} onCloseAutoFocus={onCloseAutoFocus} open={open} onSave={() => mutate('move_lead', moveLeadPayload(row, target, workspace.stages, reason))} saveLabel="Confirmar e mover"><CrmIaField label="Etapa de destino" value={target} onChange={setTarget} required options={[blankOption('Selecione a etapa'), ...workspace.stages.filter(item => item.pipeline_id === row.pipeline_id && item.id !== row.stage_id)]} /><CrmIaField label="Motivo" type="textarea" value={reason} onChange={setReason} /><p className="crm-ia-muted">As restrições e ações obrigatórias do funil serão conferidas antes da gravação. Um conflito conserva esta revisão.</p></CrmIaEditor>;
 }
 

@@ -1,4 +1,3 @@
-import AtlasTeamAssistant from '@/components/atlas/AtlasTeamAssistant';
 import React, { memo, useRef, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from '@/components/layout/Sidebar';
@@ -17,6 +16,7 @@ import {
 } from '@/contexts/AtendimentoFavoritosContext';
 import { cn } from '@/lib/utils';
 import CommandPalette from '@/components/layout/CommandPalette';
+import AtlasTeamAssistant from '@/components/atlas/AtlasTeamAssistant';
 
 function LembreteNotificationsBridge() {
   const { items, dismissItem, openItem, completeItem } = useAtendimentoLembreteNotifications();
@@ -101,9 +101,8 @@ const MainLayout = memo(() => {
   const isMiniCrmRoute = location.pathname === '/mini-crm' || location.pathname.startsWith('/mini-crm/');
   const isOnboardingRoute = location.pathname === '/onboarding';
   const isAtlasRoute = location.pathname === '/assistant/atlas';
-  const atlasSearch = isAtlasRoute ? new URLSearchParams(location.search) : null;
-  const isAtlasConversation = atlasSearch && !atlasSearch.has('office_client') &&
-    (atlasSearch.get('view') === 'conversation' || atlasSearch.has('topic') || atlasSearch.has('conversation'));
+  const atlasParams = new URLSearchParams(location.search);
+  const isSquadConversation = isAtlasRoute && atlasParams.get('view') === 'conversation' && !atlasParams.has('office_client') && !atlasParams.has('topic');
   const isFullBleedRoute = isCrmRoute || isConversasRoute || isMiniCrmRoute;
   const isProjectDetailRoute = /^\/projects\/(?!new$|edit\/)[^/]+/.test(location.pathname);
   const isProjectsHubRoute = location.pathname === '/projects';
@@ -117,13 +116,13 @@ const MainLayout = memo(() => {
         <TaskStatusAlertsBridge />
         <CaixaPendenciasAlertsBridge />
         <CommandPalette />
-        {!isAtlasConversation && <Sidebar />}
+        {!isSquadConversation && <AtlasTeamAssistant />}
+        <Sidebar />
         <div className="planeje-main-column flex-1 min-h-0 min-w-0 overflow-hidden">
           <div className="planeje-content-shell flex flex-1 min-h-0 min-w-0 flex-row overflow-hidden">
             <div className="planeje-workspace flex-1 min-h-0 min-w-0">
               <AtendimentoCanalDesconectadoBanner />
-              <AtlasTeamAssistant />
-        {!/^\/paid-traffic\/hoje\/?$/.test(location.pathname) && <AtendimentoEsperaPopup />}
+              {!isSquadConversation && !/^\/paid-traffic\/hoje\/?$/.test(location.pathname) && <AtendimentoEsperaPopup />}
               {!hideWorkspaceHeader && <Header />}
               <main
                 ref={mainRef}

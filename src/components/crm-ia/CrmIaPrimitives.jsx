@@ -37,7 +37,7 @@ export function CrmIaField({ label, value, onChange, options, type = 'text', chi
   </label>;
 }
 
-export function CrmIaEditor({ title, description = 'Revise os campos antes de salvar.', children, onClose, onSave, saveLabel = 'Salvar', disabled, className, footerActions, onCloseAutoFocus }) {
+export function CrmIaEditor({ title, description = 'Revise os campos antes de salvar.', children, onClose, onSave, saveLabel = 'Salvar', disabled, className, footerActions, onCloseAutoFocus, open = true }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const busy = useRef(false);
@@ -51,7 +51,7 @@ export function CrmIaEditor({ title, description = 'Revise os campos antes de sa
     catch (failure) { if (mounted.current) setError(failure.message || 'Não foi possível salvar. Confira os dados atuais.'); }
     finally { busy.current = false; if (mounted.current) setPending(false); }
   }
-  return <Dialog open onOpenChange={open => { if (!open && !busy.current) onClose(); }}><DialogContent className={`crm-ia-dialog${className ? ` ${className}` : ''}`} aria-describedby={undefined} onCloseAutoFocus={onCloseAutoFocus}>
+  return <Dialog open={open} onOpenChange={value => { if (!value && !busy.current) onClose(); }}><DialogContent className={`crm-ia-dialog${className ? ` ${className}` : ''}`} aria-describedby={undefined} onCloseAutoFocus={onCloseAutoFocus}>
     <DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription>
     {onSave ? <form onSubmit={submit}><fieldset disabled={pending || disabled}>{children}</fieldset>
       {error && <p className="crm-ia-error" role="alert">{error}</p>}

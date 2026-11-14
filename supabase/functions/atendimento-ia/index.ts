@@ -16,6 +16,7 @@ import {
 } from '../_shared/atendimentoIaPrompt.js';
 import { decidirAutoResposta } from '../_shared/atendimentoIaAuto.js';
 import { runCrmIaAgent } from '../_shared/crmIaRuntime.ts';
+import { crmIaFailureCode } from '../_shared/crmIaAgent.js';
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -162,8 +163,8 @@ serve(async (req) => {
       } });
     if (typed.handled) return json(typed);
     if (acao === 'followup') return json({ ok: true, skipped: 'not_typed', resposta: '' });
-  } catch {
-    console.error('[atendimento-ia] typed_runtime_failed');
+  } catch (failure) {
+    console.error('[atendimento-ia] typed_runtime_failed', crmIaFailureCode(failure));
     return json({ error: 'Não foi possível confirmar o resultado. Confira a fila antes de tentar novamente.' }, 502);
   }
 

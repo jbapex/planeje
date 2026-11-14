@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, MessageSquare, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react';
+import { ArrowLeft, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react';
 import { useAtlasEntryAccess } from '@/components/AtlasEntry';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useModuleSettings } from '@/contexts/ModuleSettingsContext';
@@ -8,6 +8,7 @@ import { canUseCsIa } from '@/components/cs-ia/csIaData';
 import { canUseCrmIa } from '@/components/crm-ia/crmIaApi';
 import CsIaAvatar from '@/components/cs-ia/CsIaAvatar';
 import CrmIaAvatar from '@/components/crm-ia/CrmIaAvatar';
+import atlasAvatar from '@/assets/atlas/atlas-avatar-3d-v1.png';
 import PlanejeLogo from '@/components/brand/PlanejeLogo';
 import GestorIaAvatar from './GestorIaAvatar';
 import { canUseGestorIa } from './gestorIaAccess';
@@ -78,7 +79,7 @@ export default function GestorIaSidebar({ tabs, activeTab, search, profileName, 
           {expanded && <p className="gia-eyebrow">Squad</p>}
           <nav className="gia-nav" aria-label="Squad">
             {canOpenAtlas && <Link to="/assistant/atlas?view=conversation" className={tileClass} aria-label="Conversar com Atlas" title={expanded ? undefined : 'Conversar com Atlas'}>
-              <MessageSquare aria-hidden="true" /><span className="planeje-sidebar-label gia-workspace-label">Conversar</span>
+              <img src={atlasAvatar} className="gia-agent-avatar" alt="" width={22} height={22} /><span className="planeje-sidebar-label gia-workspace-label">Conversar</span>
             </Link>}
             {agents.filter(([, , , , enabled]) => enabled).map(([id, label, tab, Icon]) => <Link key={id}
               to={`/${id}/${tab}`} className={`${tileClass}${workspace === id ? ' is-active' : ''}`}

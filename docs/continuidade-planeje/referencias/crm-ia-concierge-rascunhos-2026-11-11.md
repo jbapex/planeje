@@ -1,5 +1,3 @@
-**Continuação vigente:** [release 04, publicada às 08h36](crm-ia-perfis-leads-2026-11-11.md), com perfis, Leads/CSV e conversa integrada. O registro abaixo descreve a release 03.
-
 # CRM IA — Concierge, rascunhos e agenda semanal
 
 ## Estado

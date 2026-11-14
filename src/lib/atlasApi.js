@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/customSupabaseClient';
 import { invokeEdgeFunction } from '@/lib/supabaseFunctions';
+import { stageAtlasAttachments, uploadAtlasAttachments } from '@/lib/atlasAttachments';
 
 export class AtlasApiError extends Error {
   constructor(message, { code, status, data } = {}) {
@@ -25,7 +26,7 @@ async function invokeAtlas(action, payload = {}) {
   }
   const { data, error } = response;
   // A terminal run is a valid response, including when the model failed.
-  if (action === 'chat' && data?.run_id && ['failed', 'processing'].includes(data.status)) return data;
+  if (['chat', 'automation_run'].includes(action) && data?.run_id && ['failed', 'processing'].includes(data.status)) return data;
   if (error || data?.ok === false) {
     throw new AtlasApiError(data?.error || error?.message || 'Não foi possível concluir esta ação.', { code: data?.code, status: error?.status, data });
   }
@@ -42,10 +43,18 @@ export function createAtlasRequestId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export const bootstrapAtlas = () => invokeAtlas('bootstrap');
-export const loadAtlasHistory = (conversationId) => invokeAtlas('history', { conversation_id: conversationId });
-export const loadAtlasProgress = (requestId) => invokeAtlas('progress', { request_id: requestId });
+export const bootstrapAtlas = ({ executor = false, clientId = null } = {}) => invokeAtlas('bootstrap', executor ? { executor: true, client_id: clientId || null } : {});
+export const loadAtlasHistory = (conversationId, { executor = false } = {}) => invokeAtlas('history', { conversation_id: conversationId, ...(executor && { executor: true }) });
+export const loadAtlasProgress = (requestId, { executor = false } = {}) => invokeAtlas('progress', { request_id: requestId, ...(executor && { executor: true }) });
 export const sendAtlasMessage = (payload) => invokeAtlas('chat', payload);
+export const loadAtlasAutomation = ({ id, app, clientId = null }) => invokeAtlas('automation_snapshot', { executor: true, id, app, client_id: clientId });
+export const runAtlasAutomation = (payload) => invokeAtlas('automation_run', payload);
+export async function uploadAtlasMessageAttachments({ files, requestId, conversationId, clientId }) {
+  const manifest = await stageAtlasAttachments(supabase, { files, requestId, conversationId, clientId });
+  return uploadAtlasAttachments(supabase.storage, { files, manifest });
+}
+export const respondAtlasInteraction = (payload) => invokeAtlas('executor_decide', payload);
+export const reconcileAtlasInteraction = (id) => invokeAtlas('executor_reconcile', { id });
 export const saveAtlasMemory = ({ content, clientId = null, replacesId = null }) => invokeAtlas('save_memory', { content, client_id: clientId, confirmed: true, replaces_id: replacesId });
 export const revokeAtlasMemory = (memoryId) => invokeAtlas('revoke_memory', { memory_id: memoryId });
 export const setAtlasMemoryTeamScope = (memoryId,shared) => invokeAtlas('memory_team_scope',{memory_id:memoryId,shared});

@@ -14,6 +14,8 @@ const React = require('react');
 const { act, create } = require('react-test-renderer');
 const renderErrors = [];
 const previousError = console.error;
+const previousFetch = globalThis.fetch;
+globalThis.fetch = () => { throw new Error('Rede externa indisponível nos testes do CRM IA.'); };
 console.error = (...args) => { renderErrors.push(args.map(String).join(' ')); previousError(...args); };
 const scratch = await mkdtemp('/tmp/planeje-crm-ui-qa/crm-ui-');
 await build({ stdin: { contents: `export {default as Content} from ${JSON.stringify(source)};export {MemoryRouter,useNavigate} from 'react-router-dom';export {captureCrmIaCalendarCallback as captureCallback} from ${JSON.stringify(path.join(root, 'src/components/crm-ia/crmIaCalendarCallback.js'))};`, resolveDir: root },
@@ -65,7 +67,8 @@ function apiFixture(overrides = {}) {
     if (action === 'usage') return { responses: 0, tokens: 0, by_agent: [], limits: null };
     if (action === 'capabilities') return { audio: { available: false, input_available: false } };
     if (action === 'calendar_status') return { connected: false, configured: false, status: 'disconnected' };
-    if (['conversations', 'messages', 'agenda', 'slots', 'queue'].includes(action)) return { rows: [], total: 0 };
+    if (action === 'agenda') return { rows: [], total: 0, timezone: 'America/Sao_Paulo', summary: {scheduled:0,confirmed:0,cancelled:0,no_show:0} };
+    if (['conversations', 'messages', 'slots', 'queue'].includes(action)) return { rows: [], total: 0 };
     if (action.startsWith('save_') || action.startsWith('cancel_') || ['move_lead', 'schedule_message', 'apply_template', 'archive_lead', 'restore_lead', 'bulk_assign', 'import_leads', 'delete_stage', 'delete_pipeline'].includes(action)) return { id: 'saved', data: payload.data, revision: 5 };
     throw new Error('Ação inesperada: ' + action);
   };
@@ -288,14 +291,15 @@ test('Conversas conserva o recorte ao paginar e selecionar, e editar data reinic
     const filters = { since: '2026-10-01', until: '2026-10-31', pipeline_id: 'pipeline-a', stage_id: 'stage-a', origin: 'Site', sort: 'oldest', owner_id: 'person-a' };
     for (const [key, value] of Object.entries(filters)) assert.equal(listCalls().at(-1)[1][key], value, key);
     await click(r, 'Próxima'); assert.equal(listCalls().at(-1)[1].offset, 60);
-    await click(r, 'Abrir conversa de Contato sintético');
+    await click(r, 'Abrir conversa de Contato sintético · Canal de teste');
     for (const [key, value] of Object.entries(filters)) assert.equal(listCalls().at(-1)[1][key], value, key);
-    assert.equal(listCalls().at(-1)[1].channel_id, 'channel-a');
-    await click(r, 'Próxima'); assert.equal(listCalls().at(-1)[1].offset, 30);
+    assert.equal(listCalls().at(-1)[1].channel_id, '');
+    assert.equal(listCalls().at(-1)[1].offset, 60);
+    await click(r, 'Anterior'); assert.equal(listCalls().at(-1)[1].offset, 30);
     await change(r, 'Última mensagem desde', '2026-10-05');
     const payload = listCalls().at(-1)[1];
     assert.equal(payload.since, '2026-10-05'); assert.equal(payload.until, '2026-10-31'); assert.equal(payload.offset, 0);
-    assert.equal(payload.stage_id, 'stage-a'); assert.equal(payload.channel_id, 'channel-a');
+    assert.equal(payload.stage_id, 'stage-a'); assert.equal(payload.channel_id, '');
     assert.equal(fixture.calls.some(([action]) => ['save_conversation', 'send_message', 'schedule_message'].includes(action)), false);
   } finally { await act(async () => r.unmount()); }
 });
@@ -353,7 +357,7 @@ test('importação mostra revisão antes de criar e conserva a chave da tentativ
 
 test('exclusão da etapa é confirmada e usa sua versão sem remover oportunidades', async () => {
   const fixture = apiFixture(); const r = await mount('funil', fixture);
-  await click(r, 'Configurar funil'); await click(r, 'Excluir Entrada');
+  await click(r, 'Configuração'); await click(r, 'Editar funil Principal'); await click(r, 'Excluir Entrada');
   assert.equal(fixture.calls.some(([action]) => action === 'delete_stage'), false);
   await submit(r); assert.equal(fixture.calls.find(([action]) => action === 'delete_stage')[1].id, 'stage-a');
   await act(async () => r.unmount());
@@ -364,7 +368,7 @@ test('envio mantém o canal e repete a mesma tentativa após resposta perdida', 
   const conversation = { contact_id: 'contact-a', channel_id: 'channel-b', nome: 'Conversa de teste', attendance: 'human', updated_at: '2026-11-11T10:00:00Z' };
   const fixture = apiFixture({ conversations: () => ({ rows: [conversation], total: 1 }), messages: payload => { assert.equal(payload.channel_id, 'channel-b'); assert.equal(payload.contact_id, 'contact-a'); return { rows: [], total: 0 }; }, send_message: () => { if (failed) throw new Error('Resposta do transporte perdida'); return { id: 'receipt-a', status: 'sent' }; } });
   const r = await mount('conversas', fixture, { workspace: { ...workspace, channels: [...workspace.channels, { id: 'channel-b', nome: 'Segundo canal' }] } });
-  await click(r, 'Abrir conversa de Conversa de teste'); await change(r, 'Mensagem ao contato', 'Mensagem de teste'); await submit(r);
+  await click(r, 'Abrir conversa de Conversa de teste · Segundo canal'); await change(r, 'Mensagem ao contato', 'Mensagem de teste'); await submit(r);
   assert.match(text(r.toJSON()), /Resposta do transporte perdida/); assert.equal(field(r, 'Mensagem ao contato').props.value, 'Mensagem de teste');
   failed = false; await submit(r);
   const sent = fixture.calls.filter(([action]) => action === 'send_message');
@@ -376,7 +380,7 @@ test('envio mantém o canal e repete a mesma tentativa após resposta perdida', 
 test('atalho insere a resposta rápida salva sem enviar ao contato', async () => {
   const fixture = apiFixture({ conversations: () => ({ rows: [{ contact_id: 'contact-a', channel_id: 'channel-a', nome: 'Conversa de teste' }], total: 1 }) });
   const r = await mount('conversas', fixture, { workspace: { ...workspace, config: { ...workspace.config, data: { attendance: { quick_replies: [{ shortcut: 'oi', text: 'Texto revisável da equipe' }] } } } } });
-  await click(r, 'Abrir conversa de Conversa de teste'); await change(r, 'Mensagem ao contato', '/oi'); await click(r, 'Inserir /oi');
+  await click(r, 'Abrir conversa de Conversa de teste · Canal de teste'); await change(r, 'Mensagem ao contato', '/oi'); await click(r, 'Inserir /oi');
   assert.equal(field(r, 'Mensagem ao contato').props.value, 'Texto revisável da equipe'); assert.equal(fixture.calls.some(([action]) => action === 'send_message'), false);
   await act(async () => r.unmount());
 });
@@ -388,7 +392,7 @@ test('atualização automática lê novas mensagens sem perder o rascunho e ence
   try {
     const fixture = apiFixture({ conversations: () => ({ rows: [{ contact_id: 'contact-a', channel_id: 'channel-a', nome: 'Conversa de teste' }], total: 1 }),
       messages: payload => { assert.equal(payload.channel_id, 'channel-a'); return { rows: [{ id: 'new', body: incoming }], total: 1 }; } });
-    const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste');
+    const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste · Canal de teste');
     await change(r, 'Mensagem ao contato', 'Rascunho preservado'); incoming = 'Mensagem nova do contato';
     await act(async () => [...timers.values()].find(timer => timer.ms === 5000).callback());
     assert.match(text(r.toJSON()), /Mensagem nova do contato/); assert.equal(field(r, 'Mensagem ao contato').props.value, 'Rascunho preservado');
@@ -398,7 +402,7 @@ test('atualização automática lê novas mensagens sem perder o rascunho e ence
 test('falha, cancelamento e envio em processamento preservam o rascunho sem confirmação falsa', async () => {
   for (const status of ['failed', 'cancelled', 'sending', 'uncertain']) {
     const fixture = apiFixture({ conversations: () => ({ rows: [{ contact_id: 'contact-a', channel_id: 'channel-a', nome: 'Conversa de teste' }], total: 1 }), send_message: () => ({ id: 'delivery', status }) });
-    const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste');
+    const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste · Canal de teste');
     await change(r, 'Mensagem ao contato', 'Conservar rascunho'); await submit(r);
     assert.equal(field(r, 'Mensagem ao contato').props.value, 'Conservar rascunho');
     assert.doesNotMatch(text(r.toJSON()), /Envio confirmado/);
@@ -409,7 +413,7 @@ test('conversa reutiliza anexos e gravador, limita 4 MB e só baixa mídia por p
   const fixture = apiFixture({ conversations: () => ({ rows: [{ contact_id: 'contact-a', channel_id: 'channel-a', nome: 'Conversa de teste' }], total: 1 }),
     messages: () => ({ rows: [{ id: 'audio-a', download_id: 'known-audio', body: '[Áudio]', media_type: 'ptt', created_at: '2026-11-11T10:00:00Z' }], total: 1 }),
     load_media: () => ({ url: 'data:audio/mpeg;base64,YXVkaW8=', mimetype: 'audio/mpeg' }) });
-  const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste');
+  const r = await mount('conversas', fixture); await click(r, 'Abrir conversa de Conversa de teste · Canal de teste');
   assert.ok(button(r, 'Anexar arquivo até 4 MB')); assert.ok(button(r, 'Gravar áudio')); assert.equal(button(r, 'Notas'), undefined);
   assert.equal(fixture.calls.some(([action]) => action === 'load_media'), false);
   const input = rows(r, 'input').find(node => node.props.type === 'file');
@@ -443,7 +447,7 @@ test('campos personalizados usam o objeto do lead e conservam campos de outras d
 test('reagendamento consulta os slots com a reserva original e grava a mesma identidade', async () => {
   const appointment = { id: 'appointment-a', lead_id: lead.id, owner_id: 'person-a', title: 'Reunião original', notes: '', start_at: '2030-11-11T12:00:00Z', end_at: '2030-11-11T12:30:00Z', updated_at: '2026-11-11T10:00:00Z', status: 'confirmed' };
   const fixture = apiFixture({ agenda: () => ({ rows: [appointment], total: 1 }), slots: payload => { assert.equal(payload.appointment_id, 'appointment-a'); return { rows: [{ owner_id: 'person-a', start_at: '2030-11-11T13:00:00Z', end_at: '2030-11-11T13:30:00Z' }], total: 1 }; } });
-  const r = await mount('agenda', fixture); await click(r, 'Reagendar compromisso'); await change(r, 'Horário disponível', '2030-11-11T13:00:00Z'); await submit(r);
+  const r = await mount('agenda', fixture); await click(r, 'Lista'); await click(r, 'Reagendar compromisso'); await change(r, 'Horário disponível', '2030-11-11T13:00:00Z'); await submit(r);
   const saved = fixture.calls.find(([action]) => action === 'save_appointment')[1]; assert.equal(saved.id, 'appointment-a'); assert.equal(saved.expected_updated_at, appointment.updated_at); assert.equal(saved.start_at, '2030-11-11T13:00:00Z');
   await act(async () => r.unmount());
 });
@@ -470,7 +474,7 @@ test('Conversas filtra por quem atende e abre a fila sem perder o rascunho do ca
     await click(r, 'IA');
     const filtered = fixture.calls.findLast(([action]) => action === 'conversations')[1];
     assert.equal(filtered.attendance, 'ai'); assert.equal(filtered.since, '2026-10-01');
-    await click(r, 'Abrir conversa de Conversa de teste');
+    await click(r, 'Abrir conversa de Conversa de teste · Canal de teste');
     await change(r, 'Mensagem ao contato', 'Rascunho preservado no mesmo canal');
     await click(r, 'Mensagens agendadas');
     const queue = fixture.calls.find(([action]) => action === 'queue')[1];
@@ -479,7 +483,7 @@ test('Conversas filtra por quem atende e abre a fila sem perder o rascunho do ca
     assert.equal(field(r, 'Mensagem ao contato').props.value, 'Rascunho preservado no mesmo canal');
     await click(r, 'Voltar às conversas');
     assert.equal(r.root.findByProps({ 'aria-label': 'Detalhe da conversa' }).props.hidden, true);
-    await click(r, 'Abrir conversa de Conversa de teste');
+    await click(r, 'Abrir conversa de Conversa de teste · Canal de teste');
     assert.equal(field(r, 'Mensagem ao contato').props.value, 'Rascunho preservado no mesmo canal');
     assert.equal(fixture.calls.some(([action]) => ['send_message', 'schedule_message', 'save_conversation'].includes(action)), false);
   } finally { await act(async () => r.unmount()); }
@@ -506,7 +510,7 @@ test('agendamento e cancelamento usam a fila do contato e canal escolhidos', asy
     cancel_message: payload => { assert.equal(payload.id, 'queue-a'); queued = { ...queued, status: 'cancelled' }; return queued; } });
   const r = await mount('conversas', fixture);
   try {
-  await click(r, 'Abrir conversa de Conversa de teste'); await change(r, 'Mensagem ao contato', 'Mensagem futura de teste'); await click(r, 'Programar mensagem');
+  await click(r, 'Abrir conversa de Conversa de teste · Canal de teste'); await change(r, 'Mensagem ao contato', 'Mensagem futura de teste'); await click(r, 'Programar mensagem');
   assert.equal(fixture.calls.some(([action]) => action === 'schedule_message'), false);
   await change(r, 'Data e hora do envio', '2030-11-11T09:00'); await submit(r);
   await click(r, 'Mensagens agendadas'); assert.match(text(r.toJSON()), /Mensagem futura de teste/);
@@ -532,4 +536,73 @@ test('navegação entre canais pela URL descarta rascunho e consulta o novo par 
   } finally { await act(async () => r.unmount()); }
 });
 
-test.after(async () => { console.error = previousError; await rm(scratch, { recursive: true, force: true }); assert.deepEqual(renderErrors, [], 'Nenhum fluxo pode gerar erro de renderização React.'); });
+test('abrir e voltar preservam a lista multicanal, o rascunho e o escopo da fila', async () => {
+  const conversations = ['channel-a', 'channel-b'].map(channel_id => ({ contact_id: 'contact-a', channel_id, nome: 'Contato em comum', attendance: 'human' }));
+  const fixture = apiFixture({ conversations: payload => {
+    const result = conversations.filter(row => (!payload.channel_id || row.channel_id === payload.channel_id) && (!payload.contact_id || row.contact_id === payload.contact_id));
+    return { rows: result, total: result.length };
+  } });
+  const r = await mount('conversas', fixture, { initialPath: '/crm-ia/conversas?search=Contato&owner_id=person-a&since=2026-10-01&until=2026-10-31', workspace: { ...workspace, channels: [...workspace.channels, { id: 'channel-b', nome: 'Segundo canal' }] } });
+  const conversationButtons = () => rows(r, 'button').filter(n => n.props['aria-label']?.startsWith('Abrir conversa de '));
+  const list = () => fixture.calls.filter(([action, payload]) => action === 'conversations' && payload.limit === 30).at(-1)[1];
+  try {
+    assert.equal(conversationButtons().length, 2);
+    await act(async () => conversationButtons()[1].props.onClick());
+    assert.equal(conversationButtons().length, 2, 'Escolher uma conversa não pode reduzir o recorte da lista ao canal aberto.');
+    assert.equal(list().channel_id, ''); assert.equal(field(r, 'Canal das conversas').props.value, '');
+    await change(r, 'Mensagem ao contato', 'Rascunho do segundo canal');
+    await click(r, 'Mensagens agendadas');
+    const queue = fixture.calls.find(([action]) => action === 'queue')[1];
+    assert.equal(queue.contact_id, 'contact-a'); assert.equal(queue.channel_id, 'channel-b');
+    await click(r, 'Concluir'); await click(r, 'Voltar às conversas');
+    assert.equal(conversationButtons().length, 2); assert.equal(list().channel_id, '');
+    await act(async () => conversationButtons()[1].props.onClick());
+    assert.equal(field(r, 'Mensagem ao contato').props.value, 'Rascunho do segundo canal');
+    assert.equal(fixture.calls.filter(([action]) => action === 'messages').at(-1)[1].channel_id, 'channel-b');
+    for (const [key, value] of Object.entries({ search: 'Contato', owner_id: 'person-a', since: '2026-10-01', until: '2026-10-31' })) assert.equal(list()[key], value);
+    await r.navigate(-1); assert.equal(r.root.findByProps({ 'aria-label': 'Detalhe da conversa' }).props.hidden, true);
+    await r.navigate(1); assert.equal(field(r, 'Mensagem ao contato').props.value, 'Rascunho do segundo canal');
+    assert.equal(fixture.calls.some(([action]) => ['send_message', 'schedule_message', 'save_conversation'].includes(action)), false);
+  } finally { await act(async () => r.unmount()); }
+});
+
+test('linhas do mesmo contato identificam o canal visualmente e pelo nome acessível', async () => {
+  const fixture = apiFixture({ conversations: () => ({ rows: ['channel-a', 'channel-b'].map(channel_id => ({ contact_id: 'contact-a', channel_id, nome: 'Contato em comum', attendance: 'human' })), total: 2 }) });
+  const r = await mount('conversas', fixture, { workspace: { ...workspace, channels: [...workspace.channels, { id: 'channel-b', nome: 'Segundo canal' }] } });
+  try {
+    for (const channel of ['Canal de teste', 'Segundo canal']) {
+      const row = button(r, `Abrir conversa de Contato em comum · ${channel}`);
+      assert.ok(row, 'O nome acessível distingue os dois destinos.');
+      assert.match(text(row.props.children), new RegExp(channel));
+    }
+  } finally { await act(async () => r.unmount()); }
+});
+
+test('filtro de canal legado sobrevive à escolha e pode voltar a todos os canais', async () => {
+  const conversation = { contact_id: 'contact-a', channel_id: 'channel-a', nome: 'Contato em comum', attendance: 'human' };
+  const fixture = apiFixture({ conversations: () => ({ rows: [conversation], total: 65 }) });
+  const r = await mount('conversas', fixture, { initialPath: '/crm-ia/conversas?channel_id=channel-a&offset=30&search=Contato' });
+  const list = () => fixture.calls.filter(([action, payload]) => action === 'conversations' && payload.limit === 30).at(-1)[1];
+  try {
+    assert.equal(list().channel_id, 'channel-a'); assert.equal(list().offset, 30);
+    await act(async () => rows(r, 'button').find(n => n.props['aria-label']?.startsWith('Abrir conversa de ')).props.onClick());
+    assert.equal(list().channel_id, 'channel-a'); assert.equal(list().offset, 30);
+    await click(r, 'Voltar às conversas'); assert.equal(list().channel_id, 'channel-a'); assert.equal(list().offset, 30);
+    await change(r, 'Canal das conversas', ''); assert.equal(list().channel_id, ''); assert.equal(list().offset, 0);
+    assert.equal(field(r, 'Canal das conversas').props.value, '');
+  } finally { await act(async () => r.unmount()); }
+});
+
+test('link com contato e canal abre o histórico sem impor filtro à lista', async () => {
+  const fixture = apiFixture();
+  const r = await mount('conversas', fixture, { initialPath: '/crm-ia/conversas?contact_id=contact-a&channel_id=channel-a' });
+  try {
+    const list = () => fixture.calls.filter(([action, payload]) => action === 'conversations' && payload.limit === 30).at(-1)[1];
+    assert.equal(list().channel_id, '');
+    assert.equal(fixture.calls.find(([action]) => action === 'messages')[1].channel_id, 'channel-a');
+    await click(r, 'Voltar às conversas'); assert.equal(field(r, 'Canal das conversas').props.value, '');
+    assert.equal(list().channel_id, '');
+  } finally { await act(async () => r.unmount()); }
+});
+
+test.after(async () => { globalThis.fetch = previousFetch; console.error = previousError; await rm(scratch, { recursive: true, force: true }); assert.deepEqual(renderErrors, [], 'Nenhum fluxo pode gerar erro de renderização React.'); });

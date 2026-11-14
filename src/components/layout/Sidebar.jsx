@@ -37,8 +37,14 @@ import { canUseCrmIa } from '@/components/crm-ia/crmIaApi';
 import GestorIaAvatar from '@/components/gestor-ia/GestorIaAvatar';
 import CsIaAvatar from '@/components/cs-ia/CsIaAvatar';
 import CrmIaAvatar from '@/components/crm-ia/CrmIaAvatar';
+import { useAtlasEntryAccess } from '@/components/AtlasEntry';
+import atlasAvatar from '@/assets/atlas/atlas-avatar-3d-v1.png';
 
 const SIDEBAR_EXPANDED_KEY = 'planeje-sidebar-expanded';
+
+function AtlasAvatar({ className }) {
+  return <img src={atlasAvatar} className={className} alt="" width={20} height={20} />;
+}
 
 function readExpandedPreference() {
   try {
@@ -50,7 +56,7 @@ function readExpandedPreference() {
 
 function SidebarNavItem({ to, icon: Icon, label, expanded, navLinkClass, onClick, lucideIcon = true, match, badgeCount = 0 }) {
   const { pathname } = useLocation();
-  const isActive = isTeamNavItemActive({ to, match }, pathname);
+  const isActive = isTeamNavItemActive({ to: to.split('?')[0], match }, pathname);
   const showBadge = badgeCount > 0;
   const badgeLabel = badgeCount > 99 ? '99+' : String(badgeCount);
 
@@ -110,8 +116,9 @@ function AccountMenuContent({ profile, theme, toggleTheme, signOut }) {
 }
 
 const Sidebar = () => {
-  const { signOut, profile } = useAuth();
+  const { signOut, user, profile } = useAuth();
   const { moduleSettings, loading: modulesLoading } = useModuleSettings();
+  const canOpenAtlas = useAtlasEntryAccess(moduleSettings?.assistant === true ? user?.id : null);
   const { theme, toggleTheme } = usePlanejeTheme();
   const userRole = profile?.role;
   const location = useLocation();
@@ -244,6 +251,9 @@ const Sidebar = () => {
           expanded ? 'px-3 items-stretch pb-1' : 'px-2 items-center'
         )}
       >
+        {canOpenAtlas && (
+          <SidebarNavItem to="/assistant/atlas?view=conversation" icon={AtlasAvatar} lucideIcon={false} label="Conversar" expanded={expanded} navLinkClass={navLinkClass} />
+        )}
         {canUseCrmIa(profile, moduleSettings) && (
           <SidebarNavItem to="/crm-ia/painel" icon={CrmIaAvatar} lucideIcon={false} label="CRM IA" expanded={expanded} navLinkClass={navLinkClass} />
         )}

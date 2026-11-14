@@ -16,6 +16,8 @@ const delay = () => new Promise(resolve => setTimeout(resolve, 90));
 window.__atlasTest = { calls: [], queue: [], requests, records, releaseProcessing: false };
 function record(action, payload) { window.__atlasTest.calls.push({ action, payload }); }
 export const createAtlasRequestId = () => crypto.randomUUID();
+export async function respondAtlasInteraction() { throw new Error('Esta prévia legada não possui decisões de execução. Use a fixture do executor.'); }
+export const reconcileAtlasInteraction = respondAtlasInteraction;
 export async function bootstrapAtlas() {
   record('bootstrap'); await delay();
   if (mode === 'unauthenticated') throw Object.assign(new Error('Sessão expirada.'), { code: 'UNAUTHENTICATED' });
@@ -59,3 +61,9 @@ export async function cancelAtlasJob(id) { record('cancel_job',{id}); return {ok
 export async function markAtlasInbox(id,archive=false) { record('mark_inbox',{id,archive}); return {ok:true}; }
 export async function setAtlasPreferences(preferences) { record('preferences',preferences); return {ok:true}; }
 export async function loadAtlasInbox() { return {ok:true,items:[],worker:null}; }
+export async function setAtlasMemoryTeamScope(id, team) {
+  const memory = memories.find(item => item.id === id);
+  if (memory) Object.assign(memory, { team_shared: team === true });
+  return { memory };
+}
+export async function invokeAtlasOffice() { throw new Error('O escritório tem uma prévia local separada.'); }

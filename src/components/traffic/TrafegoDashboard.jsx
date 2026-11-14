@@ -521,12 +521,17 @@ export default function TrafegoDashboard() {
   };
 
   const applyAdsetWrite = async (payload) => {
+    if (!selectedClient?.id) throw new Error('Selecione o cliente antes de alterar na Meta.');
     const writes = payload?.writes?.length
       ? payload.writes
       : [{ objectId: payload.adsetId, level: 'adset', status: payload.status, daily_budget: payload.daily_budget, lifetime_budget: payload.lifetime_budget }];
     for (const write of writes) {
+      const objectId = String(write.objectId || write.adsetId || '');
+      const source = write.level === 'campaign' ? liveCampaigns.find(row => String(row.id) === objectId)
+        : liveAdsets.find(row => String(row.id) === objectId || listAds(row).some(ad => String(ad.id) === objectId));
+      const adAccountId = source?.account_id || (selectedRow?.accounts?.length === 1 ? selectedRow.accounts.at(0).meta_account_id : undefined);
       const { data, error: fnError } = await supabase.functions.invoke('meta-ads-api', {
-        body: { action: 'update-adset', ...write, adsetId: write.objectId || write.adsetId },
+        body: { action: 'update-adset', ...write, adsetId: write.objectId || write.adsetId, cliente_id: selectedClient.id, ...(adAccountId && { adAccountId }) },
       });
       if (fnError) throw fnError;
       if (data?.error) {

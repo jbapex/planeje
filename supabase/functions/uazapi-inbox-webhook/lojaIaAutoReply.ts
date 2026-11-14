@@ -157,6 +157,19 @@ export async function maybeLojaIaAutoReply(args: {
     return;
   }
 
+  if (!args.fromMe && !args.isGroup && args.messageId) {
+    try {
+      const capture = await args.supabase.rpc('crm_ia_capture_inbound', {
+        p_client: clienteId, p_channel: channelId, p_contact: contact.id, p_message: args.messageId,
+      });
+      if (capture.error) throw Error('crm_capture_unavailable');
+      if (['message_required', 'message_changed', 'scope'].includes(capture.data?.skipped)) return;
+    } catch {
+      console.error('[uazapi-inbox-webhook] crm_capture_failed');
+      return;
+    }
+  }
+
   const [{ data: conversa }, { data: agentes }] = await Promise.all([
     args.supabase
       .from('cliente_atend_conversas')

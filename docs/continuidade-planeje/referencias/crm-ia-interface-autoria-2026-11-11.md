@@ -39,5 +39,3 @@ Na sessão autenticada, JB APEX carregou o Painel com41conversas em30dias e a li
 Este documento foi atualizado localmente após a publicação; o arquivo da candidata é a versão de preparação, preservada no manifesto. A próxima publicação deve sobrepor somente os documentos e fontes explicitamente revisados.
 
 A correção SQL18 foi publicada às17h48 BRT. A busca real retornou duas conversas sem timeout; duas leituras controladas mediram0,5–0,6s e18 verificações de sessão. A inspeção visual final do histórico aguarda reconexão do Chrome; o contrato de telefone/follow-up está em ajuste separado. [Evidência e limites da leitura](crm-ia-acesso-leitura-2026-11-11.md).
-
-Às22h33, a migration19 completou telefone/follow-up no DTO da página e do estado, preservando autoria/fotos. Leitura real conferiu os campos; a inspeção visual final ainda aguarda Chrome. [Complemento e limites](crm-ia-cabecalho-dados-2026-11-11.md).

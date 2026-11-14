@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import AtendimentoWaitTimeBadge from '../atendimento/AtendimentoWaitTimeBadge';
 import '../atendimento/Atendimento.css';
 import { ArrowLeft, ArrowLeftRight, Bot, CalendarClock, Check, ChevronDown, Clock3, ListFilter, MessagesSquare, MoreHorizontal, RefreshCw, Search, UserCheck } from 'lucide-react';
@@ -28,16 +29,23 @@ export default function CrmIaConversations({ api, mutate, workspace, revision, c
   const displayed = selected || opened;
   const search = params.get('search') || '';
   const attendance = params.get('attendance') || '';
-  const channel = params.get('channel_id') || '';
+  const channel = params.get('list_channel_id') ?? (selected ? '' : params.get('channel_id') || '');
   const defaults = dateRange(7);
   const filters = Object.fromEntries(['since', 'until', 'pipeline_id', 'stage_id', 'origin', 'sort'].map(key => [key, params.get(key) || defaults[key] || '']));
   const offset = Math.max(0, Number.parseInt(params.get('offset'), 10) || 0);
   const read = useCrmRead(api, 'conversations', { ...filters, search, attendance, channel_id: channel, owner_id: params.get('owner_id') || '', offset, limit: 30 }, `${revision}:${reload}`, workspace.permissions.conversations === true, 15000);
   const rows = read.data?.rows || [];
   const attendanceOptions = [{ value: '', label: 'Tudo' }, { value: 'ai', label: 'IA ativa' }, { value: 'human', label: 'Atendimento humano' }, { value: 'waiting', label: 'Aguardando uma pessoa' }, { value: 'followup', label: 'Follow-up' }, { value: 'resolved', label: 'Resolvidas' }];
-  function filter(key, value) { setParams(old => { const next = new URLSearchParams(old); if (value) next.set(key, value); else next.delete(key); if (key !== 'offset') next.delete('offset'); if (key === 'channel_id') next.delete('contact_id'); return next; }, { replace: key === 'search' }); }
-  function choose(row) { setParams(old => { const next = new URLSearchParams(old); next.set('contact_id', row.contact_id); next.set('channel_id', row.channel_id); next.delete('offset'); return next; }); }
-  function back() { setParams(old => { const next = new URLSearchParams(old); next.delete('contact_id'); return next; }); }
+  function filter(key, value) { setParams(old => { const next = new URLSearchParams(old); if (value) next.set(key, value); else next.delete(key); if (key !== 'offset') next.delete('offset'); if (key === 'list_channel_id') { next.delete('contact_id'); next.delete('channel_id'); } return next; }, { replace: key === 'search' }); }
+  function choose(row) {
+    setParams(old => {
+      const next = new URLSearchParams(old);
+      if (!old.get('contact_id') && !old.has('list_channel_id') && old.get('channel_id')) next.set('list_channel_id', old.get('channel_id'));
+      next.set('contact_id', row.contact_id); next.set('channel_id', row.channel_id);
+      return next;
+    });
+  }
+  function back() { setParams(old => { const next = new URLSearchParams(old); next.delete('contact_id'); next.delete('channel_id'); return next; }); }
   function openQueue(event) { queueTrigger.current = event?.currentTarget || null; setQueueScope(selected ? { ...selected } : {}); }
   function restoreQueueFocus(event) { event.preventDefault(); const trigger = queueTrigger.current; if (trigger?.isConnected && trigger.getClientRects().length) trigger.focus(); else listQueueTrigger.current?.focus(); }
   if (workspace.permissions.conversations !== true) return <p className="crm-ia-state" role="status">Conversas indisponíveis para esta sessão.</p>;
@@ -55,7 +63,7 @@ export default function CrmIaConversations({ api, mutate, workspace, revision, c
           <details className="crm-ia-inbox-filters" onKeyDown={event => { if (event.key === 'Escape') event.currentTarget.open = false; }}>
             <summary><ListFilter size={14} aria-hidden="true" /><span>{attendanceOptions.find(item => item.value === attendance)?.label || 'Tudo'}</span><ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="crm-ia-inbox-filter-panel"><CrmIaField label="Atendimento" value={attendance} onChange={value => filter('attendance', value)} options={attendanceOptions} />
-              <CrmIaField label="Canal das conversas" value={channel} onChange={value => filter('channel_id', value)} options={[{ value: '', label: 'Todos os canais' }, ...workspace.channels]} />
+              <CrmIaField label="Canal das conversas" value={channel} onChange={value => filter('list_channel_id', value)} options={[{ value: '', label: 'Todos os canais' }, ...workspace.channels]} />
               <CrmIaField label="Atendente" value={params.get('owner_id')} onChange={value => filter('owner_id', value)} options={[{ value: '', label: 'Todos os atendentes' }, ...workspace.people]} />
               <p>Período das conversas</p><CrmIaField label="Última mensagem desde" type="date" value={filters.since} onChange={value => filter('since', value)} /><CrmIaField label="Última mensagem até" type="date" value={filters.until} onChange={value => filter('until', value)} />
               <small>Data da última mensagem, no fuso America/Sao_Paulo.</small>
@@ -63,10 +71,13 @@ export default function CrmIaConversations({ api, mutate, workspace, revision, c
           </details>
         </div>
         <div className="crm-ia-inbox-rows"><CrmIaState read={read} retry={() => setReload(value => value + 1)} empty={rows.length === 0 && 'Nenhuma conversa neste recorte.'}>
-          <ul>{rows.map(row => <li key={`${row.contact_id}:${row.channel_id}`}><button type="button" aria-label={`Abrir conversa de ${row.nome || 'Contato sem nome'}`} aria-pressed={selected?.contact_id === row.contact_id && selected?.channel_id === row.channel_id} onClick={() => choose(row)}>
+          <ul>{rows.map(row => {
+            const channelName = workspace.channels.find(item => item.id === row.channel_id)?.nome || 'Canal não identificado';
+            return <li key={`${row.contact_id}:${row.channel_id}`}><button type="button" aria-label={`Abrir conversa de ${row.nome || 'Contato sem nome'} · ${channelName}`} aria-pressed={selected?.contact_id === row.contact_id && selected?.channel_id === row.channel_id} onClick={() => choose(row)}>
             <span className={`crm-ia-contact-avatar is-${row.attendance}`} aria-hidden="true">{Array.from(row.nome?.trim() || '?')[0].toLocaleUpperCase('pt-BR')}</span>
-            <span className="crm-ia-conversation-preview"><span className="crm-ia-conversation-preview-heading"><strong>{row.nome || 'Contato sem nome'}</strong><time dateTime={row.last_message_at} title={dateTime(row.last_message_at)}>{dateTime(row.last_message_at).split(',')[0].slice(0, 5)}</time></span><span className="crm-ia-conversation-snippet">{row.last_message || 'Sem trecho disponível'}</span><span className="crm-ia-conversation-meta"><small>{attendanceName(row.attendance)}</small>{row.awaiting_since && <span className="crm-ia-conversation-wait" title={`Espera desde ${dateTime(row.awaiting_since)}`}><Clock3 size={11} aria-hidden="true" />Aguardando<span className="sr-only"> desde {dateTime(row.awaiting_since)}</span></span>}</span></span>
-          </button></li>)}</ul>
+            <span className="crm-ia-conversation-preview"><span className="crm-ia-conversation-preview-heading"><strong>{row.nome || 'Contato sem nome'}</strong><time dateTime={row.last_message_at} title={dateTime(row.last_message_at)}>{dateTime(row.last_message_at).split(',')[0].slice(0, 5)}</time></span><span className="crm-ia-conversation-snippet">{row.last_message || 'Sem trecho disponível'}</span><span className="crm-ia-conversation-meta"><small title={channelName}>{channelName} · {attendanceName(row.attendance)}</small>{row.awaiting_since && <span className="crm-ia-conversation-wait" title={`Espera desde ${dateTime(row.awaiting_since)}`}><Clock3 size={11} aria-hidden="true" />Aguardando<span className="sr-only"> desde {dateTime(row.awaiting_since)}</span></span>}</span></span>
+          </button></li>;
+          })}</ul>
           {(read.data?.total > 30 || offset > 0) && <CrmIaPagination total={read.data?.total} offset={offset} limit={30} onPage={value => filter('offset', String(value))} />}
         </CrmIaState></div>
       </section>
@@ -121,6 +132,9 @@ export function CrmIaConversation({ conversation, api, mutate, workspace, revisi
   }, [history, messages.data]);
   const canSend = canManage && readable
     && channelConfig.can_send !== false;
+  useEffect(() => {
+    if (!canSend) { setSchedule(false); setScheduleMenu(false); setWhen(''); }
+  }, [canSend]);
   useEffect(() => {
     if (!scheduleMenu || !visible) return undefined;
     const timer = setInterval(() => setScheduleNow(new Date()), 1000);
@@ -186,6 +200,7 @@ export function CrmIaConversation({ conversation, api, mutate, workspace, revisi
     } catch (failure) { setError(failure.message); return false; }
     finally { sending.current = false; setBusy(false); }
   }
+  if (!visible) return null;
   const backButton = onBack && <button type="button" className="crm-ia-inbox-back crm-ia-icon-button" aria-label="Voltar às conversas" onClick={onBack} disabled={busy}><ArrowLeft size={18} aria-hidden="true" /></button>;
   if (!authorized) return <section className="crm-ia-chat-unavailable">{backButton}<p className="crm-ia-state" role="status">Conversa indisponível para esta sessão.</p></section>;
   if (!readable) return <section className="crm-ia-chat-unavailable">{backButton}<p className="crm-ia-error" role="alert">{stateRead.error || messages.error || historyFailure}</p><button type="button" onClick={() => { setHistoryFailure(''); setReload(value => value + 1); }}>Atualizar conversa</button></section>;
@@ -225,10 +240,10 @@ export function CrmIaConversation({ conversation, api, mutate, workspace, revisi
       <CrmIaAiMessageFlag key={`${message.id}:${message.my_flag?.updated_at || ''}`} {...{ message, scope, mutate }} onSaved={() => setReload(value => value + 1)} />
     </div><div className={`crm-ia-message-sender is-${sender.kind}`}><strong>{sender.label}</strong></div></div></li>; })}</ol></CrmIaState>
     </div>{receipt && <p className="crm-ia-success" role="status">{receipt.status === 'sent' ? 'Envio confirmado pelo serviço.' : 'Mensagem registrada na fila de envio.'}</p>}
-    {canSend ? <form className="crm-ia-message-composer" onSubmit={event => { event.preventDefault(); void send().catch(() => {}); }}><AtendimentoComposer value={body} onChange={setBody} onSend={() => send().catch(() => {})} onSendMedia={sendMedia} sending={busy} disabled={!canSend || !visible} conversationId={`${scope.contact_id}:${scope.channel_id}`} hideNotes messageLabel="Mensagem ao contato" maxLength={4000} maxMediaBytes={ATENDIMENTO_MEDIA_MAX_BYTES} />{quickReplies.length > 0 && <div className="crm-ia-quick-replies" role="group" aria-label="Respostas rápidas">{quickReplies.map(reply => <button type="button" key={reply.shortcut} aria-label={`Inserir /${reply.shortcut.replace(/^\//, '')}`} onClick={() => setBody(reply.text)}><strong>/{reply.shortcut.replace(/^\//, '')}</strong><span>{reply.text}</span></button>)}</div>}<div className="crm-ia-toolbar"><span className="crm-ia-muted">Texto, áudio e anexos até 4 MB.</span><button type="button" disabled={busy || !body.trim()} aria-expanded={scheduleMenu} onClick={() => { setScheduleNow(new Date()); setScheduleMenu(value => !value); }}>Agendar para</button><button type="button" disabled={busy || !body.trim()} onClick={() => { setWhen(''); setScheduleMenu(false); setSchedule(true); }}>Programar mensagem</button></div>{scheduleMenu && <div className="crm-ia-schedule-presets" role="group" aria-label="Atalhos de agendamento"><p className="crm-ia-muted">Ao selecionar um horário, a mensagem entra diretamente na fila. Fuso: {Intl.DateTimeFormat().resolvedOptions().timeZone}.</p>{conversationSchedulePresets(scheduleNow).map(preset => <button type="button" key={preset.id} disabled={busy || preset.disabled || !body.trim()} onClick={async () => {
+    {canSend ? <form className="crm-ia-message-composer" onSubmit={event => { event.preventDefault(); void send().catch(() => {}); }}><AtendimentoComposer value={body} onChange={setBody} onSend={() => send().catch(() => {})} onSendMedia={sendMedia} sending={busy} disabled={!canSend || !visible} conversationId={`${scope.contact_id}:${scope.channel_id}`} hideNotes messageLabel="Mensagem ao contato" maxLength={4000} maxMediaBytes={ATENDIMENTO_MEDIA_MAX_BYTES} />{quickReplies.length > 0 && <div className="crm-ia-quick-replies" role="group" aria-label="Respostas rápidas">{quickReplies.map(reply => <button type="button" key={reply.shortcut} aria-label={`Inserir /${reply.shortcut.replace(/^\//, '')}`} onClick={() => setBody(reply.text)}><strong>/{reply.shortcut.replace(/^\//, '')}</strong><span>{reply.text}</span></button>)}</div>}<div className="crm-ia-toolbar"><span className="crm-ia-muted">Texto, áudio e anexos até 4 MB.</span><Popover open={scheduleMenu && visible} onOpenChange={value=>{if(value)setScheduleNow(new Date());setScheduleMenu(value);}}><PopoverTrigger asChild><button type="button" disabled={busy || !body.trim() || !visible}>Agendar para</button></PopoverTrigger><PopoverContent className="crm-ia-schedule-presets" align="end" collisionPadding={12} aria-label="Agendar mensagem"><div className="crm-ia-schedule-presets-options" role="group" aria-label="Atalhos de agendamento"><p className="crm-ia-muted">Ao selecionar um horário, a mensagem entra diretamente na fila. Fuso: {Intl.DateTimeFormat().resolvedOptions().timeZone}.</p>{conversationSchedulePresets(scheduleNow).map(preset => <button type="button" key={preset.id} disabled={busy || preset.disabled || !body.trim()} onClick={async () => {
       try { await send(futureConversationSchedule(preset.scheduled_at)); setScheduleMenu(false); }
       catch (failure) { setError(failure.message); }
-    }}>{preset.label}</button>)}</div>}</form> : <p className="crm-ia-muted">Esta sessão está em modo de consulta.</p>}
+    }}>{preset.label}</button>)}</div></PopoverContent></Popover><button type="button" disabled={busy || !body.trim()} onClick={() => { setWhen(''); setScheduleMenu(false); setSchedule(true); }}>Programar mensagem</button></div></form> : <p className="crm-ia-muted">Esta sessão está em modo de consulta.</p>}
     {schedule && canSend && visible && <CrmIaEditor title="Programar mensagem" description="Confira o texto, o canal e a data antes de confirmar." onClose={() => setSchedule(false)} saveLabel="Confirmar agendamento" onSave={async () => {
       await send(futureConversationSchedule(when));
     }}><p className="crm-ia-prose">{body}</p><CrmIaField label="Data e hora do envio" type="datetime-local" value={when} onChange={setWhen} required /><p className="crm-ia-muted">Fuso deste navegador: {Intl.DateTimeFormat().resolvedOptions().timeZone}. O canal selecionado será preservado.</p></CrmIaEditor>}

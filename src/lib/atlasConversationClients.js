@@ -9,8 +9,10 @@ export function atlasClientCandidates(message, clients = []) {
   return catalogue.filter(client => normalize(client.empresa).split(' ').some(word => word.length >= 3 && !common.has(word) && text.includes(` ${word} `)));
 }
 
-export function atlasClientQuestion(message, clients, clientId) {
+export function atlasClientQuestion(message, clients, clientId, { executor = false } = {}) {
   const candidates = atlasClientCandidates(message, clients);
+  const text = normalize(message);
+  if (executor && !clientId && /\b(crm|funil|agente de qualificacao)\b/.test(text) && !/\b(como funciona|o que e|o que significa|quais recursos)\b/.test(text)) return { message, candidates, requiresClient: true };
   if (candidates.length === 1 && candidates[0].id === clientId) return null;
   if (candidates.length || /\b(?:do|da|para o|para a|sobre o|sobre a) (?:cliente|conta) [a-z0-9]/.test(normalize(message))) return { message, candidates };
   return null;

@@ -10,10 +10,10 @@ const previousFetch = globalThis.fetch;
 globalThis.fetch = () => { throw Error('Rede indisponível neste teste de interface.'); };
 const React = require('react'), { act, create } = require('react-test-renderer'), scratch = await mkdtemp('/tmp/planeje-crm-ui-qa/crm-controls-');
 await build({ stdin: { contents: `export {default as Conversations,CrmIaConversation as Conversation} from ${JSON.stringify(path.join(root, 'src/components/crm-ia/CrmIaConversations.jsx'))};export {default as Leads} from ${JSON.stringify(path.join(root, 'src/components/crm-ia/CrmIaLeads.jsx'))};export {MemoryRouter} from 'react-router-dom';`, resolveDir: root }, bundle: true, loader: { '.png': 'dataurl' }, format: 'cjs', platform: 'node', external: ['react'], outfile: path.join(scratch, 'ui.cjs'), plugins: [{ name: 'isolated-controls', setup(b) {
-  b.onResolve({ filter: /^@\/components\/ui\/dialog$/ }, () => ({ path: 'dialog', namespace: 'fixture' }));
+  b.onResolve({ filter: /^@\/components\/ui\/(dialog|popover)$/ }, ({path:name}) => ({ path:name.endsWith('dialog')?'dialog':'popover', namespace:'fixture' }));
   b.onResolve({ filter: /AtendimentoComposer$/ }, () => ({ path: 'composer', namespace: 'fixture' }));
   b.onResolve({ filter: /CrmIaMessageMedia$/ }, () => ({ path: 'media', namespace: 'fixture' }));
-  b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path: name }) => ({ contents: name === 'dialog' ? `import React from 'react';export const Dialog=({open,children})=>open?React.createElement('div',null,children):null;export const DialogContent=({children,...props})=>React.createElement('section',{role:'dialog',...props},children);export const DialogTitle=({children})=>React.createElement('h2',null,children);export const DialogDescription=({children})=>React.createElement('p',null,children);` : name === 'composer' ? `import React from 'react';export default function Composer(p){return React.createElement('textarea',{'aria-label':p.messageLabel,value:p.value,onChange:e=>p.onChange(e.target.value)});}` : `export default function Media(){return null;}` }));
+  b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path: name }) => ({ contents: name === 'dialog' ? `import React from 'react';export const Dialog=({open,children})=>open?React.createElement('div',null,children):null;export const DialogContent=({children,...props})=>React.createElement('section',{role:'dialog',...props},children);export const DialogTitle=({children})=>React.createElement('h2',null,children);export const DialogDescription=({children})=>React.createElement('p',null,children);` : name === 'popover' ? `import React from 'react';const C=React.createContext();export const Popover=({open,onOpenChange,children})=>React.createElement(C.Provider,{value:{open,onOpenChange}},children);export const PopoverTrigger=({children})=>{const c=React.useContext(C);return React.cloneElement(children,{onClick:()=>c.onOpenChange(!c.open)});};export const PopoverContent=({children,...props})=>React.useContext(C).open?React.createElement('aside',{...props,role:'dialog'},children):null;` : name === 'composer' ? `import React from 'react';export default function Composer(p){return React.createElement('textarea',{'aria-label':p.messageLabel,value:p.value,onChange:e=>p.onChange(e.target.value)});}` : `export default function Media(){return null;}` }));
   b.onResolve({ filter: /^@\// }, ({ path: name }) => { const f = path.join(root, 'src', name.slice(2)); return { path: [f, f + '.js', f + '.jsx'].find(existsSync) }; });
 } }] });
 const { Conversation, Conversations, Leads, MemoryRouter } = require(path.join(scratch, 'ui.cjs'));
@@ -195,8 +195,8 @@ test('ficha selecionada usa colunas próprias e abre a mudança pela etapa do fu
   let r;
   await act(async () => { r = create(React.createElement(MemoryRouter, { initialEntries: ['/?lead_id=lead-a'], future: { v7_startTransition: true, v7_relativeSplatPath: true } }, React.createElement(Leads, { api: f.api, mutate: f.api, workspace, client: workspace.client, profile: { id: 'actor' }, canManage: true, revision: 0 }))); });
   try {
-    assert.equal(r.root.findAllByType('table').length, 0);
-    assert.equal(f.calls.filter(([action]) => action === 'leads').length, 0);
+    assert.equal(r.root.findAllByType('table').length,1,'lista autorizada permanece atrás da ficha');
+    assert.equal(f.calls.filter(([action]) => action === 'leads').length,1);
     assert.equal(r.root.findAllByProps({ 'aria-label': 'Conversa do lead' }).length, 1);
     assert.equal(r.root.findAllByProps({ 'aria-label': 'Ver ficha do lead' }).length, 0);
     await click(r, 'Mover para Ganho');
@@ -221,6 +221,7 @@ test('preset agenda uma vez direto pela fila e data customizada pode cancelar se
   const f = fixture(), r = await mount(f);
   try {
     await change(r, 'Mensagem ao contato', 'Rascunho sintético'); await click(r, 'Agendar para');
+    assert.equal(r.root.findAllByProps({role:'dialog'}).length,1,'atalhos usam camada própria sem fechar ficha');
     const preset = r.root.findAllByType('button').find(n => /^Amanhã às 9h/.test(text(n.props.children))); assert.ok(preset);
     await act(async () => { const result = preset.props.onClick(); preset.props.onClick(); await result; });
     const calls = f.calls.filter(([action]) => action === 'schedule_message'); assert.equal(calls.length, 1); assert.match(calls[0][1].scheduled_at, /^\d{4}-/); assert.equal(calls[0][1].channel_id, 'channel-a');
@@ -245,7 +246,7 @@ test('perder acesso à ficha remove conversa e editor que continham dados do lea
   try {
     await click(r, 'Editar lead'); assert.ok(r.root.findAllByProps({ role: 'dialog' }).length); assert.match(text(r.toJSON()), /Resposta IA comprovada/);
     denied = true; await act(async () => r.update(render(1)));
-    assert.equal(r.root.findAllByProps({ role: 'dialog' }).length, 0); assert.doesNotMatch(text(r.toJSON()), /Resposta IA comprovada/);
+    const dialogs=r.root.findAllByProps({role:'dialog'}); assert.equal(dialogs.length,1); assert.match(text(dialogs[0]),/Lead indisponível/); assert.equal(r.root.findAllByType('form').length,0); assert.doesNotMatch(text(r.toJSON()), /Resposta IA comprovada/);
   } finally { await act(async () => r.unmount()); }
 });
 test('rejeição atual do servidor oculta nome, histórico e sinalização já aberta', async () => {
@@ -258,4 +259,97 @@ test('rejeição atual do servidor oculta nome, histórico e sinalização já a
     assert.equal(r.root.findAllByType('textarea').length, 0);
   } finally { await act(async () => r.unmount()); }
 });
+test('ficha mantém mensagem não enviada ao atualizar leitura sem expor conversa durante pendência', async () => {
+  let hold=false,finishRead;
+  const f=fixture({lead:()=>hold?new Promise(resolve=>{finishRead=resolve;}):{lead,conversations:[{contact_id:'contact-a',channel_id:'channel-a'}]},leads:()=>({rows:[lead],total:1})});
+  const render=revision=>React.createElement(MemoryRouter,{initialEntries:['/?lead_id=lead-a'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Leads,{api:f.api,mutate:f.api,workspace,client:workspace.client,profile:{id:'actor'},canManage:true,revision}));
+  let r;await act(async()=>{r=create(render(0));});
+  try {
+    await change(r,'Mensagem ao contato','Rascunho durante atualização da ficha');
+    hold=true;await act(async()=>r.update(render(1)));assert.equal(r.root.findAllByType('textarea').length,0);
+    hold=false;await act(async()=>finishRead({lead,conversations:[{contact_id:'contact-a',channel_id:'channel-a'}]}));
+    assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'Rascunho durante atualização da ficha');
+    assert.equal(f.calls.some(([action])=>['send_message','schedule_message'].includes(action)),false);
+  } finally { await act(async()=>r.unmount()); }
+});
+
+test('rascunhos da ficha são separados por canal e descartados ao mudar a permissão de gestão', async () => {
+  const ws={...workspace,channels:[...workspace.channels,{id:'channel-b',nome:'Canal B',can_send:true}]};
+  const f=fixture({lead:()=>({lead,conversations:[{contact_id:'contact-a',channel_id:'channel-a'},{contact_id:'contact-a',channel_id:'channel-b'}]}),leads:()=>({rows:[lead],total:1}),conversations:p=>({rows:[{contact_id:p.contact_id,channel_id:p.channel_id,attendance:'human',nome:'Contato sintético',updated_at:'state-v1'}],total:1})});
+  const render=canManage=>React.createElement(MemoryRouter,{initialEntries:['/?lead_id=lead-a'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Leads,{api:f.api,mutate:f.api,workspace:ws,client:ws.client,profile:{id:'actor'},canManage,revision:0}));
+  let r;await act(async()=>{r=create(render(true));});
+  try {
+    await change(r,'Mensagem ao contato','Rascunho do canal A');await change(r,'Canal da conversa','channel-b');
+    assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'');
+    await change(r,'Mensagem ao contato','Rascunho do canal B');await change(r,'Canal da conversa','channel-a');
+    assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'Rascunho do canal A');
+    await change(r,'Canal da conversa','channel-b');assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'Rascunho do canal B');
+    await act(async()=>r.update(render(false)));assert.equal(r.root.findAllByType('textarea').length,0);
+    await act(async()=>r.update(render(true)));assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'');
+    assert.equal(f.calls.some(([action])=>['send_message','schedule_message'].includes(action)),false);
+  } finally { await act(async()=>r.unmount()); }
+});
+
+test('envio em andamento e chave de repetição sobrevivem à atualização da ficha', async () => {
+  let finishSend,attempts=0;
+  const f=fixture({lead:()=>({lead,conversations:[{contact_id:'contact-a',channel_id:'channel-a'}]}),leads:()=>({rows:[lead],total:1}),schedule_message:()=>++attempts===1?new Promise(resolve=>{finishSend=resolve;}):{id:'queue-a',status:'pending'}});
+  const render=revision=>React.createElement(MemoryRouter,{initialEntries:['/?lead_id=lead-a'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Leads,{api:f.api,mutate:f.api,workspace,client:workspace.client,profile:{id:'actor'},canManage:true,revision}));
+  let r;await act(async()=>{r=create(render(0));});
+  try {
+    await change(r,'Mensagem ao contato','Mensagem ainda em conferência');await click(r,'Agendar para');
+    let saving;await act(async()=>{saving=r.root.findAllByType('button').find(n=>/^Amanhã às 9h/.test(text(n.props.children))).props.onClick();await Promise.resolve();});
+    await act(async()=>r.update(render(1)));
+    assert.equal(button(r,'Agendar para').props.disabled,true,'refresh não autoriza um segundo envio');
+    await act(async()=>finishSend({status:'uncertain'}));await saving;
+    const retry=r.root.findAllByType('button').find(n=>/^Amanhã às 9h/.test(text(n.props.children)));assert.ok(retry);
+    await act(async()=>retry.props.onClick());
+    const calls=f.calls.filter(([action])=>action==='schedule_message');assert.equal(calls.length,2);
+    assert.equal(calls[0][1].request_id,calls[1][1].request_id);
+    assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'');
+  } finally { await act(async()=>r.unmount()); }
+});
+
+for (const [reason,revoked] of [
+  ['canal removido',{...workspace,channels:[]}],
+  ['leitura revogada',{...workspace,channels:[{...workspace.channels[0],can_read:false}]}],
+  ['envio revogado',{...workspace,channels:[{...workspace.channels[0],can_send:false}]}],
+  ['conversas revogadas',{...workspace,permissions:{conversations:false}}],
+]) test(`restaurar ${reason} não reabre confirmação de mensagem da ficha`,async()=>{
+  const f=fixture({lead:()=>({lead,conversations:[{contact_id:'contact-a',channel_id:'channel-a'}]}),leads:()=>({rows:[lead],total:1})});
+  const render=ws=>React.createElement(MemoryRouter,{initialEntries:['/?lead_id=lead-a'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Leads,{api:f.api,mutate:f.api,workspace:ws,client:ws.client,profile:{id:'actor'},canManage:true,revision:0}));
+  let r;await act(async()=>{r=create(render(workspace));});
+  try {
+    await change(r,'Mensagem ao contato','Rascunho sem autorização de agendamento');await click(r,'Programar mensagem');
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,1);
+    await act(async()=>r.update(render(revoked)));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,0);
+    await act(async()=>r.update(render(workspace)));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,0,'recuperar acesso exige abrir uma nova confirmação');
+    assert.equal(r.root.findByProps({'aria-label':'Mensagem ao contato'}).props.value,'Rascunho sem autorização de agendamento');
+    await click(r,'Agendar para');await act(async()=>r.update(render(revoked)));await act(async()=>r.update(render(workspace)));
+    assert.equal(r.root.findAllByType('aside').filter(n=>n.props['aria-label']==='Agendar mensagem').length,0,'atalhos também não ressuscitam');
+    assert.equal(f.calls.some(([action])=>['send_message','schedule_message'].includes(action)),false);
+  } finally {await act(async()=>r.unmount());}
+});
+
+for (const denied of ['erro de leitura','conversa desvinculada']) test(`${denied} na ficha descarta confirmação, mas pendência não descarta`,async()=>{
+  let mode='normal',finishRead;
+  const conversations=[{contact_id:'contact-a',channel_id:'channel-a'}];
+  const f=fixture({lead:()=>{if(mode==='pending')return new Promise(resolve=>{finishRead=resolve;});if(mode==='erro de leitura')throw Error('Lead indisponível ou sem acesso.');return {lead,conversations:mode==='conversa desvinculada'?[]:conversations};},leads:()=>({rows:[lead],total:1})});
+  const render=revision=>React.createElement(MemoryRouter,{initialEntries:['/?lead_id=lead-a'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Leads,{api:f.api,mutate:f.api,workspace,client:workspace.client,profile:{id:'actor'},canManage:true,revision}));
+  let r;await act(async()=>{r=create(render(0));});
+  try {
+    await change(r,'Mensagem ao contato','Rascunho da confirmação');await click(r,'Programar mensagem');
+    mode='pending';await act(async()=>r.update(render(1)));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,0);
+    mode='normal';await act(async()=>finishRead({lead,conversations}));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,1,'consulta pendente conserva a confirmação');
+    mode=denied;await act(async()=>r.update(render(2)));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,0);
+    mode='normal';await act(async()=>r.update(render(3)));
+    assert.equal(r.root.findAllByProps({'aria-label':'Data e hora do envio'}).length,0);
+    assert.equal(f.calls.some(([action])=>['send_message','schedule_message'].includes(action)),false);
+  } finally {await act(async()=>r.unmount());}
+});
+
 test.after(async () => { globalThis.fetch = previousFetch; await rm(scratch, { recursive: true, force: true }); });

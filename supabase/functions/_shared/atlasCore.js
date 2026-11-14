@@ -1,6 +1,7 @@
 /** Atlas runtime: pure orchestration, shared by the edge and offline contract tests. */
 import { atlasSkillPrompt, atlasSkillsForAgent } from './atlasSkillCatalog.js';
 import { CS_ATLAS_CLIENT_TAG, CS_ATLAS_MESSAGE_LIMIT, CS_ATLAS_TRIAGE_TAG } from '../../../src/lib/csIaAtlasDraft.js';
+import { ATLAS_EXECUTOR_TAG, ATLAS_EXECUTOR_MESSAGE_LIMIT } from '../../../src/lib/atlasExecutorRequest.js';
 export const ATLAS_SKILL_VERSION = '2026-10-08.1';
 export const ATLAS_AGENTS = Object.freeze([
   { id: 'central', name: 'Atlas', role: 'Coordenador pessoal de gestão', skill_version: ATLAS_SKILL_VERSION },
@@ -37,6 +38,16 @@ export function validateChat(body) {
   if (!message || message.length > 12000) throw new AtlasError('INVALID_INPUT', 'Escreva uma mensagem de até 12.000 caracteres.');
   const input = { request_id, conversation_id: optionalUuid(body.conversation_id, 'conversation_id'), client_id: optionalUuid(body.client_id, 'client_id'), message };
   const csPortfolio = body.cs_portfolio === true, csClient = body.cs_client === true;
+  if (body.executor === true) {
+    if (Object.keys(body).some(key => !['action', 'request_id', 'conversation_id', 'client_id', 'message', 'executor', 'executor_reply', 'mode', 'attachment_ids'].includes(key))) throw new AtlasError('INVALID_INPUT', 'O pedido executável contém campos não permitidos.');
+    if (csPortfolio || csClient || message.length > ATLAS_EXECUTOR_MESSAGE_LIMIT) throw new AtlasError('INVALID_INPUT', 'Confira o contexto e o limite do pedido executável.');
+    const mode = body.mode === undefined ? 'chat' : body.mode, attachmentIds = body.attachment_ids === undefined ? [] : body.attachment_ids;
+    if (!['chat', 'automation'].includes(mode) || !Array.isArray(attachmentIds) || attachmentIds.length > 4) throw new AtlasError('INVALID_INPUT', 'Confira o modo e até quatro anexos do Squad.');
+    const attachment_ids = attachmentIds.map(value => { const id = optionalUuid(value, 'anexo'); if (!id) throw new AtlasError('INVALID_INPUT', 'Anexo inválido.'); return id; });
+    if (new Set(attachment_ids).size !== attachment_ids.length) throw new AtlasError('INVALID_INPUT', 'Anexo repetido.');
+    return { ...input, executor: true, mode, attachment_ids, question: message, message: ATLAS_EXECUTOR_TAG + message };
+  }
+  if (['mode', 'attachment_ids', 'executor_reply'].some(key => Object.hasOwn(body, key))) throw new AtlasError('INVALID_INPUT', 'Este contexto pertence ao Squad.');
   if (!csPortfolio && !csClient) return input;
   if (csPortfolio && csClient || csClient !== Boolean(input.client_id) || message.length > CS_ATLAS_MESSAGE_LIMIT) {
     throw new AtlasError('INVALID_INPUT', 'Confira o contexto do CS e o limite do pedido.');

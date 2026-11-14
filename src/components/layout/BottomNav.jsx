@@ -16,6 +16,12 @@ import { canUseCrmIa } from '@/components/crm-ia/crmIaApi';
 import GestorIaAvatar from '@/components/gestor-ia/GestorIaAvatar';
 import CsIaAvatar from '@/components/cs-ia/CsIaAvatar';
 import CrmIaAvatar from '@/components/crm-ia/CrmIaAvatar';
+import { useAtlasEntryAccess } from '@/components/AtlasEntry';
+import atlasAvatar from '@/assets/atlas/atlas-avatar-3d-v1.png';
+
+function AtlasAvatar({ className }) {
+  return <img src={atlasAvatar} className={className} alt="" width={20} height={20} />;
+}
 
 const MOBILE_EXTRA_ITEMS = [
   { to: '/pgm-panel', icon: Activity, label: 'PGM', roles: ['superadmin', 'admin', 'colaborador'], module: 'pgm' },
@@ -44,8 +50,9 @@ function MobileMenuItem({ item, onNavigate }) {
 }
 
 const BottomNav = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { moduleSettings, loading } = useModuleSettings();
+  const canOpenAtlas = useAtlasEntryAccess(moduleSettings?.assistant === true ? user?.id : null);
   const { badgeTotal: conversasBadgeTotal } = useAtendimentoSidebarBadge();
   const { badgeTotal: caixaBadgeTotal } = useCaixaPendenciasBadge();
   const userRole = profile?.role;
@@ -72,6 +79,7 @@ const BottomNav = () => {
   const { shortcuts: mainItems, groups } = groupTeamNav(navItems, TEAM_NAV_MOBILE_SHORTCUT_IDS);
   const extraItems = filterTeamNav(MOBILE_EXTRA_ITEMS, userRole, moduleSettings);
   const squadItems = [
+    ...(canOpenAtlas ? [{ to: '/assistant/atlas?view=conversation', icon: AtlasAvatar, label: 'Conversar', lucideIcon: false }] : []),
     ...(canUseCrmIa(profile, moduleSettings) ? [{ to: '/crm-ia/painel', icon: CrmIaAvatar, label: 'CRM IA', lucideIcon: false }] : []),
     ...(canUseGestorIa(profile, moduleSettings) ? [{ to: '/gestor-ia/metricas', icon: GestorIaAvatar, label: 'Gestor IA', lucideIcon: false }] : []),
     ...(canUseCsIa(profile, moduleSettings) ? [{ to: '/cs-ia/hoje', icon: CsIaAvatar, label: 'CS IA', lucideIcon: false }] : []),

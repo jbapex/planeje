@@ -8,6 +8,24 @@ export const CRM_IA_TTS_VOICES = CRM_IA_VOICES;
 export const CRM_IA_VOICE_DISCLOSURE = 'Mensagem de voz gerada por inteligência artificial. ';
 const MAX_BYTES = 4194304;
 export const CRM_IA_ASR_MODEL = 'gpt-4o-mini-transcribe';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const audioVersion = value => {
+  const parts = typeof value === 'string' && value.match(/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?(Z|[+-]\d\d:\d\d)$/);
+  const stamp = parts ? Date.parse(parts[1] + parts[3]) : NaN;
+  return Number.isFinite(stamp) ? BigInt(stamp) * 1000n + BigInt((parts[2] || '').padEnd(6, '0')) : null;
+};
+
+export function crmIaAudioAuthorization(value) {
+  if (!value || !UUID.test(value.agent_id) || !UUID.test(value.config_revision) || audioVersion(value.agent_updated_at) === null || typeof value.concierge_role !== 'boolean') return null;
+  const { agent_id, agent_updated_at, config_revision, concierge_role } = value;
+  return { agent_id, agent_updated_at, config_revision, concierge_role };
+}
+
+export function crmIaAudioAuthorizationMatches(value, { agent, configRevision, conciergeRole }) {
+  const pin = crmIaAudioAuthorization(value);
+  return !!pin && pin.agent_id === agent?.id && audioVersion(pin.agent_updated_at) === audioVersion(agent?.updated_at)
+    && pin.config_revision === configRevision && pin.concierge_role === conciergeRole;
+}
 
 export function normalizeCrmIaAudio(value) {
   const defaults = { enabled: false, input_enabled: false, voice: 'alloy', speed: 1 };
@@ -69,9 +87,17 @@ export async function generateCrmIaVoice({ text, settings, apiKey = globalThis.D
 /** Only the claimed inbox message may be downloaded; transcripts remain private source evidence. */
 export async function processCrmIaAudioInput({ db, clientId, channelId, contactId, messageId, apiKey = globalThis.Deno?.env?.get('OPENAI_API_KEY'), fetchImpl = fetch, timeoutMs = 20000 }) {
   const read = async (name, args) => { const result = await db.rpc(name, args); if (result.error) throw new Error('audio_state_unconfirmed'); return result.data; };
-  const job = await read('crm_ia_audio_begin', { p_client: clientId, p_channel: channelId, p_contact: contactId, p_message: messageId });
+  let job;
+  try { job = await read('crm_ia_audio_begin', { p_client: clientId, p_channel: channelId, p_contact: contactId, p_message: messageId }); }
+  catch { return { ok: false, skipped: 'audio_state_unconfirmed' }; }
   if (job?.allowed !== true) return { ok: false, skipped: job?.reason || 'audio_not_allowed' };
-  if (job.cached) return job.status === 'completed' ? { ok: true, transcript: job.transcript } : { ok: false, error: job.error_code || 'audio_unavailable' };
+  const authorization = crmIaAudioAuthorization(job.authorization);
+  if (!authorization) return { ok: false, skipped: 'audio_context_changed' };
+  if (job.cached) {
+    if (job.status === 'completed' && typeof job.transcript === 'string' && job.transcript.trim() && job.transcript.length <= 30000) return { ok: true, transcript: job.transcript, authorization };
+    if (job.status === 'failed' && ['audio_unavailable', 'audio_timeout', 'audio_file_too_large'].includes(job.error_code)) return { ok: false, error: job.error_code, authorization };
+    return { ok: false, skipped: 'audio_context_changed' };
+  }
   const claim = { p_id: job.id, p_claim_token: job.claim_token };
   const controller = new AbortController(); let timer;
   let transcript = null, error = 'audio_unavailable';
@@ -92,9 +118,12 @@ export async function processCrmIaAudioInput({ db, clientId, channelId, contactI
       transcript = result.text || null; error = result.error || null;
     }
   } catch (failure) {
+    if (failure.message === 'audio_state_unconfirmed') return { ok: false, skipped: 'audio_state_unconfirmed' };
     error = controller.signal.aborted ? 'audio_timeout' : failure.message === 'AUDIO_TOO_LARGE' ? 'audio_file_too_large' : 'audio_unavailable';
   } finally { clearTimeout(timer); controller.abort(); }
-  const confirmed = await read('crm_ia_audio_complete', { ...claim, p_transcript: transcript, p_error_code: transcript ? null : error || 'audio_unavailable' });
+  let confirmed;
+  try { confirmed = await read('crm_ia_audio_complete', { ...claim, p_transcript: transcript, p_error_code: transcript ? null : error || 'audio_unavailable' }); }
+  catch { return { ok: false, skipped: 'audio_state_unconfirmed' }; }
   if (!confirmed) return { ok: false, skipped: 'audio_context_changed' };
-  return transcript ? { ok: true, transcript } : { ok: false, error: error || 'audio_unavailable' };
+  return transcript ? { ok: true, transcript, authorization } : { ok: false, error: error || 'audio_unavailable', authorization };
 }

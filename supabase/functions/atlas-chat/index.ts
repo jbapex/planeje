@@ -5,6 +5,9 @@ import { AtlasError, executeClaimed, optionalUuid, ownerGate, validateChat } fro
 import { converseAtlas, MANAGER_AGENTS } from '../_shared/atlasManager.js';
 import { answerAtlasCsTriage, readAtlasCsClient, readAtlasCsTriage } from '../_shared/atlasCsTriage.js';
 import { readAtlasCrmCatalog } from '../_shared/atlasManagerContext.js';
+import { EXECUTOR_AGENTS } from '../_shared/atlasExecutor.js';
+import { handleSquadRequest } from '../_shared/atlasExecutorSquadChat.js';
+import { budgetedAtlasExecutorModel } from '../_shared/atlasExecutorModelBudget.js';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -22,14 +25,15 @@ const db = (res: any) => {
   return res.data;
 };
 
-async function getProvider(admin: SupabaseClient) {
+async function getProvider(admin: SupabaseClient, signal?: AbortSignal) {
   const preferred = Deno.env.get('ATLAS_PROVIDER') || 'openai';
   if (!['openai', 'openrouter'].includes(preferred)) throw new AtlasError('PROVIDER_CONFIG', 'O provedor do Atlas precisa ser configurado no servidor.', 503);
   const envName = preferred === 'openai' ? 'OPENAI_API_KEY' : 'OPENROUTER_API_KEY';
   let key = Deno.env.get(envName);
   if (!key) {
-    // This is the only privileged RPC: provider secret lookup. Operational data uses caller.
-    const secret = await admin.rpc('get_encrypted_secret', { p_secret_name: envName });
+    // Provider credentials are server-only; operational sources use the caller.
+    const query = admin.rpc('get_encrypted_secret', { p_secret_name: envName });
+    const secret = await (signal && query.abortSignal ? query.abortSignal(signal) : query);
     if (!secret.error && typeof secret.data === 'string') key = secret.data;
   }
   if (!key) throw new AtlasError('PROVIDER_NOT_CONFIGURED', 'A chave do provedor de IA do Atlas ainda não está configurada.', 503);
@@ -77,22 +81,45 @@ serve(async (req) => {
     const profile = db(await caller.from('profiles').select('id,role,status').eq('id', user.id).maybeSingle());
     const gate = ownerGate(user, profile, settings);
     const raw = await req.text();
-    if (raw.length > 18000) throw new AtlasError('INVALID_INPUT', 'Pedido maior que o limite permitido.');
+    if (raw.length > 110000) throw new AtlasError('INVALID_INPUT', 'Pedido maior que o limite permitido.');
     let body: any;
     try { body = JSON.parse(raw); } catch { throw new AtlasError('INVALID_INPUT', 'Pedido inválido.'); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AtlasError('INVALID_INPUT', 'Pedido inválido.');
     const action = body.action || 'bootstrap';
-    if (!['bootstrap', 'history', 'progress', 'chat', 'save_memory', 'revoke_memory', 'memory_team_scope','inbox', 'mark_inbox', 'cancel_job', 'preferences'].includes(action)) throw new AtlasError('INVALID_INPUT', 'Ação não permitida.');
+    if (action !== 'executor_decide' && raw.length > 18000) throw new AtlasError('INVALID_INPUT', 'Pedido maior que o limite permitido.');
+    if (!['bootstrap', 'history', 'progress', 'chat', 'automation_run', 'automation_snapshot', 'executor_decide', 'executor_reconcile', 'save_memory', 'revoke_memory', 'memory_team_scope','inbox', 'mark_inbox', 'cancel_job', 'preferences'].includes(action)) throw new AtlasError('INVALID_INPUT', 'Ação não permitida.');
     if (!gate.enabled) {
-      if (action === 'bootstrap') return json({ ok: true, configured: true, enabled: false, agents: MANAGER_AGENTS, clients: [], conversations: [], memories: [] });
+      if (action === 'bootstrap') return json(body.executor === true
+        ? { ok: true, configured: true, enabled: false, domain: 'squad', agents: EXECUTOR_AGENTS, clients: [], conversations: [], knowledge: [] }
+        : { ok: true, configured: true, enabled: false, agents: MANAGER_AGENTS, clients: [], conversations: [], memories: [] });
       throw new AtlasError('ATLAS_DISABLED', 'Atlas está desligado na configuração do servidor.', 403);
     }
+    const executorIntegrations = { request: req, service: admin, createCaller: () => caller, graphFetch: fetch,
+      readToken: async () => {
+        const configured = Deno.env.get('META_SYSTEM_USER_ACCESS_TOKEN');
+        if (configured) return configured;
+        const result = await admin.rpc('get_encrypted_secret', { p_secret_name: 'META_SYSTEM_USER_ACCESS_TOKEN' });
+        if (result.error || typeof result.data !== 'string' || !result.data) throw new AtlasError('META_TOKEN_UNAVAILABLE', 'Credencial Meta indisponível no servidor.', 503);
+        return result.data;
+      } };
 
-    const expireAbandoned = async () => {
-      // Runtime is bounded at 80s. A process killed without cleanup becomes an honest terminal failure after 2min.
-      db(await caller.from('atlas_runs').update({ status: 'failed', error: 'Esta consulta foi interrompida antes de terminar. Você pode iniciar uma nova tentativa.', finished_at: new Date().toISOString() })
-        .eq('owner_id', user.id).eq('status', 'processing').lt('created_at', new Date(Date.now() - 120000).toISOString()));
-    };
+    // Return before any legacy recall, jobs, inbox or Office context.
+    if (body.executor === true || ['executor_decide', 'executor_reconcile', 'automation_run', 'automation_snapshot'].includes(action)) {
+      return json(await handleSquadRequest({ body, request: req, caller, ownerId: user.id, integrations: executorIntegrations,
+        createModel: async (run: any, signal: AbortSignal) => {
+          const provider = await getProvider(admin, signal);
+          return (request: any) => budgetedAtlasExecutorModel({ run, rpc: (name: string, args: any, options: { signal?: AbortSignal }) => {
+            const query = admin.rpc(name, args);
+            return (options?.signal && query.abortSignal ? query.abortSignal(options.signal) : query).then(db);
+          }, callModel: modelCaller(provider) }, request);
+        },
+      }));
+    }
+    if (['chat', 'history', 'progress'].includes(action)) db(await caller.rpc('atlas_squad_office_context', {
+      p_conversation: optionalUuid(body.conversation_id, 'conversa'), p_request: optionalUuid(body.request_id, 'pedido'),
+    }));
+
+    const expireAbandoned = async () => db(await caller.rpc('atlas_squad_expire_abandoned', { p_domain: 'office' }));
     if (['bootstrap', 'history', 'chat'].includes(action)) await expireAbandoned();
     const readMemories = async (clientId?: string | null) => {
       let q = caller.from('atlas_memories').select('id,owner_id,client_id,content,source,state,version,replaces_id,created_at,source_quote,topic,pinned,team_shared,team_shared_at,learning_kind,evidence,source_request_id,source_job_id').eq('owner_id', user.id).eq('state', 'active').order('created_at', { ascending: false }).limit(60);
@@ -147,13 +174,13 @@ serve(async (req) => {
     if (action === 'bootstrap') {
       const [clients, conversations, memories, jobs, inbox, worker] = await Promise.all([
         listClients(),
-        caller.from('atlas_conversations').select('id,title,client_id,updated_at').eq('owner_id', user.id).order('updated_at', { ascending: false }).limit(40).then(db),
+        caller.rpc('atlas_squad_office_conversations', {}).then(db),
         readMemories(),
         caller.from('atlas_jobs').select(jobFields).eq('owner_id',user.id).order('created_at',{ascending:false}).limit(30).then(db),
         listInbox(),
         caller.from('atlas_worker_state').select('*').eq('owner_id',user.id).maybeSingle().then(db),
       ]);
-      return json({ ok: true, configured: true, enabled: true, agents: MANAGER_AGENTS, clients, conversations, memories, jobs, inbox, worker, preferences:{auto_memory:settings.auto_memory,monitor_enabled:settings.monitor_enabled,transcribe_group_audio:settings.transcribe_group_audio} });
+      return json({ ok: true, configured: true, enabled: true, agents: MANAGER_AGENTS, executor_agents: EXECUTOR_AGENTS, clients, conversations, memories, jobs, inbox, worker, preferences:{auto_memory:settings.auto_memory,monitor_enabled:settings.monitor_enabled,transcribe_group_audio:settings.transcribe_group_audio} });
     }
     if (action === 'progress') {
       const requestId = optionalUuid(body.request_id, 'request_id');
@@ -171,7 +198,8 @@ serve(async (req) => {
         caller.from('atlas_runs').select('id,request_id,status,steps,result,error,usage,created_at').eq('conversation_id', conversationId).eq('owner_id', user.id).order('created_at', { ascending: false }).limit(30).then(db),
         caller.from('atlas_jobs').select(jobFields).eq('conversation_id',conversationId).eq('owner_id',user.id).order('created_at',{ascending:false}).limit(30).then(db),
       ]);
-      return json({ ok: true, conversation, messages: messages.reverse(), runs, jobs });
+      const interactions = [];
+      return json({ ok: true, conversation, messages: messages.reverse(), runs, jobs, interactions });
     }
     if (action === 'save_memory') {
       const clientId = optionalUuid(body.client_id, 'client_id');

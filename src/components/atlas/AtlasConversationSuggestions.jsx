@@ -3,12 +3,12 @@ import { ArrowUpRight, Pause, Play } from 'lucide-react';
 import AtlasAgentMark from './AtlasAgentMark';
 
 const SUGGESTIONS = [
-  { agent: 'clientes', title: 'Clientes que precisam de atenção', detail: 'Priorize os próximos contatos', prompt: 'Quais clientes precisam da minha atenção hoje? Separe fatos de hipóteses e sugira o próximo passo.' },
-  { agent: 'operacao', title: 'O que espera por mim', detail: 'Confira pendências e bloqueios', prompt: 'Confira as entregas que dependem de mim hoje e organize o que devo resolver primeiro.' },
-  { agent: 'estrategia', title: 'Desenvolver uma ideia', detail: 'Comece pelo briefing', prompt: 'Vamos desenvolver uma campanha. Me ajude a organizar o briefing antes de propor ideias.' },
-  { agent: 'trafego', title: 'Campanhas da semana', detail: 'Gasto, leads e custo por lead', prompt: 'Como foram as campanhas da semana? Compare gasto, leads e custo por lead.' },
-  { agent: 'resultados', title: 'Do contato à venda', detail: 'Onde estão os gargalos', prompt: 'Cruze os dados de tráfego e atendimento para identificar gargalos até a venda.' },
-  { agent: 'operacao', title: 'Planejar a próxima entrega', detail: 'Transforme uma decisão em ação', prompt: 'Organize a próxima entrega em passos, com uma sugestão de responsável e prazo.' },
+  { agent: 'central', title: 'Como foi a semana', detail: 'Panorama dos três agentes', prompt: 'Como foi a semana no CRM, no CS e no Gestor IA? Chame os três agentes e reúna os dados disponíveis, com período e cobertura.' },
+  { agent: 'crm', title: 'Leads sem resposta', detail: 'Quem esfriou no funil', prompt: 'Quais leads estão sem resposta há mais de três dias? Consulte o CRM IA e mostre a fonte antes de sugerir o próximo contato.' },
+  { agent: 'cs', title: 'Marcas que precisam de atenção', detail: 'Saúde e próximos contatos', prompt: 'Quais marcas precisam de atenção no CS IA? Priorize os sinais disponíveis e explique o próximo passo.' },
+  { agent: 'gestor', title: 'Campanhas da semana', detail: 'Gasto, leads e custo por lead', prompt: 'Como foram as campanhas da semana? Compare gasto, leads e custo por lead no Gestor IA, com período e cobertura.' },
+  { agent: 'crm', title: 'Configurar meu CRM', detail: 'Agentes, etapas e conhecimento', prompt: 'Quero configurar o CRM IA desta marca. Consulte o que já existe e me pergunte em etapas apenas o que faltar, antes de preparar a revisão.' },
+  { agent: 'central', title: 'Ensinar ao Squad', detail: 'Orientações e correções da marca', prompt: 'Quero ensinar uma orientação para esta marca. Pergunte em etapas, mostre o texto e prepare a confirmação para guardar no conhecimento do Squad.' },
 ];
 
 export default function AtlasConversationSuggestions({ agents, avatar, onPrompt }) {

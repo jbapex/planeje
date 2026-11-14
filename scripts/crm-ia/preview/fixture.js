@@ -1,5 +1,6 @@
 import { agendaCivilDate } from '../../../src/components/crm-ia/crmIaAgendaLayout.js';
 import { normalizeCrmIaAudio } from '../../../supabase/functions/_shared/crmIaVoice.js';
+import { compileKnowledgeSections } from '../../../supabase/functions/_shared/crmIaKnowledge.js';
 
 export const PREVIEW_IDS = Object.freeze({
   clientA: '11111111-1111-4111-8111-111111111111', clientB: '22222222-2222-4222-8222-222222222222',
@@ -77,6 +78,7 @@ export function createCrmPreview({ state = 'ready', now = new Date().toISOString
     agents[0].funil.crm_ia.profiles=[{id:id(),nome:'Busca orientação',cor:'#74a1df',descricao:'Pessoa de demonstração procura orientação sobre um serviço.',pistas:['Quero entender o serviço'],actions:{owner_id:null,tags:['Interesse']}}];
     agents.forEach(agent => { agent.funil.crm_ia.notification = notificationOff(); agent.funil.crm_ia.agendamento.notify_owner = false; });
     const config = { revision: id(), data: { attendance: { auto_send: false, pause_on_human: true, show_attendant_name: false, restart_triage: false, quick_replies: [{ shortcut: 'ola', text: 'Olá! Como podemos ajudar? Este é um texto sintético revisável.' }] }, knowledge: { assignments: [{ pipeline_id: pipelineId, base_id: base.id }], concierge_base_id: base.id }, availability: { timezone: 'America/Sao_Paulo', duration_minutes: 30, interval_minutes: 30, buffer_before: 0, buffer_after: 0, min_notice_hours: 1, horizon_days: 60, max_per_day: 8, windows: [{ owner_id: ownerId, days: [0, 1, 2, 3, 4, 5, 6], start: '09:00', end: '18:00' }], exceptions: [] }, distribution: { enabled: false, strategy: 'round_robin', sources: [], people: [], include_unassigned: false, fallback_owner_id: null }, entry: { enabled: false, channels: [] }, custom_fields: { fields: [{ key: 'interesse', name: 'Interesse', type: 'text', active: true, folder: 'Qualificação' }] }, test_mode: { enabled: false, phones: [] }, concierge: { enabled: false, base_id: base.id, mode: 'outside_hours', human_wait_minutes: 10 } } };
+    if (['concierge-parcial', 'concierge-erro'].includes(state)) Object.assign(config.data.concierge, { faq_enabled: true, handoff_enabled: true, appointment_confirm: true, appointment_reschedule: false, appointment_cancel: false, handoff_phrases: ['Falar com alguém da equipe', 'Quero conversar com uma pessoa para esclarecer todos os detalhes do atendimento'] });
     const appointments = [{ id: id(), cliente_id: clientId, lead_id: leadId, contact_id: contactId, owner_id: ownerId, start_at: `${today}T15:00:00.000Z`, end_at: `${today}T15:30:00.000Z`, busy_start_at: `${today}T15:00:00.000Z`, busy_end_at: `${today}T15:30:00.000Z`, title: 'Conversa de demonstração', notes: 'Compromisso fictício, sem Google Agenda.', status: 'scheduled', request_id: id(), created_by: profile.id, created_at: ago(100), updated_at: ago(100) }];
     const queue = [{ id: id(), contact_id: contactId, whatsapp_config_id: channelId, body: 'Retorno agendado de demonstração. Não será enviado automaticamente.', scheduled_at: new Date(clock + 3600000).toISOString(), status: 'pending', kind: 'manual', created_at: ago(30), error_code: null, sent_at: null, request_id: id(), created_by: profile.id }];
     if (['controles-conversa', 'origem-ia-adulterada', 'origem-ia-duplicada'].includes(state) || state === 'autoria-mensagens' && !second) {
@@ -365,6 +367,7 @@ export function createCrmPreview({ state = 'ready', now = new Date().toISOString
       entries.forEach(item=>{if(action==='bulk_assign')item.responsavel_id=p.owner_id;else item.archived_at=item.crm_ia_archived_at=stamp();item.updated_at=stamp();});
       return {ok:true,updated:entries.length};
     }
+    if (action === 'save_config' && p.section === 'concierge' && state === 'concierge-erro' && !errorsSeen.has('concierge-save')) { errorsSeen.add('concierge-save');fail('A configuração foi alterada. Seu rascunho continua aqui.', '40001'); }
     if (action === 'save_config') { if (p.revision !== account.config.revision) fail('A configuração foi alterada. Atualize a versão.', '40001'); account.config.data[p.section] = copy(p.data); account.config.revision = id(); return copy(account.config); }
     if (['agent_draft', 'save_agent_draft', 'publish_agent_draft', 'discard_agent_draft'].includes(action)) {
       const published = p.agent_id ? account.agents.find(row => row.id === p.agent_id) : null;
@@ -388,8 +391,20 @@ export function createCrmPreview({ state = 'ready', now = new Date().toISOString
       }
       draft.status = 'discarded'; draft.payload = null; draft.revision = id(); return { discarded: true, revision: draft.revision };
     }
-    if (action === 'save_pipeline') { if (!p.nome?.trim()) fail('Informe o nome do funil.'); const saved = upsert(account, 'pipelines', p); if (p.is_default) account.pipelines.forEach(item => { item.is_default = item.id === saved.id; item.crm_ia_default = item.is_default; }); return saved; }
-    if (action === 'save_stage') { if (!account.pipelines.some(item => item.id === p.pipeline_id)) fail('Funil indisponível.'); return upsert(account, 'stages', p); }
+    if (action === 'save_pipeline') {
+      if (!p.nome?.trim()) fail('Informe o nome do funil.');
+      const current = account.pipelines.find(item=>item.id===p.id);
+      const is_default = (p.is_default ?? current?.crm_ia_default ?? current?.is_default) === true;
+      const saved = upsert(account,'pipelines',{...p,is_default,crm_ia_default:is_default});
+      if (is_default) account.pipelines.forEach(item=>{item.is_default=item.id===saved.id;item.crm_ia_default=item.is_default;});
+      return saved;
+    }
+    if (action === 'save_stage') {
+      if (!account.pipelines.some(item=>item.id===p.pipeline_id)) fail('Funil indisponível.');
+      const next={...p};
+      if (Object.hasOwn(next,'icon')) { next.crm_ia_icon=next.icon;delete next.icon; }
+      return upsert(account,'stages',next);
+    }
     if (action === 'reorder_stages') { const target = account.pipelines.find(item => item.id === p.pipeline_id); version(target, p.expected_updated_at); if (p.stage_ids.some(key => !account.stages.some(item => item.id === key && item.pipeline_id === target.id))) fail('Etapa indisponível.'); p.stage_ids.forEach((key, ordem) => { const stage = account.stages.find(item => item.id === key); stage.ordem = ordem; stage.updated_at = stamp(); }); target.updated_at = stamp(); return { ok: true }; }
     if (action === 'delete_stage' || action === 'delete_pipeline') { const collection = action === 'delete_stage' ? 'stages' : 'pipelines'; const target = account[collection].find(item => item.id === p.id); version(target, p.expected_updated_at); if (account.leads.some(item => (collection === 'stages' ? item.stage_id : item.pipeline_id) === p.id)) fail('Não é possível excluir uma etapa ou funil ocupado.'); account[collection] = account[collection].filter(item => item.id !== p.id); if (collection === 'pipelines') account.stages = account.stages.filter(item => item.pipeline_id !== p.id); return { ok: true }; }
     if (action === 'save_base' || action === 'save_agent' || action === 'save_product') {
@@ -400,7 +415,12 @@ export function createCrmPreview({ state = 'ready', now = new Date().toISOString
       const agentFunil = action === 'save_agent' ? { ...p.funil, crm_ia: { ...p.funil.crm_ia, notification: notificationConfig(p.funil.crm_ia) } } : null;
       const collection = action === 'save_base' ? 'bases' : action === 'save_agent' ? 'agents' : 'products';
       const old = account[collection].find(item => item.id === p.id);
-      const result = upsert(account, collection, { ...p, ...(action === 'save_agent' && { funil: agentFunil, auto_responder: p.auto_responder === true }), ...(action === 'save_product' && { crm_ia_details: { ...old?.crm_ia_details, ...p.crm_ia_details } }) });
+      const knowledge = {};
+      if (action === 'save_base') {
+        knowledge.conteudo = Object.hasOwn(p, 'crm_ia_sections') ? compileKnowledgeSections(p.crm_ia_sections) : p.conteudo ?? '';
+        if (!Object.hasOwn(p, 'crm_ia_sections') && knowledge.conteudo !== old?.conteudo) knowledge.crm_ia_sections = null;
+      }
+      const result = upsert(account, collection, { ...p, ...knowledge, ...(action === 'save_agent' && { funil: agentFunil, auto_responder: p.auto_responder === true }), ...(action === 'save_product' && { crm_ia_details: { ...old?.crm_ia_details, ...p.crm_ia_details } }) });
       account.config.revision = id(); return result;
     }
     if (action === 'save_template') {

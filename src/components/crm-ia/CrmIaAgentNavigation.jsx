@@ -1,8 +1,9 @@
 import React from 'react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 const textFilled = value => typeof value === 'string' && value.trim().length > 0;
 
-export default function CrmIaAgentNavigation({ draft, rules, published, active, onNavigate }) {
+export function crmIaAgentSections({ draft, rules, published }) {
   const profiles = rules.profiles || [];
   const sections = [
     { id: 'identity', label: 'Identidade', fields: [draft.nome, draft.objetivo, draft.instrucoes].map(textFilled) },
@@ -20,6 +21,11 @@ export default function CrmIaAgentNavigation({ draft, rules, published, active, 
     { id: 'autonomy', label: 'Ativação', fields: [typeof draft.ativo === 'boolean', typeof draft.auto_responder === 'boolean'], status: draft.auto_responder ? 'Autonomia autorizada' : 'Autonomia desligada' },
     ...(published ? [{ id: 'test', label: 'Testar versão publicada', fields: [], empty: 'Sem envio' }] : []),
   ];
+  return sections;
+}
+
+export default function CrmIaAgentNavigation({ draft, rules, published, active, onNavigate }) {
+  const sections = crmIaAgentSections({ draft, rules, published });
   const fields = sections.flatMap(section => section.fields);
   const filled = fields.filter(Boolean).length;
   const percent = fields.length ? Math.round(filled / fields.length * 100) : 0;
@@ -31,4 +37,22 @@ export default function CrmIaAgentNavigation({ draft, rules, published, active, 
       return <button type="button" key={section.id} aria-controls={`crm-ia-agent-${section.id}`} aria-current={active === section.id ? 'location' : undefined} onClick={() => onNavigate(section.id)}><span>{section.label}</span><small className="crm-ia-agent-section-status">{status}</small></button>;
     })}
   </nav>;
+}
+
+const GUIDANCE = {
+  identity: 'Comece por quem atende e pelo objetivo da conversa.', scope: 'Escolha onde o agente atua e o conhecimento que ele pode consultar.',
+  variables: 'Organize as informações que ele deve descobrir, na ordem da conversa.', profiles: 'Defina os perfis que ajudam a reconhecer cada oportunidade.',
+  notification: 'Escolha quem deve receber o resultado da qualificação.', audio: 'Decida como o agente ouve e responde às mensagens de voz.',
+  timing: 'Combine os horários e os pedidos que precisam de uma pessoa.', cadence: 'Defina os intervalos de uma retomada cuidadosa.',
+  schedule: 'Prepare a agenda, o compromisso e seus lembretes.', handoff: 'Combine o próximo passo e a passagem para a equipe.',
+  autonomy: 'Revise a disponibilidade e a autorização de respostas automáticas.', test: 'Converse com a versão publicada antes de liberar novos atendimentos.',
+};
+export function CrmIaAgentStep({ draft, rules, published, active, onNavigate, children }) {
+  const sections = crmIaAgentSections({ draft, rules, published });
+  const position = sections.findIndex(section => section.id === active);
+  return <>
+    <header className="crm-ia-agent-step-intro" key={active}><span>{`Passo ${position + 1} de ${sections.length}`}</span><p>{GUIDANCE[active]}</p></header>
+    <div className="crm-ia-agent-step-fields">{children}</div>
+    <nav className="crm-ia-agent-step-actions" aria-label="Avançar na configuração"><button type="button" disabled={position <= 0} onClick={() => onNavigate(sections[position - 1].id)}><ArrowLeft size={14} aria-hidden="true" />Etapa anterior</button>{position < sections.length - 1 && <button type="button" onClick={() => onNavigate(sections[position + 1].id)}>Próxima etapa<ArrowRight size={14} aria-hidden="true" /></button>}</nav>
+  </>;
 }
